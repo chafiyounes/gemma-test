@@ -4,17 +4,24 @@ from typing import Optional
 import httpx
 
 from app_config.settings import settings
+from core.documents import get_store
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are a helpful, multilingual AI assistant. You can understand and respond in:
-- English
-- French
-- Moroccan Darija (Moroccan Arabic dialect, written in Arabic script)
-- Arabizi (Moroccan Darija written in Latin characters with numbers, e.g. "kif dayr", "3lash", "mzyan")
+SYSTEM_PROMPT = """Tu es un assistant IA expert pour une entreprise marocaine de logistique et livraison (Sendit).
+Tu réponds aux questions sur les procédures internes (SOP) en t'appuyant STRICTEMENT sur les documents fournis ci-dessous.
 
-When the user writes in Darija or Arabizi, respond naturally in the same style.
-Be concise, accurate, and culturally sensitive."""
+Langues supportées :
+- Français (langue principale des procédures)
+- English
+- Darija marocaine (caractères arabes)
+- Arabizi (Darija en caractères latins avec chiffres : kif dayr, 3lash, mzyan…)
+
+Règles :
+1. Si la réponse se trouve dans les documents : cite le nom du document concerné.
+2. Si la réponse N'EST PAS dans les documents : dis-le clairement, ne fabrique rien.
+3. Réponds dans la langue de la question.
+4. Sois concis, précis, et professionnel."""
 
 
 class GemmaModel:
@@ -64,6 +71,20 @@ class GemmaModel:
             return "⚠️ LLM server is not available. Please check vLLM is running on the pod."
 
         sys_prompt = (system_prompt or SYSTEM_PROMPT).strip()
+
+        # Inject top-K SOP documents relevant to the user's question
+        try:
+            ctx = get_store().build_context(message, k=5, max_chars=12000)
+            if ctx:
+                sys_prompt = (
+                    sys_prompt
+                    + "\n\n--- DOCUMENTS DE RÉFÉRENCE (procédures internes) ---\n"
+                    + ctx
+                    + "\n--- FIN DES DOCUMENTS ---"
+                )
+        except Exception as exc:
+            logger.warning("Doc retrieval failed: %s", exc)
+
         messages = [{"role": "system", "content": sys_prompt}]
 
         # Append prior turns from the conversation history
