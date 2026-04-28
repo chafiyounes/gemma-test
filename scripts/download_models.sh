@@ -61,9 +61,10 @@ PYEOF
 TARGET="${1:-all}"
 
 case "$TARGET" in
+    gemma4)
+        download_model "google/gemma-4-26B-A4B-it" "gemma4-26b-it"
+        ;;
     gemma)
-        # NOTE: If Gemma 4 is released by the time you run this, update the
-        # repo ID below (e.g. google/gemma-4-27b-it).
         download_model "google/gemma-3-27b-it"  "gemma-3-27b-it"
         ;;
     gemmaroc)
@@ -74,13 +75,14 @@ case "$TARGET" in
         download_model "BounharAbdelaziz/Atlas-Chat-27B" "Atlas-Chat-27B"
         ;;
     all)
+        download_model "google/gemma-4-26B-A4B-it"             "gemma4-26b-it"
         download_model "google/gemma-3-27b-it"                "gemma-3-27b-it"
         download_model "AbderrahmanSkiredj1/GemMaroc-27b-it"  "GemMaroc-27b-it"
         download_model "BounharAbdelaziz/Atlas-Chat-27B"       "Atlas-Chat-27B"
         ;;
     *)
         echo "Unknown target: $TARGET"
-        echo "Usage: bash scripts/download_models.sh [gemma|gemmaroc|atlaschat|all]"
+        echo "Usage: bash scripts/download_models.sh [gemma4|gemma|gemmaroc|atlaschat|all]"
         exit 1
         ;;
 esac

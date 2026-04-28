@@ -15,20 +15,22 @@ set -euo pipefail
 
 MODEL_DIR="/workspace/models"
 PORT=8001
-GPU_MEM_UTIL=0.90       # 90% of 48 GB VRAM for the 27B model
-MAX_MODEL_LEN=8192      # context length cap (increase if VRAM allows)
+GPU_MEM_UTIL=0.90       # 90% of VRAM per GPU
+MAX_MODEL_LEN=8192      # context length cap
+TENSOR_PARALLEL=2       # use both A40 GPUs
 
 declare -A MODEL_MAP=(
+    [gemma4]="$MODEL_DIR/gemma4-26b-it"
     [gemma]="$MODEL_DIR/gemma-3-27b-it"
     [gemmaroc]="$MODEL_DIR/GemMaroc-27b-it"
     [atlaschat]="$MODEL_DIR/Atlas-Chat-27B"
 )
 
-TARGET="${1:-gemma}"
+TARGET="${1:-gemma4}"
 
 if [[ -z "${MODEL_MAP[$TARGET]+x}" ]]; then
     echo "Unknown model: $TARGET"
-    echo "Usage: bash scripts/start_vllm.sh [gemma|gemmaroc|atlaschat]"
+    echo "Usage: bash scripts/start_vllm.sh [gemma4|gemma|gemmaroc|atlaschat]"
     exit 1
 fi
 
@@ -59,6 +61,7 @@ python3 -m vllm.entrypoints.openai.api_server \
     --host 0.0.0.0 \
     --gpu-memory-utilization "$GPU_MEM_UTIL" \
     --max-model-len "$MAX_MODEL_LEN" \
+    --tensor-parallel-size "$TENSOR_PARALLEL" \
     --dtype bfloat16 \
     --served-model-name "$TARGET" \
     --trust-remote-code \
