@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Darija Chatbot Admin</title>
+    <link rel="stylesheet" href="/admin-static/admin.css" />
+  </head>
+  <body>
+    <div class="admin-shell">
+      <aside class="admin-sidebar">
+        <div>
+          <div class="admin-kicker">Administration</div>
+          <h1>Darija Chatbot</h1>
+          <p class="admin-subtitle">Audit des prompts, feedbacks et contexte RAG.</p>
+        </div>
+
+        <form id="login-form" class="admin-login-card">
+          <label for="admin-password">Mot de passe admin</label>
+          <input id="admin-password" type="password" autocomplete="current-password" placeholder="Mot de passe" />
+          <button type="submit">Se connecter</button>
+          <div id="login-error" class="login-error hidden"></div>
+        </form>
+
+        <div id="session-card" class="session-card hidden">
+          <div class="session-label">Session</div>
+          <div id="session-role" class="session-role"></div>
+          <button id="logout-button" type="button">Se deconnecter</button>
+        </div>
+      </aside>
+
+      <main class="admin-main">
+        <header class="toolbar">
+          <div>
+            <div class="toolbar-title">Console admin</div>
+            <div class="toolbar-subtitle">Filtrer les interactions et inspecter le RAG debug stocke.</div>
+          </div>
+          <div class="toolbar-actions">
+            <button id="darija-toggle" type="button" class="toolbar-button darija-toggle" title="Toggle Darija language support">Darija: ...</button>
+            <button id="eval-toggle" type="button" class="toolbar-button eval-toggle" title="Toggle model evaluation">Eval: ...</button>
+            <button id="cache-flush" type="button" class="toolbar-button cache-flush" title="Flush all cached chatbot responses from Redis">Vider cache</button>
+            <button id="refresh-button" type="button" class="toolbar-button">Rafraichir</button>
+          </div>
+        </header>
+
+        <section id="gated-content" class="gated-content hidden">
+          <div class="filter-row">
+            <input id="search-input" type="search" placeholder="Rechercher prompt, reponse ou commentaire" />
+            <select id="feedback-filter">
+              <option value="">Tous les feedbacks</option>
+              <option value="like">Likes</option>
+              <option value="dislike">Dislikes</option>
+            </select>
+            <select id="reason-filter">
+              <option value="">Toutes les raisons</option>
+              <option value="Hors sujet">Hors sujet</option>
+              <option value="Incomplete">Incomplete</option>
+              <option value="Incorrecte">Incorrecte</option>
+            </select>
+          </div>
+
+          <div class="admin-content-grid">
+            <section class="panel list-panel">
+              <div class="panel-header">
+                <h2>Interactions</h2>
+                <span id="results-count"></span>
+              </div>
+              <div id="interaction-list" class="interaction-list"></div>
+            </section>
+
+            <section class="panel detail-panel">
+              <div class="panel-header">
+                <h2>Detail</h2>
+              </div>
+              <div id="interaction-detail" class="detail-empty">Selectionnez une interaction.</div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="/admin-static/admin.js" defer></script>
+  </body>
+  </html>

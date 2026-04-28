@@ -1,0 +1,70 @@
+:root {
+  --bg-primary: #08121d;
+  --bg-secondary: #102030;
+  --bg-tertiary: #17293b;
+  --bg-sidebar: #0c1825;
+  --bg-hover: rgba(255, 255, 255, 0.05);
+  --bg-active: rgba(230, 122, 62, 0.12);
+
+  --text-primary: #ececf1;
+  --text-secondary: #b7c0cb;
+  --text-muted: #728093;
+
+  --border: #243648;
+  --border-hover: #355069;
+
+  --accent: #e67a3e;
+  --accent-hover: #ef8f59;
+  --accent-light: #f5c18a;
+  --accent-glow: rgba(230, 122, 62, 0.24);
+
+  --error: #ef4444;
+  --success: #22c55e;
+  --warning: #f59e0b;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  font-family: "Trebuchet MS", "Segoe UI", system-ui, -apple-system, sans-serif;
+  background:
+    radial-gradient(circle at top, rgba(230, 122, 62, 0.12), transparent 26%),
+    linear-gradient(180deg, #08121d 0%, #0a1723 100%);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#root {
+  display: flex;
+}
+
+.app-layout {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+  overflow: hidden;
+}
+
+::selection {
+  background: var(--accent);
+  color: white;
+}
+
+button {
+  font-family: inherit;
+}
+
+input, textarea {
+  font-family: inherit;
+}

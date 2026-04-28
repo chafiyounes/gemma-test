@@ -1,0 +1,194 @@
+.msg-row {
+  display: flex;
+  gap: 12px;
+  padding: 8px 0;
+  max-width: 800px;
+  margin: 0 auto;
+  width: 100%;
+}
+
+.msg-row.user {
+  justify-content: flex-end;
+}
+
+.msg-row.bot {
+  justify-content: flex-start;
+}
+
+.msg-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.bot-avatar {
+  background: var(--accent);
+  color: white;
+}
+
+.user-avatar {
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+}
+
+.msg-bubble {
+  padding: 12px 16px;
+  border-radius: 18px;
+  max-width: 70%;
+  line-height: 1.55;
+  font-size: 14px;
+  word-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.user-bubble {
+  background: var(--accent);
+  color: white;
+  border-bottom-right-radius: 6px;
+}
+
+.bot-bubble {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border-bottom-left-radius: 6px;
+}
+
+.error-bubble {
+  border: 1px solid var(--error);
+  color: var(--error);
+}
+
+.msg-text {
+  word-break: break-word;
+  /* Isolate embedded opposite-direction runs (Latin brand names, URLs, numbers)
+     inside the paragraph's base direction, which is set per-message via the
+     `dir` attribute based on dominant script. Prevents SENDIT / FR words from
+     flipping an Arabic paragraph's layout. */
+  unicode-bidi: isolate;
+}
+
+.feedback-section {
+  margin-top: 14px;
+}
+
+.feedback-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.feedback-btn,
+.feedback-reason,
+.feedback-primary,
+.feedback-secondary {
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.feedback-btn {
+  padding: 7px 12px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.feedback-btn.active {
+  background: rgba(230, 122, 62, 0.16);
+  color: #f5c18a;
+}
+
+.feedback-status {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.feedback-composer {
+  margin-top: 12px;
+  padding: 12px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.feedback-label {
+  display: block;
+  margin-bottom: 10px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.feedback-reasons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.feedback-reason {
+  padding: 8px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+.feedback-reason.selected {
+  background: rgba(230, 122, 62, 0.18);
+  color: #f5c18a;
+}
+
+.feedback-comment {
+  width: 100%;
+  resize: vertical;
+  min-height: 84px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(0, 0, 0, 0.12);
+  color: var(--text-primary);
+  outline: none;
+}
+
+.feedback-composer-actions {
+  margin-top: 10px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.feedback-secondary,
+.feedback-primary {
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 12px;
+}
+
+.feedback-secondary {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-secondary);
+}
+
+.feedback-primary {
+  background: linear-gradient(135deg, #e67a3e 0%, #c24c1e 100%);
+  color: white;
+}
+
+.feedback-error {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #fca5a5;
+}
+
+@media (max-width: 767px) {
+  .msg-bubble {
+    max-width: 85%;
+  }
+}
