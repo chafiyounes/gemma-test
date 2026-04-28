@@ -16,9 +16,9 @@ echo "  Listening on 0.0.0.0:$PORT"
 echo "══════════════════════════════════════════════════"
 
 # Wait for vLLM to be healthy before starting
-echo "Waiting for vLLM on port 8001..."
+echo "Waiting for vLLM on port 8002..."
 for i in $(seq 1 30); do
-    if curl -sf http://localhost:8001/health > /dev/null 2>&1; then
+    if curl -sf http://localhost:8002/health > /dev/null 2>&1; then
         echo "✓ vLLM is up"
         break
     fi

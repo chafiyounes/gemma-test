@@ -14,7 +14,7 @@
 set -euo pipefail
 
 MODEL_DIR="/workspace/models"
-PORT=8001
+PORT=8002
 GPU_MEM_UTIL=0.85       # 85% of VRAM per GPU (safer for 27B on 2x A40)
 MAX_MODEL_LEN=16384     # 16K context — enough for top-5 SOPs + question + history
 TENSOR_PARALLEL=2       # use both A40 GPUs

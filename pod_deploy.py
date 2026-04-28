@@ -1,12 +1,22 @@
-"""Smart deploy: diagnose vLLM crash, install python-docx, verify end-to-end."""
+"""Smart deploy v3:
+1. SFTP all .docx documents to pod
+2. Reliable git reset (FETCH_HEAD)
+3. vLLM on port 8002 (avoid stale sidecar on 8001)
+4. Update .env to point at port 8002
+5. End-to-end chat test
+"""
 import paramiko
 import time
 import re
+import sys
+from pathlib import Path
 
 KEY_PATH = r"C:/Users/pc gamer/.ssh/id_ed25519"
 HOST = "ssh.runpod.io"
 USER = "xkebko0395sada-6441173b"
 PROMPT_RE = re.compile(r"[#$]\s*$")
+LOCAL_DOCS = Path(r"C:/Users/pc gamer/OneDrive/Desktop/full project/gemma-test/data/documents")
+REMOTE_DOCS = "/workspace/gemma-test/data/documents"
 
 
 def wait_for_prompt(shell, timeout=600):
@@ -31,6 +41,36 @@ def run(shell, label, cmd, timeout=600):
     return wait_for_prompt(shell, timeout)
 
 
+def upload_docs(client):
+    print("\n" + "="*70)
+    print(">>> SFTP: Uploading 60 documents to /workspace/gemma-test/data/documents/")
+    print("="*70)
+    sftp = client.open_sftp()
+    # Ensure remote dir exists
+    try:
+        sftp.stat(REMOTE_DOCS)
+    except FileNotFoundError:
+        # mkdir -p equivalent via shell would be safer, but try one level
+        try:
+            sftp.mkdir(REMOTE_DOCS)
+        except Exception:
+            pass
+    files = sorted(LOCAL_DOCS.glob("*.docx"))
+    print(f"Found {len(files)} local .docx files")
+    uploaded = 0
+    for f in files:
+        remote_path = f"{REMOTE_DOCS}/{f.name}"
+        try:
+            sftp.put(str(f), remote_path)
+            uploaded += 1
+            if uploaded % 10 == 0:
+                print(f"  Uploaded {uploaded}/{len(files)}...")
+        except Exception as exc:
+            print(f"  FAIL {f.name}: {exc}")
+    sftp.close()
+    print(f"✓ Uploaded {uploaded}/{len(files)} files")
+
+
 def main():
     print("Connecting to RunPod...")
     client = paramiko.SSHClient()
@@ -44,16 +84,18 @@ def main():
     time.sleep(2)
     wait_for_prompt(shell, timeout=15)
 
+    # ── First: ensure target dir exists, then SFTP ──
+    run(shell, "Ensure docs dir exists",
+        "mkdir -p /workspace/gemma-test/data/documents && rm -f /workspace/gemma-test/data/documents/*.docx 2>/dev/null; ls -la /workspace/gemma-test/data/documents/ | head -3",
+        15)
+    upload_docs(client)
+
     STEPS = [
-        ("Show last vLLM crash log",
-         "echo '=== CRASH LOG (tail 80) ===' && tail -80 /workspace/gemma-test/logs/vllm_gemmaroc.log 2>/dev/null || echo 'no log file'",
+        ("Verify uploaded docs",
+         "ls /workspace/gemma-test/data/documents/*.docx | wc -l && du -sh /workspace/gemma-test/data/documents/",
          15),
-        ("vLLM version + GPU",
-         "python3 -c 'import vllm; print(\"vLLM:\", vllm.__version__)' 2>&1; "
-         "nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv",
-         20),
-        ("Pull latest code",
-         "cd /workspace/gemma-test && git fetch origin && git reset --hard origin/main && echo RESET_OK",
+        ("Pull latest code (FETCH_HEAD)",
+         "cd /workspace/gemma-test && git fetch origin main && git reset --hard FETCH_HEAD && echo RESET_OK && git log -1 --oneline",
          30),
         ("Fix line endings + chmod",
          "sed -i 's/\\r//' /workspace/gemma-test/scripts/*.sh /workspace/gemma-test/start_all.sh 2>/dev/null && "
@@ -62,68 +104,70 @@ def main():
         ("Install python-docx",
          "pip install python-docx==1.1.2 2>&1 | tail -3",
          60),
-        ("Verify doc loader works locally",
-         "cd /workspace/gemma-test && ls data/documents/*.docx 2>/dev/null | wc -l && "
-         "python3 -c 'from core.documents import get_store; s=get_store(); print(f\"Loaded {len(s.docs)} docs\")' 2>&1 | tail -5",
+        ("Test doc loader (should load 60 docs)",
+         "cd /workspace/gemma-test && "
+         "python3 -c 'from core.documents import get_store; s=get_store(); "
+         "print(f\"Loaded {len(s.docs)} docs, avgdl={int(s.avgdl)} tokens\"); "
+         "top = s.retrieve(\"colis perdu en livraison\", k=3); "
+         "print(\"Top 3:\", [d.name for d in top])' 2>&1 | tail -10",
          30),
-        ("Kill stale vLLM/uvicorn + free ports",
+        ("Aggressive process cleanup",
          "pkill -9 -f 'vllm' 2>/dev/null; pkill -9 -f 'uvicorn' 2>/dev/null; "
-         "fuser -k 8001/tcp 2>/dev/null; fuser -k 8000/tcp 2>/dev/null; sleep 3 && echo CLEAN",
-         15),
-        ("Set VLLM_MODEL_NAME=gemmaroc",
+         "for p in 8000 8001 8002; do fuser -k $p/tcp 2>/dev/null; done; sleep 4; "
+         "echo '--- ports after kill ---'; ss -tlnp 2>/dev/null | grep -E ':(8000|8001|8002)' || echo 'all clear'",
+         20),
+        ("Update .env: VLLM_BASE_URL on port 8002",
+         "sed -i 's|^VLLM_BASE_URL=.*|VLLM_BASE_URL=http://localhost:8002|' /workspace/gemma-test/.env && "
          "sed -i 's/^VLLM_MODEL_NAME=.*/VLLM_MODEL_NAME=gemmaroc/' /workspace/gemma-test/.env && "
-         "grep VLLM_MODEL_NAME /workspace/gemma-test/.env",
+         "grep -E 'VLLM_(BASE_URL|MODEL_NAME)' /workspace/gemma-test/.env",
          5),
-        ("Start vLLM (gemmaroc, 2x A40, 16K ctx)",
+        ("Start vLLM on port 8002",
          "mkdir -p /workspace/gemma-test/logs && rm -f /workspace/gemma-test/logs/vllm_gemmaroc.log && "
          "cd /workspace/gemma-test && "
          "nohup bash scripts/start_vllm.sh gemmaroc > logs/vllm_gemmaroc.log 2>&1 & "
          "echo VLLM_PID=$! && sleep 10 && "
-         "echo '--- log first 50 lines ---' && head -50 logs/vllm_gemmaroc.log",
+         "echo '--- log first 30 lines ---' && head -30 logs/vllm_gemmaroc.log",
          40),
-        ("Poll vLLM /health (up to 8 min)",
+        ("Wait for vLLM ready on 8002 (up to 8 min)",
          "for i in $(seq 1 48); do "
          "  sleep 10; "
-         "  if curl -sf http://localhost:8001/health > /dev/null 2>&1; then "
-         "    echo VLLM_READY_${i}; break; "
+         "  if curl -sf http://localhost:8002/health > /dev/null 2>&1; then "
+         "    if curl -sf http://localhost:8002/v1/models > /dev/null 2>&1; then "
+         "      echo VLLM_FULLY_READY_${i}; break; "
+         "    fi; "
          "  fi; "
          "  if ! pgrep -f 'vllm' > /dev/null; then "
-         "    echo VLLM_DIED; tail -30 /workspace/gemma-test/logs/vllm_gemmaroc.log; break; "
+         "    echo VLLM_PROCESS_DIED; tail -40 /workspace/gemma-test/logs/vllm_gemmaroc.log; break; "
          "  fi; "
          "  echo \"[$i/48] $(tail -1 /workspace/gemma-test/logs/vllm_gemmaroc.log 2>/dev/null | head -c 180)\"; "
          "done",
          520),
-        ("vLLM final status",
-         "if curl -sf http://localhost:8001/health > /dev/null 2>&1; then echo VLLM_OK; "
-         "curl -s http://localhost:8001/v1/models | python3 -m json.tool; "
-         "else echo VLLM_FAILED; tail -60 /workspace/gemma-test/logs/vllm_gemmaroc.log; fi",
+        ("vLLM /v1/models check",
+         "curl -s http://localhost:8002/v1/models | python3 -m json.tool 2>&1 | head -30",
          15),
-        ("Start FastAPI backend",
+        ("Start FastAPI",
          "cd /workspace/gemma-test && rm -f logs/api.log && "
          "nohup bash scripts/start_api.sh > logs/api.log 2>&1 & "
-         "echo API_PID=$! && sleep 10 && tail -30 logs/api.log",
+         "echo API_PID=$! && sleep 8 && tail -25 logs/api.log",
          25),
-        ("Test API /health",
-         "curl -s http://localhost:8000/health | python3 -m json.tool 2>&1 || echo 'no response'",
+        ("Test /health",
+         "sleep 3 && curl -s http://localhost:8000/health | python3 -m json.tool",
          15),
-        ("Test API /models",
-         "curl -s http://localhost:8000/models | python3 -m json.tool 2>&1",
-         10),
-        ("Login + chat smoke test",
+        ("Login + chat with SOP question",
          "rm -f /tmp/cj.txt && "
          "curl -s -c /tmp/cj.txt -X POST http://localhost:8000/auth/login "
-         "-H 'Content-Type: application/json' "
-         "-d '{\"password\":\"user1234\"}' | python3 -m json.tool 2>&1 | head -10; "
-         "echo '--- chat ---'; "
+         "-H 'Content-Type: application/json' -d '{\"password\":\"user1234\"}' "
+         "| python3 -m json.tool | head -5; "
+         "echo '--- chat test ---'; "
          "curl -s -b /tmp/cj.txt -X POST http://localhost:8000/chat "
          "-H 'Content-Type: application/json' "
-         "-d '{\"message\":\"Comment gerer un colis perdu en livraison?\",\"session_id\":\"test1\"}' "
-         "| python3 -m json.tool 2>&1 | head -40",
-         180),
+         "-d '{\"message\":\"Comment dois-je gerer un colis perdu en livraison?\",\"session_id\":\"test1\"}' "
+         "| python3 -m json.tool 2>&1 | head -50",
+         300),
         ("Final summary",
          "echo '=== HEALTH ===' && curl -s http://localhost:8000/health | python3 -m json.tool; "
-         "echo '=== vLLM tail ===' && tail -5 /workspace/gemma-test/logs/vllm_gemmaroc.log; "
-         "echo '=== API tail ===' && tail -5 /workspace/gemma-test/logs/api.log",
+         "echo '=== vLLM tail ===' && tail -8 /workspace/gemma-test/logs/vllm_gemmaroc.log; "
+         "echo '=== API tail ===' && tail -8 /workspace/gemma-test/logs/api.log",
          10),
     ]
 
@@ -133,8 +177,7 @@ def main():
     shell.close()
     client.close()
     print("\n\n=== DEPLOYMENT COMPLETE ===")
-    print("Open http://localhost:8000 — password: user1234")
-    print("Admin: http://localhost:8000/admin — password: admin1234")
+    print("Open http://localhost:8000  —  password: user1234")
 
 
 if __name__ == "__main__":
