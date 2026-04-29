@@ -17,6 +17,13 @@ import sys
 import os
 from pathlib import Path
 
+# Force UTF-8 stdout so vLLM/hf_transfer progress chars don't crash on cp1252
+try:
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+except Exception:
+    pass
+
 KEY_PATH = r"C:\Users\pc gamer\.ssh\id_ed25519"
 HOST = "ssh.runpod.io"
 USER = "xkebko0395sada-6441173b"
@@ -64,41 +71,101 @@ def run(shell, label, cmd, timeout=600):
 
 
 def scp_upload_docs():
-    """Use Windows scp.exe (subprocess) to upload the docs/ tree."""
+    """Upload via base64 in paramiko shell (RunPod gateway blocks SCP/SFTP/exec)."""
     print("\n" + "="*70)
-    print(">>> SCP: Uploading data/documents/ to pod")
+    print(">>> Uploading data/documents/ via base64-over-shell")
     print("="*70)
     if not LOCAL_DOCS.is_dir():
         print(f"FATAL: {LOCAL_DOCS} not found")
         sys.exit(1)
-    # -O = use legacy SCP protocol (more reliable on RunPod gateway)
-    # -r = recursive
-    cmd = [
-        "scp", "-O", "-r",
-        "-o", "StrictHostKeyChecking=no",
-        str(LOCAL_DOCS),
-        f"{SSH_ALIAS}:{REMOTE_PROJECT}/data/",
-    ]
-    print("Running:", " ".join(cmd))
-    proc = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
-    print(proc.stdout)
+
+    import base64
+
+    # Build tarball locally
+    local_tar = LOCAL_ROOT / "_docs_upload.tar.gz"
+    if local_tar.exists():
+        local_tar.unlink()
+    print(f"Building tarball: {local_tar}")
+    proc = subprocess.run(
+        ["tar", "-czf", str(local_tar), "-C", str(LOCAL_DOCS.parent), "documents"],
+        capture_output=True, text=True, timeout=60,
+    )
     if proc.returncode != 0:
-        print("scp stderr:", proc.stderr)
-        # Fallback: try without -O (newer SCP)
-        print("Retrying without -O ...")
-        cmd2 = ["scp", "-r", "-o", "StrictHostKeyChecking=no",
-                str(LOCAL_DOCS), f"{SSH_ALIAS}:{REMOTE_PROJECT}/data/"]
-        proc = subprocess.run(cmd2, capture_output=True, text=True, timeout=600)
-        print(proc.stdout)
-        if proc.returncode != 0:
-            print("scp failed:", proc.stderr)
-            sys.exit(1)
-    print("✓ SCP done")
+        print("tar failed:", proc.stderr)
+        sys.exit(1)
+
+    raw = local_tar.read_bytes()
+    b64 = base64.b64encode(raw).decode("ascii")
+    print(f"Tarball: {len(raw)/1024:.1f} KB → base64 {len(b64)/1024:.1f} KB")
+    local_tar.unlink(missing_ok=True)
+
+    # Open dedicated SSH session for upload
+    client = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    client.connect(
+        hostname=HOST, username=USER, key_filename=KEY_PATH,
+        timeout=30, look_for_keys=False, allow_agent=False,
+    )
+    shell = client.invoke_shell(term="xterm-256color", width=200, height=40)
+    shell.settimeout(300)
+    time.sleep(2)
+    wait_for_prompt(shell, timeout=15)
+
+    # Drain prompt, then prepare receive
+    shell.send(f"mkdir -p {REMOTE_PROJECT}/data && rm -rf {REMOTE_DOCS} && rm -f /tmp/docs.b64 && echo READY\n")
+    wait_for_prompt(shell, timeout=15)
+
+    # PTY canonical mode limits line input to ~4KB. Use 3000 to be safe.
+    chunk_size = 3000
+    total_chunks = (len(b64) + chunk_size - 1) // chunk_size
+    print(f"Streaming {total_chunks} chunks...")
+
+    def drain(shell, briefly=True):
+        """Drain pending shell output without blocking long."""
+        end = time.time() + (0.05 if briefly else 2.0)
+        while time.time() < end:
+            if shell.recv_ready():
+                shell.recv(65536)
+            else:
+                time.sleep(0.01)
+
+    for i in range(total_chunks):
+        chunk = b64[i*chunk_size:(i+1)*chunk_size]
+        # base64 alphabet has no shell-special chars; safe inside single quotes
+        shell.send(f"printf '%s' '{chunk}' >> /tmp/docs.b64\n")
+        # Brief drain every chunk; longer every 50 to prevent backpressure
+        if (i+1) % 50 == 0:
+            drain(shell, briefly=False)
+            print(f"  Sent chunk {i+1}/{total_chunks}")
+        else:
+            drain(shell, briefly=True)
+    drain(shell, briefly=False)
+    print(f"  Sent chunk {total_chunks}/{total_chunks}")
+
+    # Decode + extract
+    print("Decoding + extracting on pod...")
+    shell.send(
+        f"base64 -d /tmp/docs.b64 > /tmp/docs.tar.gz && "
+        f"cd {REMOTE_PROJECT}/data && tar xzf /tmp/docs.tar.gz && "
+        f"rm -f /tmp/docs.b64 /tmp/docs.tar.gz && "
+        f"find documents -name '*.docx' | wc -l && echo UPLOAD_OK\n"
+    )
+    out = wait_for_prompt(shell, timeout=60)
+    shell.close()
+    client.close()
+    if "UPLOAD_OK" not in out:
+        print("Upload verification failed!")
+        sys.exit(1)
+    print("✓ Upload complete")
 
 
 def main():
-    # ── Step 0: SCP docs first (independent of SSH session) ──
-    scp_upload_docs()
+    skip_upload = "--skip-upload" in sys.argv
+    # ── Step 0: Upload docs (skip with --skip-upload if already uploaded) ──
+    if skip_upload:
+        print(">>> Skipping doc upload (--skip-upload)")
+    else:
+        scp_upload_docs()
 
     print("\nConnecting to RunPod via SSH...")
     client = paramiko.SSHClient()
@@ -116,8 +183,9 @@ def main():
         ("Verify docs uploaded by SCP",
          f"find {REMOTE_DOCS} -name '*.docx' | wc -l && ls {REMOTE_DOCS}/",
          15),
-        ("Pull latest code (FETCH_HEAD)",
-         f"cd {REMOTE_PROJECT} && git fetch origin main && git reset --hard FETCH_HEAD && "
+        ("Pull latest code (origin/main)",
+         f"cd {REMOTE_PROJECT} && git fetch origin && "
+         "git reset --hard origin/main && "
          "echo RESET_OK && git log -1 --oneline",
          60),
         ("Fix line endings + chmod",
@@ -128,31 +196,22 @@ def main():
          "pip install python-docx==1.1.2 2>&1 | tail -3",
          60),
         ("Test category-aware doc loader",
-         f"cd {REMOTE_PROJECT} && python3 -c '"
-         "from core.documents import get_store; s=get_store(); "
-         "cats=s.list_categories(); "
-         "print(\"Categories:\", [(c[\\\"name\\\"], c[\\\"doc_count\\\"]) for c in cats]); "
+         f"cd {REMOTE_PROJECT} && python3 << 'PYEOF'\n"
+         "from core.documents import get_store\n"
+         "s = get_store()\n"
+         "cats = s.list_categories()\n"
+         "print('Categories:', [(c['name'], c['doc_count']) for c in cats])\n"
          "if cats:\n"
-         " top = s.retrieve(\"colis endommage\", category=cats[0][\\\"name\\\"], k=3); "
-         "print(\"Top 3 in\", cats[0][\\\"name\\\"], \":\", [d.name for d in top])"
-         "' 2>&1 | tail -15",
+         "    top = s.retrieve('colis endommage', category=cats[0]['name'], k=3)\n"
+         "    print('Top 3 in', cats[0]['name'], ':', [d.name for d in top])\n"
+         "PYEOF",
          30),
-        # ── Try Gemma 4 download (will fall back to GemMaroc if it fails) ──
-        ("Try downloading Gemma 4 26B (may fail if model not on HF)",
-         f"export HF_TOKEN={HF_TOKEN} && cd {REMOTE_PROJECT} && "
-         "timeout 600 bash scripts/download_models.sh gemma4 2>&1 | tail -20 || echo 'GEMMA4_FAILED'",
-         700),
-        ("Decide which model to serve",
-         f"if [ -d /workspace/models/gemma4-26b-it ] && [ -f /workspace/models/gemma4-26b-it/config.json ]; then "
-         f"  echo 'USING_GEMMA4'; sed -i 's/^VLLM_MODEL_NAME=.*/VLLM_MODEL_NAME=gemma4/' {REMOTE_PROJECT}/.env; "
-         f"  TARGET=gemma4; "
-         f"else "
-         f"  echo 'GEMMA4_NOT_AVAILABLE_USING_GEMMAROC'; "
-         f"  sed -i 's/^VLLM_MODEL_NAME=.*/VLLM_MODEL_NAME=gemmaroc/' {REMOTE_PROJECT}/.env; "
-         f"  TARGET=gemmaroc; "
-         f"fi && "
+        ("Use Gemma 4 26B",
+         f"ls /workspace/models/gemma4-26b-it/config.json && "
+         f"sed -i 's/^VLLM_MODEL_NAME=.*/VLLM_MODEL_NAME=gemma4/' {REMOTE_PROJECT}/.env && "
          f"sed -i 's|^VLLM_BASE_URL=.*|VLLM_BASE_URL=http://localhost:8002|' {REMOTE_PROJECT}/.env && "
-         f"grep -E 'VLLM_(BASE_URL|MODEL_NAME)' {REMOTE_PROJECT}/.env && echo \"TARGET=$TARGET\" > /tmp/target.txt && cat /tmp/target.txt",
+         f"grep -E 'VLLM_(BASE_URL|MODEL_NAME)' {REMOTE_PROJECT}/.env && "
+         f"echo TARGET=gemma4 > /tmp/target.txt && cat /tmp/target.txt",
          15),
         ("Aggressive process + port cleanup",
          "pkill -9 -f 'vllm' 2>/dev/null; pkill -9 -f 'uvicorn' 2>/dev/null; "
