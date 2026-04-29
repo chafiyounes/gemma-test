@@ -43,28 +43,19 @@ if [[ ! -d "$MODEL_PATH" ]]; then
 fi
 
 echo "══════════════════════════════════════════════════"
-echo "  Starting vLLM server"
+echo "  Starting transformers inference server"
 echo "  Model : $TARGET  →  $MODEL_PATH"
 echo "  Port  : $PORT"
 echo "══════════════════════════════════════════════════"
 
-# Kill any existing vLLM process
-pkill -f "vllm.entrypoints" 2>/dev/null && echo "Killed previous vLLM process" || true
+# Kill any existing inference server process
+pkill -f "serve_gemma4" 2>/dev/null && echo "Killed previous server" || true
+pkill -f "vllm.entrypoints" 2>/dev/null || true
 sleep 2
 
 nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader
 echo ""
 
-python3 -m vllm.entrypoints.openai.api_server \
-    --model "$MODEL_PATH" \
-    --port "$PORT" \
-    --host 0.0.0.0 \
-    --gpu-memory-utilization "$GPU_MEM_UTIL" \
-    --max-model-len "$MAX_MODEL_LEN" \
-    --max-num-batched-tokens 8192 \
-    --tensor-parallel-size "$TENSOR_PARALLEL" \
-    --dtype bfloat16 \
-    --served-model-name "$TARGET" \
-    --limit-mm-per-prompt '{"image":0,"video":0}' \
-    --trust-remote-code \
+MODEL_DIR="$MODEL_PATH" PORT="$PORT" \
+python3 /workspace/gemma-test/scripts/serve_gemma4.py \
     2>&1 | tee "/workspace/gemma-test/logs/vllm_${TARGET}.log"
