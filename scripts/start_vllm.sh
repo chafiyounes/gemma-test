@@ -61,8 +61,10 @@ python3 -m vllm.entrypoints.openai.api_server \
     --host 0.0.0.0 \
     --gpu-memory-utilization "$GPU_MEM_UTIL" \
     --max-model-len "$MAX_MODEL_LEN" \
+    --max-num-batched-tokens 8192 \
     --tensor-parallel-size "$TENSOR_PARALLEL" \
     --dtype bfloat16 \
     --served-model-name "$TARGET" \
+    --limit-mm-per-prompt '{"image":0,"video":0}' \
     --trust-remote-code \
     2>&1 | tee "/workspace/gemma-test/logs/vllm_${TARGET}.log"
