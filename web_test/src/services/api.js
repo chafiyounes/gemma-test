@@ -77,7 +77,7 @@ export async function checkHealth() {
   return res.json();
 }
 
-export async function sendChat({ message, userId, sessionId, history }) {
+export async function sendChat({ message, userId, sessionId, history, category }) {
   const res = await apiFetch("/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -86,9 +86,17 @@ export async function sendChat({ message, userId, sessionId, history }) {
       user_id: userId || "anonymous",
       session_id: sessionId,
       conversation_history: history.slice(-20),
+      category: category || null,
       debug_rag: true,
     }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
+  });
+  return res.json();
+}
+
+export async function fetchCategories() {
+  const res = await apiFetch("/categories", {
+    signal: AbortSignal.timeout(10_000),
   });
   return res.json();
 }

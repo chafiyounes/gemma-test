@@ -16,6 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from api.schemas import (
     AuthLoginRequest,
     AuthSessionResponse,
+    CategoriesResponse,
+    CategoryInfo,
     ChatRequest,
     ChatResponse,
     FeedbackRequest,
@@ -23,6 +25,7 @@ from api.schemas import (
     ModelInfo,
 )
 from app_config.settings import settings
+from core.documents import get_store as get_doc_store
 from core.pipeline import GemmaPipeline
 from core.persistence import InteractionStore
 from core.security import AuthManager
@@ -316,6 +319,14 @@ async def list_models():
     )
 
 
+@app.get("/categories", response_model=CategoriesResponse)
+async def list_categories():
+    cats = get_doc_store().list_categories()
+    return CategoriesResponse(
+        categories=[CategoryInfo(**c) for c in cats]
+    )
+
+
 # ── Chat endpoint ─────────────────────────────────────────────────────────────
 
 
@@ -334,6 +345,7 @@ async def chat(
         message=body.message,
         history=history,
         system_prompt=body.system_prompt if session["role"] == "admin" else None,
+        category=body.category,
     )
 
     interaction_id = str(uuid.uuid4())
