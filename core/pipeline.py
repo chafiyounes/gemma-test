@@ -33,12 +33,14 @@ class GemmaPipeline:
         message: str,
         history: List[Dict[str, str]] | None = None,
         system_prompt: Optional[str] = None,
+        category: Optional[str] = None,
     ) -> PipelineResult:
         try:
             response = await self.llm.generate(
                 message=message,
                 history=history or [],
                 system_prompt=system_prompt,
+                category=category,
             )
             return PipelineResult(response=response, model=self.model_name)
         except Exception as exc:

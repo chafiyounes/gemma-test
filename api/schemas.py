@@ -14,6 +14,7 @@ class ChatRequest(BaseModel):
     conversation_history: List[ConversationTurn] = Field(default_factory=list)
     system_prompt: Optional[str] = Field(default=None, description="Override system prompt (admin only)")
     skip_persist: bool = Field(default=False)
+    category: Optional[str] = Field(default=None, description="Document category to use for RAG context")
 
     @field_validator("message")
     @classmethod
@@ -68,3 +69,13 @@ class ModelInfo(BaseModel):
     current_model: str
     available_models: List[str]
     vllm_url: str
+
+
+class CategoryInfo(BaseModel):
+    name: str
+    doc_count: int
+    doc_names: List[str]
+
+
+class CategoriesResponse(BaseModel):
+    categories: List[CategoryInfo]

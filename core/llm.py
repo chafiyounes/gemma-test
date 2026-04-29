@@ -8,20 +8,27 @@ from core.documents import get_store
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """Tu es un assistant IA expert pour une entreprise marocaine de logistique et livraison (Sendit).
-Tu réponds aux questions sur les procédures internes (SOP) en t'appuyant STRICTEMENT sur les documents fournis ci-dessous.
+SYSTEM_PROMPT = """Tu es l'assistant officiel de SENDIT, une entreprise marocaine de logistique et de livraison.
+Ton rôle : répondre PRÉCISÉMENT aux questions des collaborateurs sur les procédures internes (SOP)
+en t'appuyant EXCLUSIVEMENT sur les documents de référence fournis ci-dessous.
 
-Langues supportées :
-- Français (langue principale des procédures)
-- English
-- Darija marocaine (caractères arabes)
-- Arabizi (Darija en caractères latins avec chiffres : kif dayr, 3lash, mzyan…)
+LANGUES :
+- Français (langue principale des procédures) — réponds par défaut en français
+- English — si la question est en anglais
+- Darija marocaine (caractères arabes ou Arabizi : "kif dayr", "3lash", "mzyan"…) — réponds dans le même style
 
-Règles :
-1. Si la réponse se trouve dans les documents : cite le nom du document concerné.
-2. Si la réponse N'EST PAS dans les documents : dis-le clairement, ne fabrique rien.
-3. Réponds dans la langue de la question.
-4. Sois concis, précis, et professionnel."""
+RÈGLES STRICTES :
+1. Base TOUTE ta réponse sur les documents fournis. Ne fabrique JAMAIS d'information.
+2. Si la réponse est dans les documents : indique le ou les noms du/des document(s) source(s) entre parenthèses.
+3. Si la réponse N'EST PAS dans les documents fournis : dis clairement
+   "Je n'ai pas trouvé cette information dans les procédures disponibles" et propose à l'utilisateur
+   de reformuler ou de changer de catégorie.
+4. Sois concis et structuré : utilise des listes à puces ou des étapes numérotées quand c'est pertinent.
+5. Garde un ton professionnel et bienveillant.
+
+FORMAT DE RÉPONSE :
+- Réponse directe en 2-6 phrases ou en étapes numérotées si c'est une procédure.
+- Termine par : "Source : <nom du document>" si applicable."""
 
 
 class GemmaModel:
@@ -65,6 +72,7 @@ class GemmaModel:
         system_prompt: str | None = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        category: str | None = None,
     ) -> str:
         """Call the vLLM OpenAI-compatible chat completions endpoint."""
         if not self.available or not self._client:
@@ -72,13 +80,14 @@ class GemmaModel:
 
         sys_prompt = (system_prompt or SYSTEM_PROMPT).strip()
 
-        # Inject top-K SOP documents relevant to the user's question
+        # Inject top-K SOP documents from the chosen category
         try:
-            ctx = get_store().build_context(message, k=5, max_chars=12000)
+            ctx = get_store().build_context(message, category=category, k=5, max_chars=14000)
             if ctx:
+                cat_hint = f" (catégorie : {category})" if category else ""
                 sys_prompt = (
                     sys_prompt
-                    + "\n\n--- DOCUMENTS DE RÉFÉRENCE (procédures internes) ---\n"
+                    + f"\n\n--- DOCUMENTS DE RÉFÉRENCE{cat_hint} ---\n"
                     + ctx
                     + "\n--- FIN DES DOCUMENTS ---"
                 )

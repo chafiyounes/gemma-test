@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from "react";
 import { useChat } from "../context/ChatContext";
-import { getClientUserId, sendChat, submitFeedback } from "../services/api";
+import { getClientUserId, sendChat, submitFeedback, fetchCategories } from "../services/api";
 import MessageBubble from "./MessageBubble";
 import TypingIndicator from "./TypingIndicator";
 import "./ChatArea.css";
@@ -21,8 +21,24 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
     setConversationLoading,
   } = useChat();
   const [input, setInput] = useState("");
+  const [categories, setCategories] = useState([]);
+  const [category, setCategory] = useState("");
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
+
+  // Load available document categories once
+  useEffect(() => {
+    fetchCategories()
+      .then((data) => {
+        const cats = data.categories || [];
+        setCategories(cats);
+        if (cats.length > 0 && !category) {
+          setCategory(cats[0].name);
+        }
+      })
+      .catch(() => setCategories([]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const messages = activeConversation.messages;
   const loading = !!activeConversation.loading;
@@ -60,6 +76,7 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
         userId: getClientUserId(),
         sessionId,
         history: [...historyAtSend, { role: "user", content: text }],
+        category,
       });
       addMessage(
         {
@@ -156,6 +173,26 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
 
       {/* Input */}
       <div className="chat-input-area">
+        {categories.length > 0 && (
+          <div className="category-bar">
+            <label htmlFor="category-select" className="category-label">
+              Catégorie de documents :
+            </label>
+            <select
+              id="category-select"
+              className="category-select"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              disabled={loading}
+            >
+              {categories.map((c) => (
+                <option key={c.name} value={c.name}>
+                  {c.name} ({c.doc_count} docs)
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
         <div className="input-box">
           <textarea
             ref={textareaRef}

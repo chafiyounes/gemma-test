@@ -1,8 +1,11 @@
-"""Document loader + lightweight BM25-style retrieval for SOP context injection.
+"""Category-aware document loader + BM25 retrieval.
 
-All .docx files under data/documents/ are loaded at module import time.
-Provides `retrieve(query, k=5)` returning the top-k most relevant chunks.
-No external embedding model — pure lexical scoring (fast, zero deps beyond python-docx).
+Layout:
+    data/documents/<Category>/*.docx
+
+Each first-level subdirectory of data/documents/ is treated as a CATEGORY.
+A query targets a specific category; the top-k matching docs are returned.
+Files placed directly in data/documents/ (without a subfolder) are ignored.
 """
 from __future__ import annotations
 
@@ -12,15 +15,13 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
-# Default location: <repo>/data/documents
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "data" / "documents"
 
-# Tokenization keeps Latin letters, digits, and Arabic letters
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9\u0600-\u06FF]+", re.UNICODE)
 
 
@@ -29,12 +30,10 @@ def _tokenize(text: str) -> List[str]:
 
 
 def _read_docx(path: Path) -> str:
-    """Extract plain text from a .docx using python-docx; fallback to zipfile/xml."""
     try:
         from docx import Document  # type: ignore
-
         doc = Document(str(path))
-        parts: List[str] = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
+        parts = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
         for table in doc.tables:
             for row in table.rows:
                 for cell in row.cells:
@@ -42,17 +41,13 @@ def _read_docx(path: Path) -> str:
                         parts.append(cell.text.strip())
         return "\n".join(parts)
     except Exception:
-        # Fallback: parse the underlying XML directly
         try:
             import xml.etree.ElementTree as ET
             import zipfile
-
             with zipfile.ZipFile(path) as zf:
                 with zf.open("word/document.xml") as f:
                     tree = ET.parse(f)
-            ns = {"w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"}
-            texts = [t.text for t in tree.iter() if t.tag.endswith("}t") and t.text]
-            return "\n".join(texts)
+            return "\n".join(t.text for t in tree.iter() if t.tag.endswith("}t") and t.text)
         except Exception as exc:
             logger.warning("Could not read %s: %s", path.name, exc)
             return ""
@@ -61,96 +56,127 @@ def _read_docx(path: Path) -> str:
 @dataclass
 class Doc:
     name: str
+    category: str
     text: str
     tokens: List[str]
     tf: Counter
 
 
+@dataclass
+class CategoryIndex:
+    name: str
+    docs: List[Doc]
+    df: Counter
+    avgdl: float
+
+
 class DocStore:
-    """Loads docs once; provides BM25-lite retrieval."""
+    """Per-category BM25 index. Each subfolder of data/documents/ is a category."""
 
     def __init__(self, docs_dir: Path = DOCS_DIR):
         self.docs_dir = docs_dir
-        self.docs: List[Doc] = []
-        self.df: Counter = Counter()  # document frequency
-        self.avgdl: float = 0.0
+        self.indexes: Dict[str, CategoryIndex] = {}
         self._load()
 
     def _load(self) -> None:
         if not self.docs_dir.is_dir():
             logger.warning("Documents dir not found: %s", self.docs_dir)
             return
-        files = sorted(self.docs_dir.glob("*.docx"))
-        total_len = 0
-        for p in files:
-            text = _read_docx(p)
-            if not text.strip():
-                continue
-            toks = _tokenize(text)
-            if not toks:
-                continue
-            tf = Counter(toks)
-            self.docs.append(Doc(name=p.stem, text=text, tokens=toks, tf=tf))
-            for term in tf.keys():
-                self.df[term] += 1
-            total_len += len(toks)
-        if self.docs:
-            self.avgdl = total_len / len(self.docs)
-            logger.info(
-                "DocStore loaded %d docs (avg %d tokens) from %s",
-                len(self.docs),
-                int(self.avgdl),
-                self.docs_dir,
-            )
-        else:
-            logger.warning("No .docx documents loaded from %s", self.docs_dir)
 
-    def _bm25_score(self, q_tokens: List[str], doc: Doc, k1: float = 1.5, b: float = 0.75) -> float:
-        if not self.docs:
-            return 0.0
-        N = len(self.docs)
+        for sub in sorted(self.docs_dir.iterdir()):
+            if not sub.is_dir():
+                continue
+            cat_name = sub.name
+            files = sorted(sub.glob("*.docx"))
+            docs: List[Doc] = []
+            df: Counter = Counter()
+            total_len = 0
+            for p in files:
+                text = _read_docx(p)
+                if not text.strip():
+                    continue
+                toks = _tokenize(text)
+                if not toks:
+                    continue
+                tf = Counter(toks)
+                docs.append(Doc(name=p.stem, category=cat_name, text=text, tokens=toks, tf=tf))
+                for term in tf:
+                    df[term] += 1
+                total_len += len(toks)
+            if docs:
+                self.indexes[cat_name] = CategoryIndex(
+                    name=cat_name,
+                    docs=docs,
+                    df=df,
+                    avgdl=total_len / len(docs),
+                )
+                logger.info("DocStore: category '%s' loaded %d docs", cat_name, len(docs))
+            else:
+                logger.warning("DocStore: category '%s' has no readable docs", cat_name)
+
+        if not self.indexes:
+            logger.warning("DocStore: no categories loaded from %s", self.docs_dir)
+
+    def list_categories(self) -> List[Dict]:
+        return [
+            {"name": c.name, "doc_count": len(c.docs), "doc_names": [d.name for d in c.docs]}
+            for c in self.indexes.values()
+        ]
+
+    def _bm25(self, q_tokens: List[str], doc: Doc, idx: CategoryIndex,
+              k1: float = 1.5, b: float = 0.75) -> float:
+        N = len(idx.docs)
         dl = len(doc.tokens) or 1
         score = 0.0
         for term in q_tokens:
-            df = self.df.get(term, 0)
-            if df == 0:
+            df_t = idx.df.get(term, 0)
+            if df_t == 0:
                 continue
-            idf = math.log((N - df + 0.5) / (df + 0.5) + 1.0)
+            idf = math.log((N - df_t + 0.5) / (df_t + 0.5) + 1.0)
             f = doc.tf.get(term, 0)
-            denom = f + k1 * (1 - b + b * dl / (self.avgdl or 1))
+            denom = f + k1 * (1 - b + b * dl / (idx.avgdl or 1))
             score += idf * (f * (k1 + 1)) / (denom or 1)
         return score
 
-    def retrieve(self, query: str, k: int = 5) -> List[Doc]:
-        if not self.docs:
+    def retrieve(self, query: str, category: Optional[str] = None, k: int = 5) -> List[Doc]:
+        if not self.indexes:
             return []
+        if category and category in self.indexes:
+            targets = [self.indexes[category]]
+        else:
+            targets = list(self.indexes.values())
+
         q_tokens = _tokenize(query)
         if not q_tokens:
             return []
-        scored = [(self._bm25_score(q_tokens, d), d) for d in self.docs]
-        scored = [(s, d) for s, d in scored if s > 0]
+
+        scored = []
+        for idx in targets:
+            for d in idx.docs:
+                s = self._bm25(q_tokens, d, idx)
+                if s > 0:
+                    scored.append((s, d))
         scored.sort(key=lambda x: x[0], reverse=True)
         return [d for _, d in scored[:k]]
 
-    def build_context(self, query: str, k: int = 5, max_chars: int = 12000) -> str:
-        """Return a formatted context block from the top-k docs (truncated to max_chars)."""
-        top = self.retrieve(query, k=k)
+    def build_context(self, query: str, category: Optional[str] = None,
+                      k: int = 5, max_chars: int = 14000) -> str:
+        top = self.retrieve(query, category=category, k=k)
         if not top:
             return ""
-        out_parts: List[str] = []
+        parts: List[str] = []
         budget = max_chars
         for d in top:
-            block = f"### Document: {d.name}\n{d.text.strip()}\n"
+            block = f"### Document : {d.name}  (catégorie : {d.category})\n{d.text.strip()}\n"
             if len(block) > budget:
-                block = block[:budget].rsplit("\n", 1)[0] + "\n…(truncated)"
-                out_parts.append(block)
+                block = block[:budget].rsplit("\n", 1)[0] + "\n…(tronqué)"
+                parts.append(block)
                 break
-            out_parts.append(block)
+            parts.append(block)
             budget -= len(block)
-        return "\n".join(out_parts)
+        return "\n".join(parts)
 
 
-# Module-level singleton (lazily built on first use)
 _store: Optional[DocStore] = None
 
 
