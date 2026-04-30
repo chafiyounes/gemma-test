@@ -48,13 +48,18 @@ echo "  Model : $TARGET  →  $MODEL_PATH"
 echo "  Port  : $PORT"
 echo "══════════════════════════════════════════════════"
 
-# Kill any existing inference server process
-pkill -f "serve_gemma4" 2>/dev/null && echo "Killed previous server" || true
-pkill -f "vllm.entrypoints" 2>/dev/null || true
-sleep 2
+# Kill any existing inference server process (including stale OOM-crashed processes)
+pkill -9 -f "serve_gemma4" 2>/dev/null && echo "Killed previous serve_gemma4" || true
+pkill -9 -f "vllm.entrypoints" 2>/dev/null || true
+# Give the OS time to release CUDA contexts fully (important after OOM crashes)
+sleep 6
 
-nvidia-smi --query-gpu=name,memory.total,memory.free --format=csv,noheader
+echo "--- GPU state before load ---"
+nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free --format=csv,noheader
 echo ""
+
+# Allow PyTorch to expand CUDA memory segments to reduce fragmentation
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 MODEL_DIR="$MODEL_PATH" PORT="$PORT" \
 python3 /workspace/gemma-test/scripts/serve_gemma4.py \
