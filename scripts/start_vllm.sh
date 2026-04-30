@@ -58,6 +58,9 @@ echo "--- GPU state before load ---"
 nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free --format=csv,noheader
 echo ""
 
+# Restrict to physical GPU 1 only (GPU 0 is inaccessible in this RunPod pod config —
+# PyTorch sees it but the CUDA context fails; hiding it avoids caching_allocator_warmup crash)
+export CUDA_VISIBLE_DEVICES=1
 # Allow PyTorch to expand CUDA memory segments to reduce fragmentation
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 

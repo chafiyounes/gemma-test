@@ -227,6 +227,9 @@ def main():
          f"grep -E 'VLLM_(BASE_URL|MODEL_NAME)' {REMOTE_PROJECT}/.env && "
          f"cat /tmp/target.txt",
          15),
+        ("Install bitsandbytes (INT8 quantization — halves VRAM from 52GB to ~26GB)",
+         "pip install bitsandbytes 2>&1 | tail -5 && python3 -c 'import bitsandbytes; print(\"bnb version:\", bitsandbytes.__version__)'",
+         120),
         ("Aggressive process + port cleanup",
          "pkill -9 -f 'serve_gemma4' 2>/dev/null; pkill -9 -f 'start_vllm' 2>/dev/null; pkill -9 -f 'uvicorn' 2>/dev/null; "
          # Also kill any stale python3 processes holding GPU memory (e.g. from OOM crashes)
