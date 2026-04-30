@@ -24,45 +24,40 @@ MODEL_DIR = os.environ.get("MODEL_DIR", "/workspace/models/gemma4-26b-it")
 MAX_NEW_TOKENS = int(os.environ.get("MAX_NEW_TOKENS", "1024"))
 TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.7"))
 PORT = int(os.environ.get("PORT", "8002"))
-
-
-def _find_cuda_device() -> str:
-    """Return the first available CUDA device, or 'cpu' if none found."""
-    if not torch.cuda.is_available():
-        return "cpu"
-    for i in range(torch.cuda.device_count()):
-        try:
-            torch.zeros(1, device=f"cuda:{i}")
-            return f"cuda:{i}"
-        except Exception:
-            continue
-    return "cpu"
-
-
-# Use env override or auto-detect first working GPU
-DEVICE: str = os.environ.get("CUDA_DEVICE") or _find_cuda_device()
+# Per-GPU memory cap: default 40 GiB leaves headroom for activations on each A40 (45.4 GiB total)
+GPU_MEMORY_PER_DEVICE = os.environ.get("GPU_MEMORY_PER_DEVICE", "40GiB")
 
 # Global model state
 tokenizer = None
 model = None
 model_id = None
+_infer_device = None  # set after model load
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global tokenizer, model, model_id
     log.info("Loading tokenizer from %s ...", MODEL_DIR)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
-    log.info("Loading model from %s onto device %s ...", MODEL_DIR, DEVICE)
+    global _infer_device
+    # Build max_memory map: one entry per visible CUDA device + cpu fallback
+    n_gpus = torch.cuda.device_count()
+    max_memory = {i: GPU_MEMORY_PER_DEVICE for i in range(n_gpus)}
+    max_memory["cpu"] = "60GiB"  # allow CPU as last resort
+    log.info("Loading model from %s  |  GPUs visible: %d  |  max_memory: %s", MODEL_DIR, n_gpus, max_memory)
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_DIR,
         torch_dtype=torch.bfloat16,
-        device_map={'': DEVICE},
+        device_map="auto",
+        max_memory=max_memory,
         low_cpu_mem_usage=True,
     )
     model.eval()
     model_id = os.path.basename(MODEL_DIR)
-    devices = list(set(str(p.device) for p in model.parameters() if p.device.type != 'meta'))
-    log.info("Model loaded: %s  |  devices: %s", model_id, devices)
+    gpu_devices = [str(p.device) for p in model.parameters() if p.device.type != 'meta']
+    cpu_params = sum(1 for p in model.parameters() if p.device.type == 'meta')
+    _infer_device = max(set(gpu_devices), key=gpu_devices.count) if gpu_devices else 'cpu'
+    log.info("Model loaded: %s  |  devices: %s  |  meta(cpu-offload) params: %d",
+             model_id, list(set(gpu_devices)), cpu_params)
     yield
     log.info("Shutting down.")
 
@@ -121,10 +116,10 @@ async def chat_completions(req: ChatRequest):
     except Exception as e:
         raise HTTPException(400, f"Chat template error: {e}")
 
-    input_ids = inputs["input_ids"].to(DEVICE)
+    input_ids = inputs["input_ids"].to(_infer_device)
     attention_mask = inputs.get("attention_mask")
     if attention_mask is not None:
-        attention_mask = attention_mask.to(DEVICE)
+        attention_mask = attention_mask.to(_infer_device)
     input_len = input_ids.shape[-1]
 
     t0 = time.time()

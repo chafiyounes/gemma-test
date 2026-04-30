@@ -81,13 +81,17 @@ def scp_upload_docs():
 
     import base64
 
-    # Build tarball locally
+    # Build tarball of only the 'procedures' subfolder
+    LOCAL_PROCEDURES = LOCAL_DOCS / "procedures"
+    if not LOCAL_PROCEDURES.is_dir():
+        print(f"FATAL: {LOCAL_PROCEDURES} not found — put your .docx files in data/documents/procedures/")
+        sys.exit(1)
     local_tar = LOCAL_ROOT / "_docs_upload.tar.gz"
     if local_tar.exists():
         local_tar.unlink()
-    print(f"Building tarball: {local_tar}")
+    print(f"Building tarball of procedures/ ({len(list(LOCAL_PROCEDURES.glob('*.docx')))} docs): {local_tar}")
     proc = subprocess.run(
-        ["tar", "-czf", str(local_tar), "-C", str(LOCAL_DOCS.parent), "documents"],
+        ["tar", "-czf", str(local_tar), "-C", str(LOCAL_DOCS), "procedures"],
         capture_output=True, text=True, timeout=60,
     )
     if proc.returncode != 0:
@@ -111,8 +115,8 @@ def scp_upload_docs():
     time.sleep(2)
     wait_for_prompt(shell, timeout=15)
 
-    # Drain prompt, then prepare receive
-    shell.send(f"mkdir -p {REMOTE_PROJECT}/data && rm -rf {REMOTE_DOCS} && rm -f /tmp/docs.b64 && echo READY\n")
+    # Wipe only subdirectory category folders (keep flat dir itself), then prepare receive
+    shell.send(f"mkdir -p {REMOTE_DOCS} && find {REMOTE_DOCS} -mindepth 1 -maxdepth 1 -type d -exec rm -rf {{}} + && rm -f /tmp/docs.b64 && echo READY\n")
     wait_for_prompt(shell, timeout=15)
 
     # PTY canonical mode limits line input to ~4KB. Use 3000 to be safe.
@@ -142,13 +146,13 @@ def scp_upload_docs():
     drain(shell, briefly=False)
     print(f"  Sent chunk {total_chunks}/{total_chunks}")
 
-    # Decode + extract
+    # Decode + extract procedures/ into REMOTE_DOCS
     print("Decoding + extracting on pod...")
     shell.send(
         f"base64 -d /tmp/docs.b64 > /tmp/docs.tar.gz && "
-        f"cd {REMOTE_PROJECT}/data && tar xzf /tmp/docs.tar.gz && "
+        f"tar xzf /tmp/docs.tar.gz -C {REMOTE_DOCS} && "
         f"rm -f /tmp/docs.b64 /tmp/docs.tar.gz && "
-        f"find documents -name '*.docx' | wc -l && echo UPLOAD_OK\n"
+        f"find {REMOTE_DOCS} -name '*.docx' | wc -l && echo UPLOAD_OK\n"
     )
     out = wait_for_prompt(shell, timeout=60)
     shell.close()
@@ -184,8 +188,8 @@ def main():
          f"find {REMOTE_DOCS} -name '*.docx' | wc -l && ls {REMOTE_DOCS}/",
          15),
         ("Pull latest code (origin/main)",
-         f"cd {REMOTE_PROJECT} && git fetch origin && "
-         "git reset --hard origin/main && "
+         f"cd {REMOTE_PROJECT} && git fetch origin main && "
+         "git reset --hard FETCH_HEAD && "
          "echo RESET_OK && git log -1 --oneline",
          60),
         ("Fix line endings + chmod",
@@ -206,18 +210,31 @@ def main():
          "    print('Top 3 in', cats[0]['name'], ':', [d.name for d in top])\n"
          "PYEOF",
          30),
-        ("Use Gemma 4 26B",
-         f"ls /workspace/models/gemma4-26b-it/config.json && "
-         f"sed -i 's/^VLLM_MODEL_NAME=.*/VLLM_MODEL_NAME=gemma4/' {REMOTE_PROJECT}/.env && "
+        ("Select model (gemma4-26b-it if present, else GemMaroc-27b-it fallback)",
+         f"if [ -d /workspace/models/gemma4-26b-it ]; then "
+         f"  echo 'Using gemma4-26b-it' && "
+         f"  sed -i 's/^VLLM_MODEL_NAME=.*/VLLM_MODEL_NAME=gemma4-26b-it/' {REMOTE_PROJECT}/.env && "
+         f"  echo TARGET=gemma4 > /tmp/target.txt; "
+         f"elif [ -d /workspace/models/GemMaroc-27b-it ]; then "
+         f"  echo 'gemma4 not found — using GemMaroc-27b-it' && "
+         f"  sed -i 's/^VLLM_MODEL_NAME=.*/VLLM_MODEL_NAME=GemMaroc-27b-it/' {REMOTE_PROJECT}/.env && "
+         f"  echo TARGET=gemmaroc > /tmp/target.txt; "
+         f"else "
+         f"  echo 'ERROR: neither gemma4-26b-it nor GemMaroc-27b-it found in /workspace/models/' && "
+         f"  ls /workspace/models/ && exit 1; "
+         f"fi && "
          f"sed -i 's|^VLLM_BASE_URL=.*|VLLM_BASE_URL=http://localhost:8002|' {REMOTE_PROJECT}/.env && "
          f"grep -E 'VLLM_(BASE_URL|MODEL_NAME)' {REMOTE_PROJECT}/.env && "
-         f"echo TARGET=gemma4 > /tmp/target.txt && cat /tmp/target.txt",
+         f"cat /tmp/target.txt",
          15),
         ("Aggressive process + port cleanup",
-         "pkill -9 -f 'vllm' 2>/dev/null; pkill -9 -f 'uvicorn' 2>/dev/null; "
-         "for p in 8000 8002; do fuser -k $p/tcp 2>/dev/null; done; sleep 4; "
+         "pkill -9 -f 'serve_gemma4' 2>/dev/null; pkill -9 -f 'start_vllm' 2>/dev/null; pkill -9 -f 'uvicorn' 2>/dev/null; "
+         # Also kill any stale python3 processes holding GPU memory (e.g. from OOM crashes)
+         "pkill -9 -f 'serve_gemma4.py' 2>/dev/null; "
+         "for p in 8000 8002; do fuser -k $p/tcp 2>/dev/null; done; sleep 6; "
+         "echo '--- GPU after cleanup ---' && nvidia-smi --query-gpu=index,memory.used --format=csv,noheader; "
          "ss -tlnp 2>/dev/null | grep -E ':(8000|8002)' || echo 'ports free'",
-         15),
+         20),
         ("Start vLLM on port 8002",
          f"TARGET=$(cat /tmp/target.txt | cut -d= -f2) && echo \"Starting vLLM with $TARGET\" && "
          f"mkdir -p {REMOTE_PROJECT}/logs && rm -f {REMOTE_PROJECT}/logs/vllm_${{TARGET}}.log && "
@@ -233,7 +250,7 @@ def main():
          "  if curl -sf http://localhost:8002/v1/models > /dev/null 2>&1; then "
          "    echo VLLM_READY_${i}; break; "
          "  fi; "
-         "  if ! pgrep -f 'vllm' > /dev/null; then "
+         "  if ! pgrep -f 'serve_gemma4' > /dev/null; then "
          f"    echo VLLM_DIED; tail -40 {REMOTE_PROJECT}/logs/vllm_${{TARGET}}.log; break; "
          "  fi; "
          f"  echo \"[$i/48] $(tail -1 {REMOTE_PROJECT}/logs/vllm_${{TARGET}}.log 2>/dev/null | head -c 180)\"; "
@@ -258,15 +275,17 @@ def main():
         ("Test /categories",
          "curl -s http://localhost:8000/categories | python3 -m json.tool 2>&1 | head -30",
          15),
-        ("End-to-end chat test (Gestion category)",
+        ("End-to-end chat test (first available category)",
          "rm -f /tmp/cj.txt && "
          "curl -s -c /tmp/cj.txt -X POST http://localhost:8000/auth/login "
          "-H 'Content-Type: application/json' -d '{\"password\":\"user1234\"}' "
          "| python3 -m json.tool | head -5; "
-         "echo '--- chat: \"Comment gérer un colis endommagé ?\" (cat=Gestion) ---'; "
+         "FIRST_CAT=$(curl -s http://localhost:8000/categories | "
+         "python3 -c \"import sys,json; cats=json.load(sys.stdin)['categories']; print(cats[0]['name'] if cats else 'procedures')\"); "
+         "echo \"--- chat test (category=$FIRST_CAT) ---\"; "
          "curl -s -b /tmp/cj.txt -X POST http://localhost:8000/chat "
          "-H 'Content-Type: application/json' "
-         "-d '{\"message\":\"Comment gerer un colis endommage ?\",\"session_id\":\"t1\",\"category\":\"Gestion\"}' "
+         "-d \"{\\\"message\\\":\\\"Comment fonctionne cette procedure ?\\\",\\\"session_id\\\":\\\"t1\\\",\\\"category\\\":\\\"$FIRST_CAT\\\"}\" "
          "| python3 -m json.tool 2>&1 | head -40",
          180),
         ("Final summary",
