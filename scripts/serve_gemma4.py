@@ -24,8 +24,9 @@ MODEL_DIR = os.environ.get("MODEL_DIR", "/workspace/models/gemma4-26b-it")
 MAX_NEW_TOKENS = int(os.environ.get("MAX_NEW_TOKENS", "1024"))
 TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.7"))
 PORT = int(os.environ.get("PORT", "8002"))
-# Per-GPU memory cap: default 40 GiB leaves headroom for activations on each A40 (45.4 GiB total)
-GPU_MEMORY_PER_DEVICE = os.environ.get("GPU_MEMORY_PER_DEVICE", "40GiB")
+# INT8 quantization via bitsandbytes: halves VRAM usage (~26 GB vs 52 GB for 26B model)
+# Set USE_INT8=0 to disable (falls back to bfloat16 with CPU offload)
+USE_INT8 = os.environ.get("USE_INT8", "1") == "1"
 
 # Global model state
 tokenizer = None
@@ -33,31 +34,52 @@ model = None
 model_id = None
 _infer_device = None  # set after model load
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    global tokenizer, model, model_id
-    log.info("Loading tokenizer from %s ...", MODEL_DIR)
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
-    global _infer_device
-    # Build max_memory map: one entry per visible CUDA device + cpu fallback
-    n_gpus = torch.cuda.device_count()
-    max_memory = {i: GPU_MEMORY_PER_DEVICE for i in range(n_gpus)}
-    max_memory["cpu"] = "60GiB"  # allow CPU as last resort
-    log.info("Loading model from %s  |  GPUs visible: %d  |  max_memory: %s", MODEL_DIR, n_gpus, max_memory)
-    model = AutoModelForCausalLM.from_pretrained(
+
+def _load_model():
+    """Load model with INT8 quantization if bitsandbytes available, else bfloat16."""
+    if USE_INT8:
+        try:
+            import bitsandbytes  # noqa: F401
+            log.info("Loading model in INT8 (bitsandbytes) from %s ...", MODEL_DIR)
+            m = AutoModelForCausalLM.from_pretrained(
+                MODEL_DIR,
+                load_in_8bit=True,
+                device_map="auto",
+            )
+            log.info("Model loaded in INT8 — all weights on GPU, zero CPU offload")
+            return m, "int8"
+        except ImportError:
+            log.warning("bitsandbytes not installed — falling back to bfloat16")
+        except Exception as exc:
+            log.warning("INT8 load failed (%s) — falling back to bfloat16", exc)
+
+    log.info("Loading model in bfloat16 from %s (device_map=auto) ...", MODEL_DIR)
+    m = AutoModelForCausalLM.from_pretrained(
         MODEL_DIR,
         torch_dtype=torch.bfloat16,
         device_map="auto",
-        max_memory=max_memory,
         low_cpu_mem_usage=True,
     )
+    return m, "bf16"
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    global tokenizer, model, model_id, _infer_device
+    log.info("Loading tokenizer from %s ...", MODEL_DIR)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
+    model, quant_mode = _load_model()
     model.eval()
     model_id = os.path.basename(MODEL_DIR)
-    gpu_devices = [str(p.device) for p in model.parameters() if p.device.type != 'meta']
-    cpu_params = sum(1 for p in model.parameters() if p.device.type == 'meta')
-    _infer_device = max(set(gpu_devices), key=gpu_devices.count) if gpu_devices else 'cpu'
-    log.info("Model loaded: %s  |  devices: %s  |  meta(cpu-offload) params: %d",
-             model_id, list(set(gpu_devices)), cpu_params)
+    # Determine primary inference device (first GPU parameter)
+    try:
+        _infer_device = next(p.device for p in model.parameters() if p.device.type == 'cuda')
+    except StopIteration:
+        _infer_device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    gpu_devices = list(set(str(p.device) for p in model.parameters() if p.device.type == 'cuda'))
+    meta_params = sum(1 for p in model.parameters() if p.device.type == 'meta')
+    log.info("Model ready: %s  |  quant=%s  |  gpu_devices=%s  |  infer_device=%s  |  meta_params=%d",
+             model_id, quant_mode, gpu_devices, _infer_device, meta_params)
     yield
     log.info("Shutting down.")
 
