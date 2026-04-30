@@ -25,6 +25,23 @@ MAX_NEW_TOKENS = int(os.environ.get("MAX_NEW_TOKENS", "1024"))
 TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.7"))
 PORT = int(os.environ.get("PORT", "8002"))
 
+
+def _find_cuda_device() -> str:
+    """Return the first available CUDA device, or 'cpu' if none found."""
+    if not torch.cuda.is_available():
+        return "cpu"
+    for i in range(torch.cuda.device_count()):
+        try:
+            torch.zeros(1, device=f"cuda:{i}")
+            return f"cuda:{i}"
+        except Exception:
+            continue
+    return "cpu"
+
+
+# Use env override or auto-detect first working GPU
+DEVICE: str = os.environ.get("CUDA_DEVICE") or _find_cuda_device()
+
 # Global model state
 tokenizer = None
 model = None
@@ -35,16 +52,17 @@ async def lifespan(app: FastAPI):
     global tokenizer, model, model_id
     log.info("Loading tokenizer from %s ...", MODEL_DIR)
     tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
-    log.info("Loading model from %s with device_map=auto ...", MODEL_DIR)
+    log.info("Loading model from %s onto device %s ...", MODEL_DIR, DEVICE)
     model = AutoModelForCausalLM.from_pretrained(
         MODEL_DIR,
         torch_dtype=torch.bfloat16,
-        device_map="auto",
+        device_map={'': DEVICE},
         low_cpu_mem_usage=True,
     )
     model.eval()
     model_id = os.path.basename(MODEL_DIR)
-    log.info("Model loaded: %s  |  devices: %s", model_id, list(set(str(p.device) for p in model.parameters())))
+    devices = list(set(str(p.device) for p in model.parameters() if p.device.type != 'meta'))
+    log.info("Model loaded: %s  |  devices: %s", model_id, devices)
     yield
     log.info("Shutting down.")
 
@@ -103,10 +121,10 @@ async def chat_completions(req: ChatRequest):
     except Exception as e:
         raise HTTPException(400, f"Chat template error: {e}")
 
-    input_ids = inputs["input_ids"].to(model.device)
+    input_ids = inputs["input_ids"].to(DEVICE)
     attention_mask = inputs.get("attention_mask")
     if attention_mask is not None:
-        attention_mask = attention_mask.to(model.device)
+        attention_mask = attention_mask.to(DEVICE)
     input_len = input_ids.shape[-1]
 
     t0 = time.time()
