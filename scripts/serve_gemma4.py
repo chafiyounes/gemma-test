@@ -15,7 +15,7 @@ import torch
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
-from transformers import AutoTokenizer, AutoModelForCausalLM, pipeline
+from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
@@ -41,9 +41,10 @@ def _load_model():
         try:
             import bitsandbytes  # noqa: F401
             log.info("Loading model in INT8 (bitsandbytes) from %s ...", MODEL_DIR)
+            bnb_config = BitsAndBytesConfig(load_in_8bit=True)
             m = AutoModelForCausalLM.from_pretrained(
                 MODEL_DIR,
-                load_in_8bit=True,
+                quantization_config=bnb_config,
                 device_map="auto",
             )
             log.info("Model loaded in INT8 — all weights on GPU, zero CPU offload")
