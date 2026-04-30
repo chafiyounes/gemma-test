@@ -94,20 +94,26 @@ async def chat_completions(req: ChatRequest):
     # Build prompt using tokenizer's chat template
     chat = [{"role": m.role, "content": m.content} for m in req.messages]
     try:
-        input_ids = tokenizer.apply_chat_template(
+        inputs = tokenizer.apply_chat_template(
             chat,
             add_generation_prompt=True,
             return_tensors="pt",
+            return_dict=True,
         )
     except Exception as e:
         raise HTTPException(400, f"Chat template error: {e}")
 
-    input_ids = input_ids.to(model.device)
+    input_ids = inputs["input_ids"].to(model.device)
+    attention_mask = inputs.get("attention_mask")
+    if attention_mask is not None:
+        attention_mask = attention_mask.to(model.device)
+    input_len = input_ids.shape[-1]
 
     t0 = time.time()
     with torch.no_grad():
         output_ids = model.generate(
             input_ids,
+            attention_mask=attention_mask,
             max_new_tokens=max_tokens,
             temperature=temperature,
             do_sample=temperature > 0,
@@ -115,7 +121,7 @@ async def chat_completions(req: ChatRequest):
         )
 
     # Decode only the new tokens
-    new_tokens = output_ids[0][input_ids.shape[-1]:]
+    new_tokens = output_ids[0][input_len:]
     reply = tokenizer.decode(new_tokens, skip_special_tokens=True).strip()
     elapsed = time.time() - t0
     prompt_tokens = input_ids.shape[-1]
