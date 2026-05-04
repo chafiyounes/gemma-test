@@ -54,14 +54,14 @@ def _load_model():
         except Exception as exc:
             log.warning("INT8 load failed (%s) — falling back to bfloat16", exc)
 
-    log.info("Loading model in bfloat16 from %s (device_map=auto) ...", MODEL_DIR)
+    log.info("Loading model in float16 from %s (device_map=auto) ...", MODEL_DIR)
     m = AutoModelForCausalLM.from_pretrained(
         MODEL_DIR,
-        torch_dtype=torch.bfloat16,
+        torch_dtype=torch.float16,
         device_map="auto",
         low_cpu_mem_usage=True,
     )
-    return m, "bf16"
+    return m, "fp16"
 
 
 @asynccontextmanager
@@ -152,10 +152,10 @@ async def chat_completions(req: ChatRequest):
             input_ids,
             attention_mask=attention_mask,
             max_new_tokens=max_tokens,
-            temperature=temperature,
-            top_p=req.top_p if req.top_p is not None else 0.9,
-            repetition_penalty=1.05,
-            do_sample=temperature > 0,
+            temperature=temperature if temperature > 0 else None,
+            top_p=req.top_p if (req.top_p is not None and temperature > 0) else None,
+            repetition_penalty=1.1,
+            do_sample=temperature > 0 if temperature is not None else False,
             pad_token_id=tokenizer.eos_token_id,
         )
 
