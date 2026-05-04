@@ -176,6 +176,38 @@ class DocStore:
             budget -= len(block)
         return "\n".join(parts)
 
+    def build_all_docs_context(self, category: Optional[str] = None,
+                                max_chars: int = 60000) -> str:
+        """Return the full text of ALL documents in a category.
+
+        Unlike build_context() which uses BM25 to pick top-k, this method
+        dumps every document so the model always has the complete SOP set.
+        """
+        if not self.indexes:
+            return ""
+        if category and category in self.indexes:
+            targets = [self.indexes[category]]
+        else:
+            targets = list(self.indexes.values())
+
+        parts: List[str] = []
+        budget = max_chars
+        for idx in targets:
+            for d in idx.docs:
+                block = f"### Document : {d.name}  (catégorie : {d.category})\n{d.text.strip()}\n"
+                if len(block) > budget:
+                    block = block[:budget].rsplit("\n", 1)[0] + "\n…(tronqué)"
+                    parts.append(block)
+                    budget = 0
+                    break
+                parts.append(block)
+                budget -= len(block)
+            if budget <= 0:
+                break
+        logger.info("Injected %d documents into context (%d chars)",
+                    len(parts), max_chars - budget)
+        return "\n".join(parts)
+
 
 _store: Optional[DocStore] = None
 

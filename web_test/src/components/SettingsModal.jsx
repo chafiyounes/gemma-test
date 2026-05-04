@@ -87,7 +87,7 @@ export default function SettingsModal({ open, onClose }) {
           </div>
 
           {health && (
-            <div className={`health-panel ${health.status === "healthy" ? "ok" : "bad"}`}>
+            <div className={`health-panel ${health.status === "ok" ? "ok" : "bad"}`}>
               {health.error ? (
                 <div className="health-row">
                   <span>Connection</span>
@@ -97,27 +97,19 @@ export default function SettingsModal({ open, onClose }) {
                 <>
                   <div className="health-row">
                     <span>Status</span>
-                    <span className={`val ${health.status === "healthy" ? "ok" : "bad"}`}>
+                    <span className={`val ${health.status === "ok" ? "ok" : "bad"}`}>
                       {health.status}
                     </span>
                   </div>
                   <div className="health-row">
-                    <span>LLM Model</span>
-                    <span className={`val ${health.model_loaded ? "ok" : "bad"}`}>
-                      {health.model_loaded ? "✓ Loaded" : "✗ Not loaded"}
+                    <span>Model</span>
+                    <span className={`val ${health.model_available ? "ok" : "bad"}`}>
+                      {health.model_available ? `✓ ${health.model_name}` : "✗ Not available"}
                     </span>
                   </div>
                   <div className="health-row">
-                    <span>Vector DB</span>
-                    <span className={`val ${health.vectordb_connected ? "ok" : "bad"}`}>
-                      {health.vectordb_connected ? "✓ Connected" : "✗ Down"}
-                    </span>
-                  </div>
-                  <div className="health-row">
-                    <span>Redis Cache</span>
-                    <span className={`val ${health.redis_connected ? "ok" : "bad"}`}>
-                      {health.redis_connected ? "✓ Connected" : "✗ Down"}
-                    </span>
+                    <span>vLLM URL</span>
+                    <span className="val ok">{health.vllm_url}</span>
                   </div>
                 </>
               )}

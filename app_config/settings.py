@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     # ── vLLM inference server ──────────────────────────────────────────────
     # Points at the vLLM OpenAI-compatible endpoint running on the pod.
     # Override via .env or SSH tunnel forwarding.
-    VLLM_BASE_URL: str = "http://localhost:8001"
+    VLLM_BASE_URL: str = "http://localhost:8002"
     VLLM_MODEL_NAME: str = "google/gemma-3-27b-it"
     VLLM_API_KEY: Optional[str] = None
     VLLM_TIMEOUT: float = 240.0
