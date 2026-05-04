@@ -63,6 +63,7 @@ def _load_model():
         torch_dtype=torch.bfloat16,
         device_map="auto",
         low_cpu_mem_usage=True,
+        attn_implementation="flash_attention_2",
     )
     return m, "bf16"
 
