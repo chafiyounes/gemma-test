@@ -177,7 +177,7 @@ class DocStore:
         return "\n".join(parts)
 
     def build_all_docs_context(self, category: Optional[str] = None,
-                                max_chars: int = 60000) -> str:
+                                max_chars: int = 20000) -> str:
         """Return the full text of ALL documents in a category.
 
         Unlike build_context() which uses BM25 to pick top-k, this method
