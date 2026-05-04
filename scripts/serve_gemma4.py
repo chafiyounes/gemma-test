@@ -72,7 +72,7 @@ def _load_model():
 async def lifespan(app: FastAPI):
     global tokenizer, model, model_id, _infer_device
     log.info("Loading tokenizer from %s ...", MODEL_DIR)
-    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR)
+    tokenizer = AutoTokenizer.from_pretrained(MODEL_DIR, use_fast=False)
     model, quant_mode = _load_model()
     model.eval()
     model_id = os.path.basename(MODEL_DIR)
