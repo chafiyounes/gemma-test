@@ -6,22 +6,23 @@ git clone https://github.com/chafiyounes/gemma-test.git || (cd gemma-test && git
 echo "=== Installing Python deps ==="
 cd /workspace/gemma-test
 pip install -r requirements.txt --quiet
-echo "=== Installing vLLM ==="
-pip install "vllm>=0.5.0" --quiet
+echo "=== Installing bitsandbytes for INT8 quantization ==="
+pip install bitsandbytes --quiet
 echo "=== Creating .env ==="
 cat > /workspace/gemma-test/.env << 'ENVEOF'
-VLLM_BASE_URL=http://localhost:8001
-VLLM_MODEL_NAME=gemma
+VLLM_BASE_URL=http://localhost:8002
+VLLM_MODEL_NAME=google/gemma-3-27b-it
 AVAILABLE_MODELS=gemma,gemmaroc,atlaschat
 INTERACTIONS_DB_PATH=data/interactions.db
 USER_SITE_PASSWORD=user1234
 ADMIN_SITE_PASSWORD=admin1234
 SESSION_SECRET_KEY=gemma-test-secret-key-2026
 LOG_LEVEL=INFO
-MAX_TOKENS=512
+MAX_NEW_TOKENS=1024
 TEMPERATURE=0.7
-RATE_LIMIT_REQUESTS=20
-RATE_LIMIT_WINDOW=60
+TOP_P=0.9
+RATE_LIMIT_MAX_REQUESTS=30
+RATE_LIMIT_WINDOW_SECONDS=60
 ENVEOF
 echo "=== Creating directories ==="
 mkdir -p /workspace/gemma-test/data

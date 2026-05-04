@@ -80,9 +80,10 @@ class GemmaModel:
 
         sys_prompt = (system_prompt or SYSTEM_PROMPT).strip()
 
-        # Inject top-K SOP documents from the chosen category
+        # Inject ALL SOP documents from the chosen category into the context
+        # so the model always has the full set of procedure documents available.
         try:
-            ctx = get_store().build_context(message, category=category, k=5, max_chars=14000)
+            ctx = get_store().build_all_docs_context(category=category, max_chars=60000)
             if ctx:
                 cat_hint = f" (catégorie : {category})" if category else ""
                 sys_prompt = (
