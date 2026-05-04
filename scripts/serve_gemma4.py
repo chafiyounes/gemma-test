@@ -98,6 +98,7 @@ class ChatRequest(BaseModel):
     messages: list[Message]
     max_tokens: Optional[int] = None
     temperature: Optional[float] = None
+    top_p: Optional[float] = None
     stream: Optional[bool] = False
 
 
@@ -152,6 +153,8 @@ async def chat_completions(req: ChatRequest):
             attention_mask=attention_mask,
             max_new_tokens=max_tokens,
             temperature=temperature,
+            top_p=req.top_p if req.top_p is not None else 0.9,
+            repetition_penalty=1.05,
             do_sample=temperature > 0,
             pad_token_id=tokenizer.eos_token_id,
         )
