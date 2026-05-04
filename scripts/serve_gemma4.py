@@ -15,6 +15,9 @@ import torch
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+
+os.environ["CUDA_LAUNCH_BLOCKING"] = "1"
+os.environ["TORCH_USE_CUDA_DSA"] = "1"
 from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -54,14 +57,14 @@ def _load_model():
         except Exception as exc:
             log.warning("INT8 load failed (%s) — falling back to bfloat16", exc)
 
-    log.info("Loading model in float16 from %s (device_map=auto) ...", MODEL_DIR)
+    log.info("Loading model in bfloat16 from %s (device_map=auto) ...", MODEL_DIR)
     m = AutoModelForCausalLM.from_pretrained(
         MODEL_DIR,
-        torch_dtype=torch.float16,
+        torch_dtype=torch.bfloat16,
         device_map="auto",
         low_cpu_mem_usage=True,
     )
-    return m, "fp16"
+    return m, "bf16"
 
 
 @asynccontextmanager
