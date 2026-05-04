@@ -23,7 +23,7 @@ from transformers import AutoTokenizer, AutoModelForCausalLM, BitsAndBytesConfig
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
-MODEL_DIR = os.environ.get("MODEL_DIR", "/workspace/models/gemma-3-27b-it")
+MODEL_DIR = "/workspace/models/gemma-3-27b-it"
 MAX_NEW_TOKENS = int(os.environ.get("MAX_NEW_TOKENS", "1024"))
 TEMPERATURE = float(os.environ.get("TEMPERATURE", "0.7"))
 PORT = int(os.environ.get("PORT", "8002"))
