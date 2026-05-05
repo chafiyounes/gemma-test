@@ -134,6 +134,7 @@ Backend **does not** embed the model; it only needs `VLLM_BASE_URL` pointing at 
 
 ## 7. Deployment notes
 
+- **Roadmap (actions / tools / CI):** see [`NEXT_STEPS_ACTIONS.md`](NEXT_STEPS_ACTIONS.md).
 - Automation helpers live under **`artifacts/`** (e.g. `pod_deploy.py`) — paths and SSH details may be environment-specific; adjust before running.
 - Typical pod flow: install vLLM once → `git pull` → `start_vllm.sh` → start backend with uvicorn on **8000** (e.g. `uvicorn api.main:app --host 0.0.0.0 --port 8000`).
 - Frontend: build `web_test` (`npm run build`) so `web_test/dist` can be served by FastAPI, or run Vite dev server with CORS origins in `FRONTEND_ALLOWED_ORIGINS`.

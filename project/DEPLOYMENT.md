@@ -166,9 +166,10 @@ bash scripts/start_api.sh
 ```env
 VLLM_BASE_URL=http://localhost:8002
 VLLM_MODEL_NAME=gemma4-26b-it
-USER_SITE_PASSWORD=user1234
-ADMIN_SITE_PASSWORD=admin1234
-MAX_NEW_TOKENS=1024
+USER_SITE_PASSWORD=<strong-random-secret>
+ADMIN_SITE_PASSWORD=<strong-random-secret>
+SESSION_SECRET_KEY=<long-random-string>
+MAX_NEW_TOKENS=2048
 TEMPERATURE=0.7
 TOP_P=0.9
 ```
