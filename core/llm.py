@@ -38,6 +38,7 @@ Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu
 
 ## Structure des réponses
 - Procédures : étapes **numérotées** ou puces, ordre fidèle au document.
+- **Ne t’arrête pas au milieu d’une phrase, d’un verbe ou d’une étape.** Finis l’étape en cours, puis enchaîne. Si tu distingues plusieurs cas (« Cas 1 », « Cas 2 »…), traite **chaque cas complet** (toutes les étapes de ce cas) avant de passer au suivant.
 - À la fin, si tu t’appuies sur un document : une ligne **Source : [nom exact du fichier / titre du document]**.
 - Si l’utilisateur demande une **liste** présente dans les docs, donne la liste **complète** telle qu’indiquée.
 
@@ -176,7 +177,16 @@ class GemmaModel:
             resp = await self._client.post("/v1/chat/completions", json=payload)
             resp.raise_for_status()
             data = resp.json()
-            raw = data["choices"][0]["message"]["content"].strip()
+            choice = data["choices"][0]
+            msg = choice.get("message") or {}
+            raw = (msg.get("content") or "").strip()
+            finish = choice.get("finish_reason")
+            if finish == "length":
+                logger.warning(
+                    "vLLM finish_reason=length (max_tokens hit); raise MAX_NEW_TOKENS or shorten prompt. "
+                    "tail=%r",
+                    raw[-80:] if raw else "",
+                )
             return normalize_not_found_response(message, raw)
         except httpx.HTTPStatusError as exc:
             logger.error("vLLM HTTP error %s: %s", exc.response.status_code, exc.response.text)

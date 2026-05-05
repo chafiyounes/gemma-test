@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     VLLM_API_KEY: Optional[str] = None
     # vLLM on 2× A40 is fast; long RAG prompts + 700+ completion tokens still
     # need a generous client timeout.
-    VLLM_TIMEOUT: float = 120.0
+    VLLM_TIMEOUT: float = 240.0
 
     # ── RAG (BM25 vs inject-all for small categories) ─────────────────────
     # When raw corpus size is below RAG_FULL_CATEGORY_MAX_CHARS, concatenate
@@ -57,8 +57,9 @@ class Settings(BaseSettings):
     RATE_LIMIT_WINDOW_SECONDS: int = 60
 
     # ── Generation parameters ─────────────────────────────────────────────
-    # Long answers need a higher completion budget; 768 is a pragmatic default.
-    MAX_NEW_TOKENS: int = 768
+    # Procédures longues (FR + darija, plusieurs « cas ») dépassent vite 768 sorties.
+    # 2048 évite les coupures au milieu d’un mot / d’une étape (finish_reason=length).
+    MAX_NEW_TOKENS: int = 2048
     TEMPERATURE: float = 0.7
     TOP_P: float = 0.9
 
