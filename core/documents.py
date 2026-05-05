@@ -55,7 +55,9 @@ def _tokenize(text: str) -> List[str]:
     return [t.lower() for t in _TOKEN_RE.findall(text)]
 
 
-# BM25 is monolingual: English questions often miss French SOP terms — add hints.
+# BM25 is lexical: French/Darija questions may miss French SOP terms unless we
+# append French synonyms. **English questions must stay English-only** (no
+# French keyword stuffing) — rely on normal English terms + full-category inject.
 _LOGISTICS_EN_FR: tuple[tuple[str, str], ...] = (
     ("delivery", "livraison livrer livraisons"),
     ("deliver", "livrer livraison"),
@@ -75,7 +77,11 @@ _LOGISTICS_EN_FR: tuple[tuple[str, str], ...] = (
 )
 
 
-def expand_query_for_retrieval(query: str) -> str:
+def expand_query_for_retrieval_fr_darija(query: str) -> str:
+    """Append French logistics hints when the *user query* is French or Darija.
+
+    For **English** queries, do not call this — keep the query as plain English.
+    """
     low = (query or "").lower()
     extra: List[str] = []
     for en, fr in _LOGISTICS_EN_FR:
@@ -357,10 +363,18 @@ class DocStore:
             return 0
         return sum(len(d.text) for d in idx.docs)
 
-    def retrieve(self, query: str, category: Optional[str] = None, k: int = 5) -> List[Doc]:
+    def retrieve(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        k: int = 5,
+        *,
+        expand_fr_darija_hints: bool = False,
+    ) -> List[Doc]:
         if not self.indexes:
             return []
-        query = expand_query_for_retrieval(query)
+        if expand_fr_darija_hints:
+            query = expand_query_for_retrieval_fr_darija(query)
         if category and category in self.indexes:
             targets = [self.indexes[category]]
         else:
@@ -379,9 +393,18 @@ class DocStore:
         scored.sort(key=lambda x: x[0], reverse=True)
         return [d for _, d in scored[:k]]
 
-    def build_context(self, query: str, category: Optional[str] = None,
-                      k: int = 5, max_chars: int = 14000) -> str:
-        top = self.retrieve(query, category=category, k=k)
+    def build_context(
+        self,
+        query: str,
+        category: Optional[str] = None,
+        k: int = 5,
+        max_chars: int = 14000,
+        *,
+        expand_fr_darija_hints: bool = False,
+    ) -> str:
+        top = self.retrieve(
+            query, category=category, k=k, expand_fr_darija_hints=expand_fr_darija_hints
+        )
         if not top:
             return ""
         parts: List[str] = []
