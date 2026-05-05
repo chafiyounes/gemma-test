@@ -23,8 +23,9 @@ class Settings(BaseSettings):
 
     # ── RAG (BM25 vs inject-all for small categories) ─────────────────────
     # When raw corpus size is below RAG_FULL_CATEGORY_MAX_CHARS, concatenate
-    # every document in that category up to RAG_INJECT_MAX_CHARS; else BM25
-    # with EN→FR query expansion. Large folders self-select BM25.
+    # every document in that category up to RAG_INJECT_MAX_CHARS; else BM25.
+    # Optional French synonym hints on the query apply only for French/Darija
+    # retrieval (English queries stay English-only). Large folders self-select BM25.
     RAG_FULL_CATEGORY_MAX_CHARS: int = 999_999
     RAG_INJECT_MAX_CHARS: int = 40_000
     RAG_BM25_K: int = 8
