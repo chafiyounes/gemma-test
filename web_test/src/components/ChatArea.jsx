@@ -42,6 +42,7 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
 
   const messages = activeConversation.messages;
   const loading = !!activeConversation.loading;
+  const prevLoadingRef = useRef(loading);
   const isEmpty = messages.length === 0;
 
   useEffect(() => {
@@ -55,6 +56,15 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
         Math.min(textareaRef.current.scrollHeight, 150) + "px";
     }
   }, [input]);
+
+  // After a reply finishes, focus returns to the textarea (avoids "caret
+  // blinking" / focus traps where the UI looks ready but keys go nowhere).
+  useEffect(() => {
+    if (prevLoadingRef.current && !loading) {
+      textareaRef.current?.focus({ preventScroll: true });
+    }
+    prevLoadingRef.current = loading;
+  }, [loading]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -154,7 +164,17 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
             </p>
             <div className="sample-grid">
               {SAMPLES.map((s) => (
-                <button key={s} className="sample-chip" onClick={() => setInput(s)}>
+                <button
+                  key={s}
+                  className="sample-chip"
+                  type="button"
+                  onClick={() => {
+                    setInput(s);
+                    requestAnimationFrame(() =>
+                      textareaRef.current?.focus({ preventScroll: true })
+                    );
+                  }}
+                >
                   {s}
                 </button>
               ))}

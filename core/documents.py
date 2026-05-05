@@ -55,6 +55,37 @@ def _tokenize(text: str) -> List[str]:
     return [t.lower() for t in _TOKEN_RE.findall(text)]
 
 
+# BM25 is monolingual: English questions often miss French SOP terms — add hints.
+_LOGISTICS_EN_FR: tuple[tuple[str, str], ...] = (
+    ("delivery", "livraison livrer livraisons"),
+    ("deliver", "livrer livraison"),
+    ("region", "région destination villes zone"),
+    ("vendor", "vendeur vendeurs"),
+    ("customer", "client clients"),
+    ("refund", "remboursement"),
+    ("damaged", "endommagé"),
+    ("pickup", "ramassage"),
+    ("verification", "vérification vérifier"),
+    ("verify", "vérifier"),
+    ("system", "système plateforme"),
+    ("does not appear", "n'apparaît pas n'apparaissent pas"),
+    ("specific", "spécifique"),
+    ("asking if", "question demande"),
+    ("final client", "client final"),
+)
+
+
+def expand_query_for_retrieval(query: str) -> str:
+    low = (query or "").lower()
+    extra: List[str] = []
+    for en, fr in _LOGISTICS_EN_FR:
+        if en in low:
+            extra.append(fr)
+    if not extra:
+        return query
+    return f"{query}\n{' '.join(extra)}"
+
+
 def _collapse_ws(text: str) -> str:
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -320,9 +351,16 @@ class DocStore:
             score += idf * (f * (k1 + 1)) / (denom or 1)
         return score
 
+    def category_corpus_chars(self, category: str) -> int:
+        idx = self.indexes.get(category)
+        if not idx:
+            return 0
+        return sum(len(d.text) for d in idx.docs)
+
     def retrieve(self, query: str, category: Optional[str] = None, k: int = 5) -> List[Doc]:
         if not self.indexes:
             return []
+        query = expand_query_for_retrieval(query)
         if category and category in self.indexes:
             targets = [self.indexes[category]]
         else:
