@@ -202,8 +202,14 @@ class GemmaModel:
             logger.error("vLLM HTTP error %s: %s", exc.response.status_code, exc.response.text)
             return f"⚠️ Model error ({exc.response.status_code}). Please try again."
         except Exception as exc:
-            logger.error("vLLM request failed: %s", exc)
-            return "⚠️ Failed to reach the model server. Please check connectivity."
+            logger.error("vLLM request failed: %s", exc, exc_info=True)
+            return (
+                "⚠️ Cannot reach the inference server at "
+                f"{self._base_url}. If VRAM looks busy but chat fails, vLLM may "
+                "still be loading weights or nothing is listening on that URL — "
+                f"wait for `curl {self._base_url}/v1/models` on the pod, then "
+                "restart the API if needed."
+            )
 
     async def aclose(self) -> None:
         if self._client:

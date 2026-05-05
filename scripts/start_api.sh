@@ -15,15 +15,16 @@ echo "  Starting Gemma Test API"
 echo "  Listening on 0.0.0.0:$PORT"
 echo "══════════════════════════════════════════════════"
 
-# Wait for vLLM to be healthy before starting
-echo "Waiting for vLLM on port 8002..."
-for i in $(seq 1 30); do
-    if curl -sf http://localhost:8002/health > /dev/null 2>&1; then
+# Wait for vLLM to accept traffic (Gemma 4 can take many minutes to load shards).
+VLLM_URL="http://localhost:8002"
+echo "Waiting for vLLM on $VLLM_URL (up to ~18 min)..."
+for i in $(seq 1 72); do
+    if curl -sf "$VLLM_URL/health" > /dev/null 2>&1 || curl -sf "$VLLM_URL/v1/models" > /dev/null 2>&1; then
         echo "✓ vLLM is up"
         break
     fi
-    echo "  attempt $i/30 — retrying in 10s..."
-    sleep 10
+    echo "  attempt $i/72 — model may still be loading weights; retry in 15s..."
+    sleep 15
 done
 
 python3 -m uvicorn api.main:app \
