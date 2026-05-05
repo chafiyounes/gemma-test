@@ -1,10 +1,18 @@
 """Category-aware document loader + BM25 retrieval.
 
-Layout:
-    data/documents/<Category>/*.docx
+Layout (either is supported per category):
 
-Each first-level subdirectory of data/documents/ is treated as a CATEGORY.
-A query targets a specific category; the top-k matching docs are returned.
+1. **Preferred — cleaned text exports** (darija-chatbot-style pipeline):
+       data/documents_txt/<Category>/*.txt
+   Produced by ``python -m scripts.export_sop_to_txt`` from ``.docx`` sources.
+   Plain text only: body order preserved, metadata/author tables stripped.
+
+2. **Fallback — Word sources**:
+       data/documents/<Category>/*.docx
+   Parsed with body-order walking (paragraphs + tables interleaved), same idea
+   as ``darija-chatbot/chunking/parser.py`` — not ``doc.paragraphs`` + ``tables``
+   (that reorder content and drop context around tables).
+
 Files placed directly in data/documents/ (without a subfolder) are ignored.
 """
 from __future__ import annotations
@@ -21,17 +29,177 @@ logger = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "data" / "documents"
+DOCS_TXT_DIR = REPO_ROOT / "data" / "documents_txt"
 
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9\u0600-\u06FF]+", re.UNICODE)
+
+_HEADER_TABLE_KEYWORDS = {
+    "titre", "référence", "reference", "version",
+    "date d'application", "date d\u2019application",
+    "domaine d'application", "domaine d\u2019application",
+    "responsable",
+}
+_FOOTER_TABLE_KEYWORDS = {
+    "rédigé par", "redige par", "réalisé par", "realise par",
+    "vérifié par", "verifie par", "approuvé par", "approuve par",
+    "validé par", "valide par",
+}
+_AUTHOR_TEXT_KEYWORDS = [
+    "rédigé par", "redige par", "réalisé par", "realise par",
+    "vérifié par", "verifie par", "approuvé par", "approuve par",
+    "validé par", "valide par",
+]
 
 
 def _tokenize(text: str) -> List[str]:
     return [t.lower() for t in _TOKEN_RE.findall(text)]
 
 
+def _collapse_ws(text: str) -> str:
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def _strip_image_markers(text: str) -> str:
+    """Remove help-center style image placeholders; keep plain SOP text."""
+    text = re.sub(r"\[\[IMAGE:[^\]]+\]\]", "", text, flags=re.IGNORECASE)
+    return _collapse_ws(text)
+
+
+def strip_author_table_from_plain_text(text: str) -> str:
+    """Remove trailing markdown-style author/validation tables (darija-chatbot grouper idea)."""
+    lines = text.split("\n")
+    result: List[str] = []
+    table_block: List[str] = []
+    in_table = False
+
+    for line in lines:
+        if line.strip().startswith("|"):
+            in_table = True
+            table_block.append(line)
+        else:
+            if in_table:
+                block_lower = "\n".join(table_block).lower()
+                if any(kw in block_lower for kw in _AUTHOR_TEXT_KEYWORDS):
+                    pass  # drop
+                else:
+                    result.extend(table_block)
+                table_block = []
+                in_table = False
+            result.append(line)
+    if in_table and table_block:
+        block_lower = "\n".join(table_block).lower()
+        if not any(kw in block_lower for kw in _AUTHOR_TEXT_KEYWORDS):
+            result.extend(table_block)
+    return _collapse_ws("\n".join(result))
+
+
+def _table_to_markdown(table_xml) -> str:
+    from docx.oxml.ns import qn
+
+    rows = table_xml.findall(qn("w:tr"))
+    if not rows:
+        return ""
+
+    parsed_rows: List[List[str]] = []
+    for row in rows:
+        cells = row.findall(qn("w:tc"))
+        cell_texts = []
+        for cell in cells:
+            text = "".join(node.text or "" for node in cell.iter(qn("w:t"))).strip()
+            cell_texts.append(text)
+        parsed_rows.append(cell_texts)
+
+    if not parsed_rows:
+        return ""
+
+    headers = parsed_rows[0]
+    data_rows = parsed_rows[1:]
+    col_widths: List[int] = []
+    for i, h in enumerate(headers):
+        max_w = len(h)
+        for r in data_rows:
+            if i < len(r):
+                max_w = max(max_w, len(r[i]))
+        col_widths.append(max(max_w, 3))
+
+    lines: List[str] = []
+    lines.append("| " + " | ".join(h.ljust(w) for h, w in zip(headers, col_widths)) + " |")
+    lines.append("| " + " | ".join("-" * w for w in col_widths) + " |")
+    for row in data_rows:
+        padded = []
+        for i, w in enumerate(col_widths):
+            val = row[i] if i < len(row) else ""
+            padded.append(val.ljust(w))
+        lines.append("| " + " | ".join(padded) + " |")
+    return "\n".join(lines)
+
+
+def _is_metadata_markdown_table(md: str) -> bool:
+    """Detect SOP header/footer tables from first-column keywords (darija-chatbot)."""
+    lines = [ln for ln in md.splitlines() if ln.strip().startswith("|")]
+    if len(lines) < 2:
+        return False
+    first_cols: List[str] = []
+    for ln in lines:
+        parts = [p.strip() for p in ln.strip().strip("|").split("|")]
+        if parts:
+            first_cols.append(parts[0].lower())
+    all_kw = _HEADER_TABLE_KEYWORDS | _FOOTER_TABLE_KEYWORDS
+    matches = sum(1 for v in first_cols if v in all_kw)
+    return matches >= 2 or (bool(first_cols) and matches / len(first_cols) >= 0.5)
+
+
+def _read_docx_ordered(path: Path) -> str:
+    """Walk ``word/document.xml`` body order: paragraphs + tables (darija-chatbot style)."""
+    try:
+        from docx import Document
+        from docx.oxml.ns import qn
+    except ImportError:
+        logger.warning("python-docx not installed; cannot read %s", path.name)
+        return ""
+
+    try:
+        doc = Document(str(path))
+        body = doc.element.body
+        chunks: List[str] = []
+        for child in body:
+            tag = child.tag.split("}")[-1]
+            if tag == "p":
+                text = "".join(node.text or "" for node in child.iter(qn("w:t"))).strip()
+                if text:
+                    chunks.append(text)
+            elif tag == "tbl":
+                md = _table_to_markdown(child)
+                if md and not _is_metadata_markdown_table(md):
+                    chunks.append(md)
+        raw = "\n\n".join(chunks)
+        raw = strip_author_table_from_plain_text(raw)
+        return _strip_image_markers(raw)
+    except Exception as exc:
+        logger.warning("Ordered docx read failed for %s: %s", path.name, exc)
+        return ""
+
+
+def _read_txt(path: Path) -> str:
+    try:
+        text = path.read_text(encoding="utf-8")
+        text = strip_author_table_from_plain_text(text)
+        return _strip_image_markers(text)
+    except Exception as exc:
+        logger.warning("Could not read %s: %s", path.name, exc)
+        return ""
+
+
 def _read_docx(path: Path) -> str:
+    """Backward-compatible name: ordered parse, no paragraph/table split."""
+    text = _read_docx_ordered(path)
+    if text:
+        return text
     try:
         from docx import Document  # type: ignore
+
         doc = Document(str(path))
         parts = [p.text for p in doc.paragraphs if p.text and p.text.strip()]
         for table in doc.tables:
@@ -44,6 +212,7 @@ def _read_docx(path: Path) -> str:
         try:
             import xml.etree.ElementTree as ET
             import zipfile
+
             with zipfile.ZipFile(path) as zf:
                 with zf.open("word/document.xml") as f:
                     tree = ET.parse(f)
@@ -73,8 +242,9 @@ class CategoryIndex:
 class DocStore:
     """Per-category BM25 index. Each subfolder of data/documents/ is a category."""
 
-    def __init__(self, docs_dir: Path = DOCS_DIR):
+    def __init__(self, docs_dir: Path = DOCS_DIR, docs_txt_dir: Path = DOCS_TXT_DIR):
         self.docs_dir = docs_dir
+        self.docs_txt_dir = docs_txt_dir
         self.indexes: Dict[str, CategoryIndex] = {}
         self._load()
 
@@ -87,12 +257,19 @@ class DocStore:
             if not sub.is_dir():
                 continue
             cat_name = sub.name
-            files = sorted(sub.glob("*.docx"))
+            txt_cat = self.docs_txt_dir / cat_name
+            use_txt = txt_cat.is_dir() and any(txt_cat.glob("*.txt"))
+            if use_txt:
+                files = sorted(txt_cat.glob("*.txt"))
+                reader = _read_txt
+            else:
+                files = sorted(sub.glob("*.docx"))
+                reader = _read_docx
             docs: List[Doc] = []
             df: Counter = Counter()
             total_len = 0
             for p in files:
-                text = _read_docx(p)
+                text = reader(p)
                 if not text.strip():
                     continue
                 toks = _tokenize(text)
@@ -110,7 +287,12 @@ class DocStore:
                     df=df,
                     avgdl=total_len / len(docs),
                 )
-                logger.info("DocStore: category '%s' loaded %d docs", cat_name, len(docs))
+                logger.info(
+                    "DocStore: category '%s' loaded %d docs (%s)",
+                    cat_name,
+                    len(docs),
+                    "documents_txt" if use_txt else "docx",
+                )
             else:
                 logger.warning("DocStore: category '%s' has no readable docs", cat_name)
 

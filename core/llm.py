@@ -12,7 +12,7 @@ SYSTEM_PROMPT = """Tu es l'assistant IA officiel de SENDIT, une entreprise maroc
 Ton rôle est de répondre avec une PRÉCISION ABSOLUE aux questions des collaborateurs concernant les procédures internes (SOP).
 
 CONTEXTE FOURNI :
-Ci-dessous, tu recevras le texte intégral de plusieurs documents de référence. Chaque document commence par "### Document : [Nom]".
+Ci-dessous, tu recevras des extraits pertinents des documents de référence (récupération BM25). Chaque extrait commence par "### Document : [Nom]".
 
 INSTRUCTIONS CRITIQUES :
 1. EXACTITUDE : Ta réponse doit s'appuyer **UNIQUEMENT** sur les documents fournis. Ne fais aucune supposition et n'ajoute aucune information externe.
@@ -77,10 +77,15 @@ class GemmaModel:
 
         sys_prompt = (system_prompt or SYSTEM_PROMPT).strip()
 
-        # Inject ALL SOP documents from the chosen category into the context
-        # so the model always has the full set of procedure documents available.
+        # Keep context bounded to avoid overflowing model context windows.
+        # Large injected prompts can cause inference instability on some models.
         try:
-            ctx = get_store().build_all_docs_context(category=category, max_chars=60000)
+            ctx = None
+            if category:
+                # BM25 top-k chunks only (darija-style: necessary text, not whole corpus).
+                ctx = get_store().build_context(
+                    message, category=category, k=5, max_chars=12000
+                )
             if ctx:
                 cat_hint = f" (catégorie : {category})" if category else ""
                 sys_prompt = (
