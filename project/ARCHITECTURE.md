@@ -115,7 +115,7 @@ flowchart LR
 - Start: `bash scripts/start_vllm.sh [gemma4|gemma|gemmaroc|atlaschat]`
 - Listens on **port 8002**, OpenAI-compatible **`POST /v1/chat/completions`**, **`GET /health`**
 - Env knobs (typical): `VLLM_TENSOR_PARALLEL_SIZE=2`, `VLLM_MAX_MODEL_LEN`, `VLLM_GPU_MEMORY_UTILIZATION`
-- **`VLLM_MAX_MODEL_LEN` vs RAG:** full-category inject can be **many thousand tokens**. If `prompt_tokens + max_tokens` would exceed `--max-model-len`, vLLM **shrinks the completion budget** — answers then stop mid-sentence at roughly the same place (`finish_reason=length`). Default in `start_vllm.sh` is **16384** (raise if VRAM allows, or lower `RAG_INJECT_MAX_CHARS`). The API logs `prompt_tokens` / `completion_tokens` / `finish_reason` after each chat.
+- **`VLLM_MAX_MODEL_LEN` vs RAG:** full-category inject can be **many thousand tokens**. If `prompt_tokens + max_tokens` would exceed `--max-model-len`, vLLM **shrinks the completion budget** — answers then stop mid-sentence at roughly the same place (`finish_reason=length`). Defaults: `start_vllm.sh` uses **12288** (tunable); `RAG_INJECT_MAX_CHARS` limits inject size so smaller `--max-model-len` (e.g. 8192) still leaves room for long answers. API logs `prompt_tokens` / `completion_tokens` / `finish_reason` after each chat.
 - `serve_gemma4` processes are killed when starting vLLM (see `start_vllm.sh`)
 
 **Fallback / legacy:** `scripts/serve_gemma4.py` — single-process FastAPI + Transformers + optional CPU offload; same HTTP shape as vLLM for the backend client.
