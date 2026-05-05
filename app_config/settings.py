@@ -15,17 +15,15 @@ class Settings(BaseSettings):
     # Points at the vLLM OpenAI-compatible endpoint running on the pod.
     # Override via .env or SSH tunnel forwarding.
     VLLM_BASE_URL: str = "http://localhost:8002"
-    VLLM_MODEL_NAME: str = "google/gemma-3-27b-it"
+    VLLM_MODEL_NAME: str = "gemma4-26b-it"
     VLLM_API_KEY: Optional[str] = None
-    VLLM_TIMEOUT: float = 240.0
+    # vLLM 0.19+ on 2× A40 (TP=2) sustains ~70-80 tok/s, so a 256-token reply
+    # finishes in <5s. 120s is comfortable headroom for prompt-heavy requests.
+    VLLM_TIMEOUT: float = 120.0
 
     # ── Available model slots (for admin model switching) ──────────────────
-    # Comma-separated list of HuggingFace model IDs to display in the admin UI.
-    AVAILABLE_MODELS: str = (
-        "google/gemma-3-27b-it,"
-        "AbderrahmanSkiredj1/GemMaroc-27b-it,"
-        "BounharAbdelaziz/Atlas-Chat-27B"
-    )
+    # Local model directory names (under /workspace/models/) shown in admin UI.
+    AVAILABLE_MODELS: str = "gemma4-26b-it"
 
     # ── SQLite persistence ─────────────────────────────────────────────────
     INTERACTIONS_DB_PATH: str = "data/interactions.db"
@@ -51,7 +49,7 @@ class Settings(BaseSettings):
     RATE_LIMIT_WINDOW_SECONDS: int = 60
 
     # ── Generation parameters ─────────────────────────────────────────────
-    MAX_NEW_TOKENS: int = 1024
+    MAX_NEW_TOKENS: int = 256
     TEMPERATURE: float = 0.7
     TOP_P: float = 0.9
 

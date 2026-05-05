@@ -1,4 +1,7 @@
-const TIMEOUT_MS = 120_000;
+// vLLM 0.19+ on 2× A40 sustains ~70-80 tok/s, so a 256-token reply finishes
+// in ~5s. 60s gives generous headroom for prompt-heavy RAG queries while
+// still failing fast if the backend is hung.
+const TIMEOUT_MS = 60_000;
 const API_URL_STORAGE_KEY = "sendbot_api_url";
 const USER_ID_STORAGE_KEY = "sendbot_user_id";
 const DEBUG_RAG_STORAGE_KEY = "sendbot_debug_rag";

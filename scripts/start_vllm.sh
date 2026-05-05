@@ -1,22 +1,22 @@
 #!/usr/bin/env bash
 # ─────────────────────────────────────────────────────────────────────────────
-# start_vllm.sh  —  Start the transformers inference server (serve_gemma4.py)
+# start_vllm.sh  —  Start the vLLM OpenAI-compatible server on the pod.
+#
+# vLLM 0.19.0 added Gemma 4 support (Gemma4ForConditionalGeneration, MoE).
+# It lives in an isolated venv at /workspace/vllm-venv so it doesn't fight
+# with the transformers 5.x stack used by the FastAPI backend.
 #
 # Usage:
-#   bash scripts/start_vllm.sh gemma4       # load Gemma 4 26B-IT (default)
-#   bash scripts/start_vllm.sh gemma        # load Gemma 3 27B-IT
-#   bash scripts/start_vllm.sh gemmaroc     # load GemMaroc-27b-it
-#   bash scripts/start_vllm.sh atlaschat    # load Atlas-Chat-27B
+#   bash scripts/start_vllm.sh gemma4       # default
+#   bash scripts/start_vllm.sh gemma        # gemma 3 27B (if downloaded)
 #
-# The inference server listens on port 8002.
-# The FastAPI backend reads VLLM_BASE_URL from .env to reach this server.
+# Listens on port 8002, OpenAI-compatible /v1/chat/completions endpoint.
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
-MODEL_DIR="/workspace/models"
+VENV=/workspace/vllm-venv
+MODEL_DIR=/workspace/models
 PORT=8002
-# INT8 quantization — set USE_INT8=0 to disable
-USE_INT8="${USE_INT8:-1}"
 
 declare -A MODEL_MAP=(
     [gemma4]="$MODEL_DIR/gemma4-26b-it"
@@ -34,36 +34,58 @@ if [[ -z "${MODEL_MAP[$TARGET]+x}" ]]; then
 fi
 
 MODEL_PATH="${MODEL_MAP[$TARGET]}"
-
 if [[ ! -d "$MODEL_PATH" ]]; then
     echo "✗ Model not found at $MODEL_PATH"
-    echo "  Run first:  bash scripts/download_models.sh $TARGET"
     exit 1
 fi
 
-echo "══════════════════════════════════════════════════"
-echo "  Starting transformers inference server"
-echo "  Model : $TARGET  →  $MODEL_PATH"
-echo "  Port  : $PORT"
-echo "  INT8  : $USE_INT8"
-echo "══════════════════════════════════════════════════"
+if [[ ! -f "$VENV/bin/activate" ]]; then
+    echo "✗ vLLM venv missing at $VENV — run scripts/install_vllm.sh first"
+    exit 1
+fi
 
-# Kill any existing inference server process (including stale OOM-crashed processes)
-pkill -9 -f "serve_gemma4" 2>/dev/null && echo "Killed previous serve_gemma4" || true
+# Both A40s for tensor parallelism. vLLM ≥0.19 dispatches Gemma 4 MoE
+# correctly across two GPUs (the transformers-direct path was broken).
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
+export VLLM_TENSOR_PARALLEL_SIZE="${VLLM_TENSOR_PARALLEL_SIZE:-2}"
+export VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-8192}"
+export VLLM_GPU_MEMORY_UTILIZATION="${VLLM_GPU_MEMORY_UTILIZATION:-0.85}"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# Kill any previous vllm / serve_gemma4 process
 pkill -9 -f "vllm.entrypoints" 2>/dev/null || true
-# Give the OS time to release CUDA contexts fully (important after OOM crashes)
-sleep 6
+pkill -9 -f "vllm serve"       2>/dev/null || true
+pkill -9 -f "serve_gemma4"     2>/dev/null && echo "Killed previous serve_gemma4" || true
+sleep 5
+
+echo "══════════════════════════════════════════════════"
+echo "  Starting vLLM server"
+echo "  Model      : $TARGET  →  $MODEL_PATH"
+echo "  Port       : $PORT"
+echo "  GPUs       : $CUDA_VISIBLE_DEVICES (tp=$VLLM_TENSOR_PARALLEL_SIZE)"
+echo "  Max len    : $VLLM_MAX_MODEL_LEN"
+echo "  GPU mem    : $VLLM_GPU_MEMORY_UTILIZATION"
+echo "══════════════════════════════════════════════════"
 
 echo "--- GPU state before load ---"
 nvidia-smi --query-gpu=index,name,memory.total,memory.used,memory.free --format=csv,noheader
 echo ""
 
-# Use BOTH GPUs via device_map="auto" in serve_gemma4.py
-# The model layers will be distributed automatically across available GPUs
-export CUDA_VISIBLE_DEVICES=0,1
-# Allow PyTorch to expand CUDA memory segments to reduce fragmentation
-export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+mkdir -p /workspace/gemma-test/logs
 
-USE_INT8="$USE_INT8" MODEL_DIR="$MODEL_PATH" PORT="$PORT" \
-python3 /workspace/gemma-test/scripts/serve_gemma4.py \
+# shellcheck source=/dev/null
+source "$VENV/bin/activate"
+
+# `--served-model-name` lets the FastAPI client send model="gemma4-26b-it"
+# without hitting a 404 on the actual filesystem path.
+exec vllm serve "$MODEL_PATH" \
+    --served-model-name gemma4-26b-it \
+    --host 0.0.0.0 \
+    --port "$PORT" \
+    --tensor-parallel-size "$VLLM_TENSOR_PARALLEL_SIZE" \
+    --max-model-len "$VLLM_MAX_MODEL_LEN" \
+    --gpu-memory-utilization "$VLLM_GPU_MEMORY_UTILIZATION" \
+    --limit-mm-per-prompt '{"image":0,"audio":0,"video":0}' \
+    --disable-custom-all-reduce \
+    --trust-remote-code \
     2>&1 | tee "/workspace/gemma-test/logs/vllm_${TARGET}.log"
