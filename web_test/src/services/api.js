@@ -1,6 +1,5 @@
-// Long RAG context + up to ~768 completion tokens can take on the order of
-// tens of seconds; 120s avoids spurious UI timeouts.
-const TIMEOUT_MS = 120_000;
+// Long RAG context + up to ~2k completion tokens can exceed 2 minutes on busy GPUs.
+const TIMEOUT_MS = 240_000;
 const API_URL_STORAGE_KEY = "sendbot_api_url";
 const USER_ID_STORAGE_KEY = "sendbot_user_id";
 const DEBUG_RAG_STORAGE_KEY = "sendbot_debug_rag";
