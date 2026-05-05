@@ -48,7 +48,11 @@ fi
 # correctly across two GPUs (the transformers-direct path was broken).
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"
 export VLLM_TENSOR_PARALLEL_SIZE="${VLLM_TENSOR_PARALLEL_SIZE:-2}"
-export VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-8192}"
+# RAG: full-category inject can be tens of thousands of characters. With
+# --max-model-len 8192, vLLM clamps completion budget so prompt+output fits;
+# you then see repeatable cut-offs mid-sentence. 16384 is a safer default on
+# 2×48GB; set lower if GPU OOM (or reduce RAG_INJECT_MAX_CHARS in settings).
+export VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-16384}"
 export VLLM_GPU_MEMORY_UTILIZATION="${VLLM_GPU_MEMORY_UTILIZATION:-0.85}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 

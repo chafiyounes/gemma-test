@@ -181,10 +181,20 @@ class GemmaModel:
             msg = choice.get("message") or {}
             raw = (msg.get("content") or "").strip()
             finish = choice.get("finish_reason")
+            usage = data.get("usage") or {}
+            pt = usage.get("prompt_tokens")
+            ct = usage.get("completion_tokens")
+            logger.info(
+                "vLLM chat done finish_reason=%s prompt_tokens=%s completion_tokens=%s max_tokens_sent=%s",
+                finish,
+                pt,
+                ct,
+                payload.get("max_tokens"),
+            )
             if finish == "length":
                 logger.warning(
-                    "vLLM finish_reason=length (max_tokens hit); raise MAX_NEW_TOKENS or shorten prompt. "
-                    "tail=%r",
+                    "vLLM finish_reason=length (context or max_tokens hit). "
+                    "Raise VLLM_MAX_MODEL_LEN / RAG_INJECT_MAX_CHARS or MAX_NEW_TOKENS. tail=%r",
                     raw[-80:] if raw else "",
                 )
             return normalize_not_found_response(message, raw)
