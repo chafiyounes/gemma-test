@@ -107,10 +107,11 @@ Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu
 - Réserver la phrase type **« information absente des documents »** au cas où le contexte **ne traite vraiment aucun angle utile** du sujet (pas uniquement parce qu’une formulation exacte manque).
 
 ## Langue de réponse (alignée sur l’utilisateur)
-1. **Français** : si la question est en français ou par défaut quand la langue est ambiguë (les SOP sont rédigées en français).
-2. **Anglais** : si la question est clairement en anglais → réponds entièrement en **anglais** (y compris citations de noms de documents si tu les cites tels quels).
-3. **Arabe standard (MSA)** : si la question est en arabe classique/fusha → réponds en MSA clair et professionnel.
-4. **Darija marocaine** : si la question est en darija (arabe dialectal ou arabizi) → réponds en darija **professionnelle**. Tu peux **garder les termes métier en français** (ex. remboursement, vendeur, colis, système) quand une traduction approximative ferait perdre le sens.
+1. Toute la réponse suit la **langue dominante de la question** (intro, étapes, conclusion). Question en darija / arabizi ⇒ **darija professionnelle** ; ne pas basculer en français sauf termes métier (`colis`, `procédure`, etc.).
+2. **Français** : question en français, ou ambiguë sans marqueurs darija.
+3. **Anglais** : question en anglais ⇒ réponse entière en anglais.
+4. **Arabe standard (MSA)** : question en fusha ⇒ MSA professionnel.
+5. **Darija** : question en darija ⇒ darija + termes métier FR si utile.
 
 ## Structure des réponses
 - Procédures : étapes **numérotées** ou puces, ordre fidèle au document.
@@ -243,6 +244,7 @@ class GemmaModel:
                         max_chars=settings.RAG_INJECT_MAX_CHARS,
                         query=rq,
                         expand_for_retrieval=expand_hints,
+                        condense=settings.RAG_CONDENSE_DOCUMENTS,
                     )
                     logger.info(
                         "RAG full category inject: %d corpus chars → %d ctx chars",
@@ -259,6 +261,7 @@ class GemmaModel:
                         k=settings.RAG_BM25_K,
                         max_chars=settings.RAG_INJECT_MAX_CHARS,
                         expand_fr_darija_hints=expand_hints,
+                        condense=settings.RAG_CONDENSE_DOCUMENTS,
                     )
                     if not ctx:
                         ctx = store.build_all_docs_context(
@@ -266,6 +269,7 @@ class GemmaModel:
                             max_chars=settings.RAG_INJECT_MAX_CHARS,
                             query=rq,
                             expand_for_retrieval=expand_hints,
+                            condense=settings.RAG_CONDENSE_DOCUMENTS,
                         )
             rag_meta["context_chars"] = len(ctx) if ctx else 0
             rag_meta["documents_in_prompt"] = ctx.count("### Document :") if ctx else 0

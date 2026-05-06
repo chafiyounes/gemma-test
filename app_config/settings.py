@@ -29,8 +29,13 @@ class Settings(BaseSettings):
     RAG_FULL_CATEGORY_MAX_CHARS: int = 999_999
     # Hard cap per inject pass — keep headroom inside vLLM --max-model-len (often
     # 8192–12288) for instructions + chat template + completion (see start_vllm.sh).
-    RAG_INJECT_MAX_CHARS: int = 18_000
+    RAG_INJECT_MAX_CHARS: int = 24_000
     RAG_BM25_K: int = 8
+    # Tighten whitespace/newlines in injected bodies so more SOP text fits the budget
+    # (semantic content unchanged; prefer ``data/documents_txt`` sources when possible).
+    RAG_CONDENSE_DOCUMENTS: bool = True
+    # Replay answers only after explicit user « like »; dislikes remove the entry for that Q.
+    LIKED_ANSWER_CACHE_ENABLED: bool = True
     # When the UI sends no category, pick this folder under data/documents/ if it
     # exists; otherwise the first category name (sorted).
     RAG_DEFAULT_CATEGORY: str = "procedures"
