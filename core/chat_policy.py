@@ -221,6 +221,18 @@ _NOT_FOUND_MARKERS = (
 )
 
 
+def claims_absent_in_docs_response(model_text: str) -> bool:
+    """True if the model claims the answer is not in the (supposedly provided) procedures."""
+    low = (model_text or "").lower()
+    if any(m in low for m in _NOT_FOUND_MARKERS):
+        return True
+    if "absent" in low and "document" in low:
+        return True
+    if "introuvable" in low and ("procédure" in low or "document" in low):
+        return True
+    return False
+
+
 def unsupported_latin_language_message(text: str) -> str | None:
     """If Latin text looks like a non-serviced language (e.g. Spanish), return **French** notice."""
     if re.search(r"[\u0600-\u06FF]", text or ""):
@@ -233,8 +245,16 @@ def unsupported_latin_language_message(text: str) -> str | None:
     return POLICY_UNSUPPORTED_LANG["fr"]
 
 
-def normalize_not_found_response(user_message: str, model_text: str) -> str:
-    """If the model used the old single-language fallback, map to user language."""
+def normalize_not_found_response(
+    user_message: str, model_text: str, *, rag_context_chars: int = 0
+) -> str:
+    """If the model used the old single-language fallback, map to user language.
+
+    When substantial RAG text was injected, do **not** collapse answers to the short
+    NOT_FOUND templates — that hides recoverable procedure content.
+    """
+    if rag_context_chars >= 400:
+        return model_text
     low = (model_text or "").lower()
     if not any(m in low for m in _NOT_FOUND_MARKERS):
         return model_text
