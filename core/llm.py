@@ -9,6 +9,7 @@ from app_config.settings import settings
 from core.chat_policy import (
     POLICY_PROFANITY,
     POLICY_UNSUPPORTED_LANG,
+    claims_absent_in_docs_response,
     detect_lang_bucket,
     has_unsupported_script,
     message_contains_profanity,
@@ -27,6 +28,22 @@ class LLMGenerateResult:
 
     text: str
     rag: Dict[str, Any] = field(default_factory=dict)
+
+
+# Second model call when the first claims "absent" despite a large RAG inject.
+_RAG_REPAIR_MIN_CONTEXT_CHARS = 500
+_RAG_REPAIR_TEMPERATURE = 0.35
+_RAG_REPAIR_USER = (
+    "Le message système contenait une section **DOCUMENTS DE RÉFÉRENCE** avec des extraits de procédures SENDIT "
+    "(coordonnées / téléphone, livraison, colis, vendeur). "
+    "Ta réponse précédente disait à tort que l’information n’y était pas.\n"
+    "Reprends **uniquement** à partir de ces extraits : réponds **dans la même langue que la question utilisateur** "
+    "(darija professionnelle si la question était en darija / mélange), avec des **étapes numérotées** pour le cas : "
+    "vendeur qui veut **changer le numéro de téléphone du client** alors que le **colis est déjà en livraison**. "
+    "Si les textes ne décrivent pas exactement ce cas, indique les **étapes les plus proches** (coordonnées, statut, "
+    "contact livreur, etc.) et précise l’écart. "
+    "Dernière ligne obligatoire : **Source :** + nom exact du document cité."
+)
 
 
 # After deploy / start_all, vLLM often needs several minutes before :8002 accepts HTTP.
@@ -150,6 +167,29 @@ class GemmaModel:
         except Exception:
             return False
 
+    async def _rag_repair_turn(
+        self,
+        base_messages: list[dict],
+        first_answer: str,
+        payload_template: dict,
+    ) -> str:
+        """One follow-up turn when the model wrongly claims info is missing despite RAG text."""
+        msgs = list(base_messages) + [
+            {"role": "assistant", "content": first_answer},
+            {"role": "user", "content": _RAG_REPAIR_USER},
+        ]
+        payload = {
+            **payload_template,
+            "messages": msgs,
+            "temperature": _RAG_REPAIR_TEMPERATURE,
+        }
+        resp = await self._client.post("/v1/chat/completions", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        choice = data["choices"][0]
+        msg = choice.get("message") or {}
+        return (msg.get("content") or "").strip()
+
     async def generate(
         self,
         message: str,
@@ -250,6 +290,8 @@ class GemmaModel:
             rag_meta["context_chars"] = 0
             rag_meta["documents_in_prompt"] = 0
 
+        ctx_len = int(rag_meta.get("context_chars") or 0)
+
         messages = [{"role": "system", "content": sys_prompt}]
 
         for turn in hist:
@@ -317,8 +359,26 @@ class GemmaModel:
                     "Raise VLLM_MAX_MODEL_LEN / RAG_INJECT_MAX_CHARS or MAX_NEW_TOKENS. tail=%r",
                     raw[-80:] if raw else "",
                 )
+            if (
+                ctx
+                and ctx_len >= _RAG_REPAIR_MIN_CONTEXT_CHARS
+                and claims_absent_in_docs_response(raw)
+            ):
+                logger.warning(
+                    "RAG repair turn: first answer claims missing docs despite %s context chars",
+                    ctx_len,
+                )
+                try:
+                    repaired = await self._rag_repair_turn(messages, raw, payload)
+                    if repaired:
+                        raw = repaired
+                        rag_meta["rag_repair"] = True
+                except Exception as exc:
+                    logger.error("RAG repair turn failed: %s", exc)
             return LLMGenerateResult(
-                text=normalize_not_found_response(message, raw),
+                text=normalize_not_found_response(
+                    message, raw, rag_context_chars=ctx_len
+                ),
                 rag=rag_meta,
             )
         except httpx.HTTPStatusError as exc:
