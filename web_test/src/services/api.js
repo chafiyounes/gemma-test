@@ -2,7 +2,6 @@
 const TIMEOUT_MS = 240_000;
 const API_URL_STORAGE_KEY = "sendbot_api_url";
 const USER_ID_STORAGE_KEY = "sendbot_user_id";
-const DEBUG_RAG_STORAGE_KEY = "sendbot_debug_rag";
 const DEFAULT_API_URL = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
 
 function buildUrl(path) {
@@ -32,14 +31,6 @@ export function getApiUrl() {
 
 export function setApiUrl(url) {
   localStorage.setItem(API_URL_STORAGE_KEY, url.replace(/\/+$/, ""));
-}
-
-export function getDebugRag() {
-  return localStorage.getItem(DEBUG_RAG_STORAGE_KEY) === "true";
-}
-
-export function setDebugRag(enabled) {
-  localStorage.setItem(DEBUG_RAG_STORAGE_KEY, enabled ? "true" : "false");
 }
 
 export function getClientUserId() {
@@ -97,7 +88,6 @@ export async function sendChat({ message, userId, sessionId, history, category }
       session_id: sessionId,
       conversation_history: history.slice(-20),
       category: category || null,
-      debug_rag: getDebugRag(),
     }),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });

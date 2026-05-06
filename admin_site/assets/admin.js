@@ -16,8 +16,6 @@ const sessionRole = document.getElementById("session-role");
 const logoutButton = document.getElementById("logout-button");
 const refreshButton = document.getElementById("refresh-button");
 const evalToggle = document.getElementById("eval-toggle");
-const darijaToggle = document.getElementById("darija-toggle");
-const cacheFlushBtn = document.getElementById("cache-flush");
 const gatedContent = document.getElementById("gated-content");
 const searchInput = document.getElementById("search-input");
 const feedbackFilter = document.getElementById("feedback-filter");
@@ -172,7 +170,6 @@ async function handleLogin(event) {
     renderSession();
     await loadInteractions();
     await loadEvalStatus();
-    await loadDarijaStatus();
   } catch (error) {
     loginError.textContent = error.message;
     loginError.classList.remove("hidden");
@@ -299,11 +296,6 @@ function renderInteractionCard(item, nested = false) {
         ${feedback}
       </div>
       <div class="interaction-message">${escapeHtml(item.message)}</div>
-      <div class="interaction-meta">
-        <span>${item.detected_language || "unknown"}</span>
-        <span>${item.context_used ? "RAG" : "sans RAG"}</span>
-        <span>${item.from_cache ? "cache" : "live"}</span>
-      </div>
     </button>`;
 }
 
@@ -404,16 +396,6 @@ function renderDetail(item) {
       <section class="detail-block">
         <div class="detail-label">Feedback</div>
         ${feedbackBlock}
-      </section>
-
-      <section class="detail-block">
-        <div class="detail-label">Metadata</div>
-        <pre>${escapeHtml(JSON.stringify(item.metadata || {}, null, 2))}</pre>
-      </section>
-
-      <section class="detail-block">
-        <div class="detail-label">RAG Debug</div>
-        <pre>${escapeHtml(JSON.stringify(item.rag_debug || {}, null, 2))}</pre>
       </section>
 
       ${renderEvaluation(item)}
@@ -527,85 +509,10 @@ async function handleEvalToggle() {
   });
 }
 
-async function loadDarijaStatus() {
-  setToggleLoading(darijaToggle, "Darija: LOADING...", true);
-  try {
-    const response = await apiFetch("/admin/darija-status");
-    const data = await response.json();
-    setToggleLoading(darijaToggle, "Darija: LOADING...", false);
-
-    darijaToggle.dataset.available = data.available ? "true" : "false";
-    if (data.available) {
-      darijaToggle.textContent = `Darija: ${data.enabled ? "ON" : "OFF"}`;
-      darijaToggle.title = "Toggle Darija language support";
-    } else {
-      darijaToggle.textContent = "Darija: UNAVAILABLE";
-      darijaToggle.title = data.reason ? `Unavailable: ${data.reason}` : "Darija translation models are not loaded";
-    }
-    darijaToggle.classList.toggle("active", data.enabled);
-    darijaToggle.disabled = !data.available;
-  } catch {
-    setToggleLoading(darijaToggle, "Darija: LOADING...", false);
-    darijaToggle.dataset.available = "false";
-    darijaToggle.textContent = "Darija: ERROR";
-    darijaToggle.title = "Failed to fetch Darija status";
-    darijaToggle.disabled = true;
-  }
-}
-
-async function handleDarijaToggle() {
-  if (darijaToggle.disabled || darijaToggle.dataset.available !== "true") return;
-
-  const nextEnabled = !darijaToggle.classList.contains("active");
-  showToggleConfirmation(darijaToggle, "Darija support", nextEnabled, async () => {
-    setToggleLoading(darijaToggle, "Darija: APPLYING...", true);
-    try {
-      const response = await apiFetch("/admin/darija-toggle", { method: "POST" });
-      const data = await response.json();
-      setToggleLoading(darijaToggle, "Darija: APPLYING...", false);
-
-      darijaToggle.dataset.available = "true";
-      darijaToggle.textContent = `Darija: ${data.enabled ? "ON" : "OFF"}`;
-      darijaToggle.title = "Toggle Darija language support";
-      darijaToggle.classList.toggle("active", data.enabled);
-      darijaToggle.disabled = false;
-    } catch (error) {
-      setToggleLoading(darijaToggle, "Darija: APPLYING...", false);
-      darijaToggle.disabled = darijaToggle.dataset.available !== "true";
-      alert("Failed to toggle Darija: " + error.message);
-    }
-  });
-}
-
-async function handleCacheFlush() {
-  if (!cacheFlushBtn) return;
-  if (!confirm("Vider le cache Redis du chatbot ?\nCette action supprime toutes les reponses mises en cache.")) {
-    return;
-  }
-  const previousLabel = cacheFlushBtn.textContent;
-  cacheFlushBtn.disabled = true;
-  cacheFlushBtn.textContent = "Cache: VIDAGE...";
-  try {
-    const response = await apiFetch("/admin/cache-flush", { method: "POST" });
-    const data = await response.json();
-    cacheFlushBtn.textContent = `Cache vide (${data.deleted})`;
-    setTimeout(() => {
-      cacheFlushBtn.textContent = previousLabel;
-      cacheFlushBtn.disabled = false;
-    }, 2500);
-  } catch (error) {
-    cacheFlushBtn.textContent = previousLabel;
-    cacheFlushBtn.disabled = false;
-    alert("Echec du vidage du cache: " + (error.message || "erreur inconnue"));
-  }
-}
-
 loginForm.addEventListener("submit", handleLogin);
 logoutButton.addEventListener("click", handleLogout);
 refreshButton.addEventListener("click", () => loadInteractions().catch(handleLoadError));
 evalToggle.addEventListener("click", handleEvalToggle);
-darijaToggle.addEventListener("click", handleDarijaToggle);
-if (cacheFlushBtn) cacheFlushBtn.addEventListener("click", handleCacheFlush);
 searchInput.addEventListener("input", (event) => {
   state.search = event.target.value.trim();
   loadInteractions().catch(handleLoadError);
@@ -627,7 +534,7 @@ function handleLoadError(error) {
 loadSession()
   .then(() => {
     if (state.session?.role === "admin") {
-      return Promise.all([loadInteractions(), loadEvalStatus(), loadDarijaStatus()]);
+      return Promise.all([loadInteractions(), loadEvalStatus()]);
     }
     return null;
   })
