@@ -128,6 +128,64 @@ body {
   gap: 18px;
 }
 
+.admin-dashboard-root {
+  display: grid;
+  gap: 18px;
+  min-height: 0;
+}
+
+.admin-pre-auth {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: calc(100vh - 100px);
+  padding: 12px 8px;
+}
+
+.pre-auth-card {
+  max-width: 540px;
+  padding: 28px 32px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.pre-auth-title {
+  margin: 0 0 12px;
+  font-size: 1.35rem;
+}
+
+.pre-auth-lead {
+  margin: 0 0 12px;
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.pre-auth-muted {
+  margin: 0;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.pre-auth-muted code {
+  font-size: 0.85em;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.35);
+}
+
+.pre-auth-warning {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+  color: var(--text);
+  background: rgba(248, 113, 113, 0.12);
+  border: 1px solid rgba(248, 113, 113, 0.35);
+}
+
 .toolbar,
 .filter-row,
 .panel-header,
