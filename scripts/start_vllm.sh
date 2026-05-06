@@ -44,6 +44,20 @@ if [[ ! -f "$VENV/bin/activate" ]]; then
     exit 1
 fi
 
+# Gemma 4 @ tp=2 + default gpu_memory_util 0.85 needs tens of GiB **free** per GPU.
+# If a previous vLLM crashed, the host can keep GPU memory with no visible PID in the
+# container — only a RunPod stop/start (or support reset) clears it.
+FREE_MIB=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | sort -n | head -1 || echo "0")
+if [[ "${FREE_MIB:-0}" -lt 15000 ]]; then
+    echo "══════════════════════════════════════════════════"
+    echo "✗ GPU free memory too low for vLLM (min free across GPUs: ${FREE_MIB} MiB; need ~15+ GiB to start)."
+    echo "  This often happens after an engine crash: VRAM stays allocated on the host."
+    echo "  Fix: stop the pod in the RunPod dashboard, start it again, then:"
+    echo "       bash start_all.sh ${TARGET}"
+    echo "══════════════════════════════════════════════════"
+    exit 1
+fi
+
 # Both A40s for tensor parallelism. vLLM ≥0.19 dispatches Gemma 4 MoE
 # correctly across two GPUs (the transformers-direct path was broken).
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0,1}"

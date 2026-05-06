@@ -208,7 +208,10 @@ class GemmaModel:
                 f"{self._base_url}. If VRAM looks busy but chat fails, vLLM may "
                 "still be loading weights or nothing is listening on that URL — "
                 f"wait for `curl {self._base_url}/v1/models` on the pod, then "
-                "restart the API if needed."
+                "restart the API if needed. If `curl` keeps failing and "
+                "`nvidia-smi` shows almost all memory used but no processes, "
+                "stop and start the RunPod to clear stuck GPU memory, then run "
+                "`bash start_all.sh gemma4` again."
             )
 
     async def aclose(self) -> None:
