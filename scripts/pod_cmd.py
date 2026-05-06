@@ -15,7 +15,7 @@ def run(cmds, wait=5):
     while sh.recv_ready(): sh.recv(8192)
     for cmd in cmds:
         sh.send(cmd + "\r")
-        time.sleep(wait)
+        time.sleep(float(wait))
         buf = b""
         while sh.recv_ready():
             buf += sh.recv(8192)
@@ -24,4 +24,11 @@ def run(cmds, wait=5):
     sh.close(); c.close()
 
 if __name__ == "__main__":
-    run(sys.argv[1:] if len(sys.argv) > 1 else ["echo CONNECTED"])
+    argv = sys.argv[1:]
+    wait = 5.0
+    if len(argv) >= 2 and argv[0] == "--wait":
+        wait = float(argv[1])
+        argv = argv[2:]
+    if not argv:
+        argv = ["echo CONNECTED"]
+    run(argv, wait=wait)

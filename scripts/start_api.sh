@@ -7,8 +7,16 @@
 # ─────────────────────────────────────────────────────────────────────────────
 set -euo pipefail
 
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PORT="${API_PORT:-8000}"
 WORKERS="${API_WORKERS:-1}"
+
+# Fresh RunPod images often have no project venv; vLLM uses /workspace/vllm-venv but the
+# API runs on system python3 — missing uvicorn caused silent failure in tmux window "api".
+if ! python3 -c "import uvicorn" 2>/dev/null; then
+    echo "Installing API dependencies from requirements-api.txt …"
+    python3 -m pip install -q -r "$REPO_ROOT/requirements-api.txt"
+fi
 
 echo "══════════════════════════════════════════════════"
 echo "  Starting Gemma Test API"
