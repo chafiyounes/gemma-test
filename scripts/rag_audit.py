@@ -109,6 +109,7 @@ def main() -> None:
         max_chars=settings.RAG_INJECT_MAX_CHARS,
         query=rq,
         expand_for_retrieval=expand,
+        condense=settings.RAG_CONDENSE_DOCUMENTS,
     )
     n_docs_in_ctx = ctx.count("### Document :") if ctx else 0
     print(f"Simulated inject: {len(ctx)} chars, ~{n_docs_in_ctx} document header(s) in prompt block")

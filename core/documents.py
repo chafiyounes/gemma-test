@@ -159,6 +159,15 @@ def _collapse_ws(text: str) -> str:
     return text.strip()
 
 
+def condense_sop_plaintext(text: str) -> str:
+    """Tighter plain text for RAG: normalize newlines and spacing (no semantic summarization)."""
+    if not text:
+        return ""
+    t = text.replace("\r\n", "\n").replace("\r", "\n")
+    t = _collapse_ws(t)
+    return t
+
+
 def _strip_image_markers(text: str) -> str:
     """Remove help-center style image placeholders; keep plain SOP text."""
     text = re.sub(r"\[\[IMAGE:[^\]]+\]\]", "", text, flags=re.IGNORECASE)
@@ -391,6 +400,12 @@ class DocStore:
                     len(docs),
                     "documents_txt" if use_txt else "docx",
                 )
+                if not use_txt:
+                    logger.warning(
+                        "DocStore: category '%s' — consider `data/documents_txt/%s/*.txt` for condensed plain-text RAG",
+                        cat_name,
+                        cat_name,
+                    )
             else:
                 logger.warning("DocStore: category '%s' has no readable docs", cat_name)
 
@@ -497,6 +512,7 @@ class DocStore:
         max_chars: int = 14000,
         *,
         expand_fr_darija_hints: bool = False,
+        condense: bool = False,
     ) -> str:
         top = self.retrieve(
             query, category=category, k=k, expand_fr_darija_hints=expand_fr_darija_hints
@@ -506,7 +522,8 @@ class DocStore:
         parts: List[str] = []
         budget = max_chars
         for d in top:
-            block = f"### Document : {d.name}  (catégorie : {d.category})\n{d.text.strip()}\n"
+            body = condense_sop_plaintext(d.text) if condense else d.text.strip()
+            block = f"### Document : {d.name}  (catégorie : {d.category})\n{body}\n"
             if len(block) > budget:
                 block = block[:budget].rsplit("\n", 1)[0] + "\n…(tronqué)"
                 parts.append(block)
@@ -522,12 +539,14 @@ class DocStore:
         *,
         query: Optional[str] = None,
         expand_for_retrieval: bool = False,
+        condense: bool = False,
     ) -> str:
-        """Concatenate documents in a category up to *max_chars*.
+        """Concatenate **all** documents in a category up to *max_chars*.
 
-        When *query* is set, documents are ordered by BM25 relevance first so the
-        character budget is more likely to contain passages that answer the question
-        (alphabetical file order often leaves the right SOP out when the cap bites).
+        Every document in the category appears at least once (header + body slice).
+        When the total condensed corpus exceeds *max_chars*, body text is split
+        **proportionally** across documents so none are dropped entirely.
+        Prefer ``condense=True`` (plain-text tightening) to fit more content.
         """
         if not self.indexes:
             return ""
@@ -537,26 +556,66 @@ class DocStore:
             targets = list(self.indexes.values())
 
         parts: List[str] = []
-        budget = max_chars
+        used = 0
         for idx in targets:
             docs = (
                 self._rank_docs_in_index(idx, query, expand_for_retrieval=expand_for_retrieval)
                 if (query and query.strip())
                 else list(idx.docs)
             )
+            if not docs:
+                continue
+            n = len(docs)
+            entries: List[tuple[str, str, str]] = []
             for d in docs:
-                block = f"### Document : {d.name}  (catégorie : {d.category})\n{d.text.strip()}\n"
-                if len(block) > budget:
-                    block = block[:budget].rsplit("\n", 1)[0] + "\n…(tronqué)"
+                body = condense_sop_plaintext(d.text) if condense else d.text.strip()
+                header = f"### Document : {d.name}  (catégorie : {d.category})\n"
+                entries.append((header, body, d.name))
+
+            # Separator between doc blocks: single newline after body
+            overhead = sum(len(h) + 1 for h, _, _ in entries)
+            budget_bodies = max(0, max_chars - overhead - max(0, n - 1))
+            total_body = sum(len(b) for _, b, _ in entries)
+
+            if total_body == 0:
+                for header, _, _name in entries:
+                    parts.append(header + "\n")
+                continue
+
+            if total_body <= budget_bodies:
+                for header, body, _name in entries:
+                    block = header + body + "\n"
                     parts.append(block)
-                    budget = 0
-                    break
+                    used += len(block)
+                continue
+
+            ratios = [len(b) / total_body for _, b, _ in entries]
+            raw_alloc = [int(budget_bodies * r) for r in ratios]
+            alloc = raw_alloc
+            diff = budget_bodies - sum(alloc)
+            if diff != 0 and alloc:
+                alloc[-1] = max(0, alloc[-1] + diff)
+
+            for i, (header, body, _name) in enumerate(entries):
+                cap = alloc[i] if i < len(alloc) else 0
+                if len(body) <= cap:
+                    chunk = body
+                    suffix = "\n"
+                else:
+                    chunk = body[:cap].rsplit("\n", 1)[0] if cap > 80 else body[:cap]
+                    chunk = chunk or body[:cap]
+                    suffix = "\n…(tronqué — voir source .txt complète)\n"
+                block = header + chunk + suffix
                 parts.append(block)
-                budget -= len(block)
-            if budget <= 0:
-                break
-        logger.info("Injected %d documents into context (%d chars)",
-                    len(parts), max_chars - budget)
+                used += len(block)
+
+        logger.info(
+            "Injected %d document blocks into context (~%d chars of %d budget, condense=%s)",
+            len(parts),
+            used,
+            max_chars,
+            condense,
+        )
         return "\n".join(parts)
 
 

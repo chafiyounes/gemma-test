@@ -366,6 +366,47 @@ async def chat(
     history = [{"role": t.role, "content": t.content} for t in body.conversation_history]
 
     category = _resolve_rag_category(body.category)
+    interaction_id = str(uuid.uuid4())
+    client_ip = request.client.host if request.client else "unknown"
+
+    use_liked_cache = settings.LIKED_ANSWER_CACHE_ENABLED and not body.system_prompt
+    if use_liked_cache:
+        cached = await db.get_cached_liked_answer(
+            body.message, category, p.model_name
+        )
+        if cached is not None:
+            rag_meta = {
+                "category": category,
+                "liked_cache_hit": True,
+                "context_chars": 0,
+                "documents_in_prompt": 0,
+            }
+            if not body.skip_persist:
+                await db.save_interaction(
+                    {
+                        "id": interaction_id,
+                        "user_id": body.user_id,
+                        "session_id": body.session_id,
+                        "client_ip": client_ip,
+                        "model": p.model_name,
+                        "message": body.message,
+                        "response": cached,
+                        "role": session["role"],
+                        "category_used": category,
+                        "rag": rag_meta,
+                    }
+                )
+            return ChatResponse(
+                response=cached,
+                interaction_id=interaction_id,
+                model=p.model_name,
+                metadata={
+                    "session_role": session["role"],
+                    "rate_limit_remaining": rate_limiter.remaining(client_ip),
+                    "category_used": category,
+                    "rag": rag_meta,
+                },
+            )
 
     result = await p.process(
         message=body.message,
@@ -374,25 +415,20 @@ async def chat(
         category=category,
     )
 
-    interaction_id = str(uuid.uuid4())
-    client_ip = request.client.host if request.client else "unknown"
-
     if not body.skip_persist:
-        asyncio.create_task(
-            db.save_interaction(
-                {
-                    "id": interaction_id,
-                    "user_id": body.user_id,
-                    "session_id": body.session_id,
-                    "client_ip": client_ip,
-                    "model": result.model,
-                    "message": body.message,
-                    "response": result.response,
-                    "role": session["role"],
-                    "category_used": category,
-                    "rag": result.rag_meta,
-                }
-            )
+        await db.save_interaction(
+            {
+                "id": interaction_id,
+                "user_id": body.user_id,
+                "session_id": body.session_id,
+                "client_ip": client_ip,
+                "model": result.model,
+                "message": body.message,
+                "response": result.response,
+                "role": session["role"],
+                "category_used": category,
+                "rag": result.rag_meta,
+            }
         )
 
     return ChatResponse(
@@ -423,6 +459,11 @@ async def feedback(
         reason=body.reason,
         comment=body.comment,
     )
+    if settings.LIKED_ANSWER_CACHE_ENABLED:
+        if body.value == "like":
+            await db.upsert_liked_answer_from_interaction(body.interaction_id)
+        elif body.value == "dislike":
+            await db.invalidate_liked_answer_for_interaction(body.interaction_id)
     return Response(status_code=204)
 
 
@@ -516,8 +557,11 @@ async def admin_darija_toggle(_admin: dict = Depends(_require_admin)):
 
 @app.post("/admin/cache-flush")
 async def admin_cache_flush(_admin: dict = Depends(_require_admin)):
-    # No Redis cache in this project
-    return {"deleted": 0, "message": "No cache in use (no Redis)"}
+    deleted = await store.flush_liked_answer_cache() if store else 0
+    return {
+        "deleted": deleted,
+        "message": "Liked-answer cache cleared (SQLite liked_answer_cache)",
+    }
 
 
 # ── Static serving ────────────────────────────────────────────────────────────

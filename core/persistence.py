@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import json
 import sqlite3
 from datetime import datetime, timezone
@@ -11,6 +12,15 @@ class InteractionStore:
 
     def __init__(self, db_path: str):
         self.db_path = Path(db_path)
+
+    @staticmethod
+    def liked_answer_cache_key(message: str, category: Optional[str], model: str) -> str:
+        """Stable key: normalized message + RAG category + model name."""
+        norm = " ".join((message or "").split())
+        cat = (category or "").strip()
+        mod = (model or "").strip()
+        payload = f"{norm}\n{cat}\n{mod}".encode("utf-8")
+        return hashlib.sha256(payload).hexdigest()
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path)
@@ -70,6 +80,17 @@ class InteractionStore:
                     ON interactions(session_id);
                 CREATE INDEX IF NOT EXISTS idx_feedback_value
                     ON feedback(value);
+
+                CREATE TABLE IF NOT EXISTS liked_answer_cache (
+                    cache_key      TEXT PRIMARY KEY,
+                    message        TEXT NOT NULL,
+                    category       TEXT NOT NULL,
+                    model          TEXT NOT NULL,
+                    response       TEXT NOT NULL,
+                    interaction_id TEXT,
+                    created_at     TEXT NOT NULL,
+                    updated_at     TEXT NOT NULL
+                );
                 """
             )
 
@@ -304,3 +325,91 @@ class InteractionStore:
         except Exception:
             d["metadata"] = {}
         return self._finalize_interaction(d)
+
+    async def get_cached_liked_answer(
+        self, message: str, category: Optional[str], model: str
+    ) -> Optional[str]:
+        return await asyncio.to_thread(
+            self._get_cached_liked_answer, message, category, model
+        )
+
+    def _get_cached_liked_answer(
+        self, message: str, category: Optional[str], model: str
+    ) -> Optional[str]:
+        key = self.liked_answer_cache_key(message, category, model)
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT response FROM liked_answer_cache WHERE cache_key = ?",
+                (key,),
+            ).fetchone()
+        return str(row[0]) if row else None
+
+    async def upsert_liked_answer_from_interaction(self, interaction_id: str) -> None:
+        await asyncio.to_thread(self._upsert_liked_answer_from_interaction, interaction_id)
+
+    def _upsert_liked_answer_from_interaction(self, interaction_id: str) -> None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT i.message, i.response, i.model, i.metadata_json
+                FROM interactions i
+                WHERE i.id = ?
+                """,
+                (interaction_id,),
+            ).fetchone()
+        if row is None:
+            return
+        message, response, model, raw_meta = row[0], row[1], row[2], row[3]
+        try:
+            meta = json.loads(raw_meta) if raw_meta else {}
+        except Exception:
+            meta = {}
+        category = meta.get("category_used") or ""
+        key = self.liked_answer_cache_key(message, category, model)
+        now = self._utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO liked_answer_cache
+                    (cache_key, message, category, model, response, interaction_id, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(cache_key) DO UPDATE SET
+                    response=excluded.response,
+                    interaction_id=excluded.interaction_id,
+                    updated_at=excluded.updated_at
+                """,
+                (key, message, category, model, response, interaction_id, now, now),
+            )
+
+    async def invalidate_liked_answer_for_interaction(self, interaction_id: str) -> None:
+        await asyncio.to_thread(self._invalidate_liked_answer_for_interaction, interaction_id)
+
+    def _invalidate_liked_answer_for_interaction(self, interaction_id: str) -> None:
+        with self._connect() as conn:
+            row = conn.execute(
+                """
+                SELECT i.message, i.model, i.metadata_json
+                FROM interactions i
+                WHERE i.id = ?
+                """,
+                (interaction_id,),
+            ).fetchone()
+        if row is None:
+            return
+        message, model, raw_meta = row[0], row[1], row[2]
+        try:
+            meta = json.loads(raw_meta) if raw_meta else {}
+        except Exception:
+            meta = {}
+        category = meta.get("category_used") or ""
+        key = self.liked_answer_cache_key(message, category, model)
+        with self._connect() as conn:
+            conn.execute("DELETE FROM liked_answer_cache WHERE cache_key = ?", (key,))
+
+    async def flush_liked_answer_cache(self) -> int:
+        return await asyncio.to_thread(self._flush_liked_answer_cache)
+
+    def _flush_liked_answer_cache(self) -> int:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM liked_answer_cache")
+            return int(cur.rowcount or 0)
