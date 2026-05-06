@@ -61,12 +61,12 @@ def _tokenize(text: str) -> List[str]:
 _LOGISTICS_EN_FR: tuple[tuple[str, str], ...] = (
     ("delivery", "livraison livrer livraisons"),
     ("deliver", "livrer livraison"),
-    ("region", "région destination villes zone"),
+    ("region", "région destination villes zone couverture"),
     ("vendor", "vendeur vendeurs"),
-    ("customer", "client clients"),
+    ("customer", "client clients client final"),
     ("refund", "remboursement"),
-    ("damaged", "endommagé"),
-    ("pickup", "ramassage"),
+    ("damaged", "endommagé dommage incident transport"),
+    ("pickup", "ramassage collecte pickup"),
     ("verification", "vérification vérifier"),
     ("verify", "vérifier"),
     ("system", "système plateforme"),
@@ -74,6 +74,35 @@ _LOGISTICS_EN_FR: tuple[tuple[str, str], ...] = (
     ("specific", "spécifique"),
     ("asking if", "question demande"),
     ("final client", "client final"),
+)
+
+
+# Extra BM25 terms when the query is already in French (or Darija + French lexique).
+_LOGISTICS_FR_HINTS: tuple[tuple[str, str], ...] = (
+    ("distribué", "statut colis livré réception livraison"),
+    ("injoignable", "tentative livraison livreur contact inaccessible"),
+    ("retour en cours", "retour colis entrepôt expéditeur statut"),
+    ("retour à l'entrepôt", "retour entrepôt colis statut"),
+    ("en attente de retour", "retour colis retour expéditeur"),
+    ("facturé", "facture facturation statut"),
+    ("facture", "facturation statut comptabilité"),
+    ("remboursement", "rembourser validation client final montant remboursement"),
+    ("rembourser", "remboursement procédure colis"),
+    ("endommagé", "dommage colis incident photo constat déclaration"),
+    ("fragile", "emballage responsabilité transport dommage"),
+    ("adresse", "modification destination livraison changement"),
+    ("destination", "adresse ville modification livraison"),
+    ("téléphone", "contact téléphone client ramassage"),
+    ("supprimer", "annulation suppression colis annuler"),
+    ("annuler", "annulation colis statut"),
+    ("à préparer", "stock entrepôt préparation colis"),
+    ("ramassage", "collecte pickup programmé demande ramassage"),
+    ("ramassé", "colis statut annulation suppression annuler ramassage"),
+    ("liste des villes", "couverture zone destination livrable"),
+    ("plateforme", "assistance documentation tutoriel procédure"),
+    ("aide", "assistance centre d'aide documentation SENDIT"),
+    ("hors casablanca", "transport zone hub dommage responsabilité"),
+    ("200 dh", "seuil validation remboursement montant dirhams"),
 )
 
 
@@ -86,6 +115,9 @@ def expand_query_for_retrieval_fr_darija(query: str) -> str:
     extra: List[str] = []
     for en, fr in _LOGISTICS_EN_FR:
         if en in low:
+            extra.append(fr)
+    for trigger, fr in _LOGISTICS_FR_HINTS:
+        if trigger in low:
             extra.append(fr)
     if not extra:
         return query

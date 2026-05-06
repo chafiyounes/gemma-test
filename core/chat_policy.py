@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import List, Mapping
+from typing import List
 
 # Short follow-ups that carry no topical tokens for BM25 — anchor on prior user turn.
 _CONTINUATION_ONLY = re.compile(
@@ -74,14 +74,23 @@ def has_unsupported_script(text: str) -> bool:
 _DARIJA_HINTS = re.compile(
     r"\b("
     r"chno|chnowa|ash|wash|wach|bgh|bgha|bghit|bghiti|dyal|dial|diali|3lach|3lash|"
-    r"kifash|kifach|daba|wakha|safi|zwin|bzaf|walo|lm3n|khasso|khass|kat"
+    r"kifash|kifach|daba|wakha|safi|zwin|bzaf|walo|lm3n|khasso|khass|kat|"
+    r"katsal|kaysa2al|sa2al|ngoulo|khotowat|khottowat|ner3awad|n7aydo|mo3yana|"
+    r"usta3mel|t9riqa|katlab|bghay|mherres|3lamlni|lamlni|telobhom|"
+    r"ntelobhom|ntebi3|ntebi3ohom|y9der|dair|bach|"
+    r"lqaha|kan9drach"
     r")\b",
     re.IGNORECASE,
 )
 
 _FRENCH_HINTS = re.compile(
-    r"\b(le|la|les|un|une|des|vous|nous|comment|pourquoi|procédure|quelle|"
-    r"merci|bonjour|êtes|êtes-vous)\b",
+    r"\b("
+    r"le|la|les|un|une|des|du|de|et|ou|mon|ma|mes|son|sa|ses|leur|nos|vos|"
+    r"vous|nous|comment|pourquoi|quelle|quel|quels|quelles|est-ce|"
+    r"c'est|qu'est|d'où|où|dont|chez|avec|sans|pour|dans|sur|être|êtes|"
+    r"statut|colis|livraison|client|vendeur|adresse|facture|remboursement|"
+    r"plateforme|procédure|merci|bonjour|bonne|jours|cordialement"
+    r")\b",
     re.IGNORECASE,
 )
 
@@ -90,8 +99,25 @@ _ENGLISH_HINTS = re.compile(
     re.IGNORECASE,
 )
 
-_SPANISH_HINTS = re.compile(
-    r"\b(que\s|qué|porque|usted|señor|señora|gracias|por favor|esta\s|esto\s)\b",
+# Spanish/Portuguese/Italian-looking Latin that is NOT a serviced language.
+# IMPORTANT: do **not** use bare ``que`` / ``esta`` — they false-positive French.
+_NON_SERVICE_LATIN_HINTS = re.compile(
+    r"(?:"
+    r"[¿¡]|"
+    r"\bqué\b|"
+    r"\b(?:por\s+qué|porque)\b|"
+    r"\bcóm[oa]\b|"
+    r"\bdónde\b|"
+    r"\bcuándo\b|"
+    r"\busted(?:es)?\b|"
+    r"\b(?:señor|señora|señorit[ao])\b|"
+    r"\bgracias\b|"
+    r"\bpor\s+favor\b|"
+    r"\bhola\b|"
+    r"\b(?:nosotros|nosotras|vosotros|vosotras)\b|"
+    r"\b(?:está|están|estás|esté|estén)\b|"
+    r"\b\w*ñ\w*"
+    r")",
     re.IGNORECASE,
 )
 
@@ -106,7 +132,7 @@ def detect_lang_bucket(text: str) -> str:
             return "darija"
         return "ar"
     low = t.lower()
-    if _SPANISH_HINTS.search(low):
+    if _NON_SERVICE_LATIN_HINTS.search(low):
         return "es"
     if _DARIJA_HINTS.search(low):
         return "darija"
@@ -138,10 +164,6 @@ POLICY_UNSUPPORTED_LANG: dict[str, str] = {
         "Had l'khidma كاتقبل غير **فرانساوي**, **نڭليزي**, "
         "**عربي فصيح (MSA)** و **دارجة مغربية**. عافاك عاود السؤال بوحدة من هاد اللغات."
     ),
-    "es": (
-        "Este servicio solo acepta **francés**, **inglés**, **árabe estándar (MSA)** "
-        "y **darija marroquí**. Por favor reformule en uno de esos idiomas."
-    ),
 }
 
 
@@ -164,8 +186,8 @@ POLICY_PROFANITY: dict[str, str] = {
         "L-message dyalk فيه كلام ما مناسبش. عافاك عاود السؤال باحترام. "
         "اللغات اللي نقبلو: فرانساوي، نڭليزي، عربي فصيح، ولا دارجة مغربية."
     ),
-    "es": POLICY_UNSUPPORTED_LANG["es"],
 }
+POLICY_PROFANITY["es"] = POLICY_PROFANITY["fr"]
 
 
 NOT_FOUND: dict[str, str] = {
@@ -191,15 +213,15 @@ _NOT_FOUND_MARKERS = (
 
 
 def unsupported_latin_language_message(text: str) -> str | None:
-    """Return policy message if Latin text looks like Spanish, else None."""
+    """If Latin text looks like a non-serviced language (e.g. Spanish), return **French** notice."""
     if re.search(r"[\u0600-\u06FF]", text or ""):
         return None
     if not (text or "").strip():
         return None
-    if not _SPANISH_HINTS.search(text):
+    low = _nfkc_lower(text or "")
+    if not _NON_SERVICE_LATIN_HINTS.search(low):
         return None
-    b = detect_lang_bucket(text)
-    return POLICY_UNSUPPORTED_LANG.get(b, POLICY_UNSUPPORTED_LANG["fr"])
+    return POLICY_UNSUPPORTED_LANG["fr"]
 
 
 def normalize_not_found_response(user_message: str, model_text: str) -> str:
