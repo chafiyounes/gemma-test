@@ -13,14 +13,11 @@ class PipelineResult:
     response: str
     model: str = ""
     error: Optional[str] = None
+    rag_meta: Dict[str, Any] = field(default_factory=dict)
 
 
 class GemmaPipeline:
-    """Thin pipeline: user message → Gemma via vLLM → response.
-
-    No RAG, no translation, no Redis — pure model testing harness.
-    The admin can restart vLLM with a different model to compare behaviour.
-    """
+    """User message → optional RAG (document category) → Gemma via vLLM → response."""
 
     def __init__(self) -> None:
         self.llm = GemmaModel()
@@ -36,13 +33,17 @@ class GemmaPipeline:
         category: Optional[str] = None,
     ) -> PipelineResult:
         try:
-            response = await self.llm.generate(
+            out = await self.llm.generate(
                 message=message,
                 history=history or [],
                 system_prompt=system_prompt,
                 category=category,
             )
-            return PipelineResult(response=response, model=self.model_name)
+            return PipelineResult(
+                response=out.text,
+                model=self.model_name,
+                rag_meta=out.rag,
+            )
         except Exception as exc:
             logger.error("Pipeline error: %s", exc, exc_info=True)
             return PipelineResult(

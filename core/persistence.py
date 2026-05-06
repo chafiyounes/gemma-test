@@ -22,6 +22,21 @@ class InteractionStore:
     async def initialize(self) -> None:
         await asyncio.to_thread(self._initialize)
 
+    @staticmethod
+    def _finalize_interaction(d: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        """Nest feedback fields for admin UI; drop raw SQL column aliases."""
+        if d is None:
+            return None
+        d = dict(d)
+        fv = d.pop("feedback_value", None)
+        fr = d.pop("feedback_reason", None)
+        fc = d.pop("feedback_comment", None)
+        if fv:
+            d["feedback"] = {"value": fv, "reason": fr, "comment": fc}
+        else:
+            d["feedback"] = None
+        return d
+
     def _initialize(self) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
@@ -120,15 +135,74 @@ class InteractionStore:
                 (interaction_id, value, reason, comment, now, now),
             )
 
+    def _filter_sql(
+        self,
+        search: Optional[str],
+        feedback_value: Optional[str],
+        feedback_reason: Optional[str],
+    ) -> tuple[str, list[Any]]:
+        conditions: list[str] = []
+        params: list[Any] = []
+
+        if search:
+            conditions.append(
+                "(i.message LIKE ? OR i.response LIKE ? OR IFNULL(f.comment, '') LIKE ?)"
+            )
+            like = f"%{search}%"
+            params += [like, like, like]
+        if feedback_value:
+            conditions.append("f.value = ?")
+            params.append(feedback_value)
+        if feedback_reason:
+            conditions.append("f.reason = ?")
+            params.append(feedback_reason)
+
+        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        return where, params
+
+    async def count_interactions(
+        self,
+        search: Optional[str] = None,
+        feedback_value: Optional[str] = None,
+        feedback_reason: Optional[str] = None,
+    ) -> int:
+        return await asyncio.to_thread(
+            self._count_interactions, search, feedback_value, feedback_reason
+        )
+
+    def _count_interactions(
+        self,
+        search: Optional[str],
+        feedback_value: Optional[str],
+        feedback_reason: Optional[str],
+    ) -> int:
+        where, params = self._filter_sql(search, feedback_value, feedback_reason)
+        join = "LEFT JOIN feedback f ON f.interaction_id = i.id"
+        query = f"""
+            SELECT COUNT(DISTINCT i.id)
+            FROM interactions i
+            {join}
+            {where}
+        """
+        with self._connect() as conn:
+            row = conn.execute(query, params).fetchone()
+        return int(row[0]) if row else 0
+
     async def list_interactions(
         self,
         limit: int = 100,
         offset: int = 0,
         search: Optional[str] = None,
         feedback_value: Optional[str] = None,
+        feedback_reason: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         return await asyncio.to_thread(
-            self._list_interactions, limit, offset, search, feedback_value
+            self._list_interactions,
+            limit,
+            offset,
+            search,
+            feedback_value,
+            feedback_reason,
         )
 
     def _list_interactions(
@@ -137,19 +211,10 @@ class InteractionStore:
         offset: int,
         search: Optional[str],
         feedback_value: Optional[str],
+        feedback_reason: Optional[str],
     ) -> List[Dict[str, Any]]:
-        conditions: list[str] = []
-        params: list[Any] = []
-
-        if search:
-            conditions.append("(i.message LIKE ? OR i.response LIKE ?)")
-            params += [f"%{search}%", f"%{search}%"]
-        if feedback_value:
-            conditions.append("f.value = ?")
-            params.append(feedback_value)
-
-        where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
-        join = "LEFT JOIN feedback f ON f.interaction_id = i.id" if feedback_value else "LEFT JOIN feedback f ON f.interaction_id = i.id"
+        where, params = self._filter_sql(search, feedback_value, feedback_reason)
+        join = "LEFT JOIN feedback f ON f.interaction_id = i.id"
 
         query = f"""
             SELECT
@@ -162,7 +227,7 @@ class InteractionStore:
             ORDER BY i.created_at DESC
             LIMIT ? OFFSET ?
         """
-        params += [limit, offset]
+        params = list(params) + [limit, offset]
 
         with self._connect() as conn:
             rows = conn.execute(query, params).fetchall()
@@ -175,8 +240,46 @@ class InteractionStore:
                 d["metadata"] = json.loads(raw_meta) if raw_meta else {}
             except Exception:
                 d["metadata"] = {}
-            result.append(d)
+            fin = self._finalize_interaction(d)
+            if fin:
+                result.append(fin)
         return result
+
+    async def list_interactions_for_session(
+        self, session_id: str, limit: int = 500
+    ) -> List[Dict[str, Any]]:
+        return await asyncio.to_thread(
+            self._list_interactions_for_session, session_id, limit
+        )
+
+    def _list_interactions_for_session(
+        self, session_id: str, limit: int
+    ) -> List[Dict[str, Any]]:
+        query = """
+            SELECT
+                i.id, i.created_at, i.user_id, i.session_id, i.model,
+                i.message, i.response, i.metadata_json,
+                f.value AS feedback_value, f.reason AS feedback_reason, f.comment AS feedback_comment
+            FROM interactions i
+            LEFT JOIN feedback f ON f.interaction_id = i.id
+            WHERE i.session_id = ?
+            ORDER BY i.created_at ASC
+            LIMIT ?
+        """
+        with self._connect() as conn:
+            rows = conn.execute(query, (session_id, limit)).fetchall()
+        out = []
+        for row in rows:
+            d = dict(row)
+            raw_meta = d.pop("metadata_json", None)
+            try:
+                d["metadata"] = json.loads(raw_meta) if raw_meta else {}
+            except Exception:
+                d["metadata"] = {}
+            fin = self._finalize_interaction(d)
+            if fin:
+                out.append(fin)
+        return out
 
     async def get_interaction(self, interaction_id: str) -> Optional[Dict[str, Any]]:
         return await asyncio.to_thread(self._get_interaction, interaction_id)
@@ -200,4 +303,4 @@ class InteractionStore:
             d["metadata"] = json.loads(raw_meta) if raw_meta else {}
         except Exception:
             d["metadata"] = {}
-        return d
+        return self._finalize_interaction(d)

@@ -54,6 +54,27 @@ def _find_dir(candidates: list[Path]) -> Optional[Path]:
     return None
 
 
+def _resolve_rag_category(requested: Optional[str]) -> Optional[str]:
+    """Pick a document folder under data/documents/ for RAG.
+
+    If the client omits category or names an unknown folder, use RAG_DEFAULT_CATEGORY
+    when present, else the first category (alphabetical).
+    """
+    store = get_doc_store()
+    cats = store.list_categories()
+    if not cats:
+        return None
+    names = sorted(c["name"] for c in cats)
+    name_set = set(names)
+    r = (requested or "").strip()
+    if r in name_set:
+        return r
+    d = (settings.RAG_DEFAULT_CATEGORY or "").strip()
+    if d in name_set:
+        return d
+    return names[0]
+
+
 # ── Globals ───────────────────────────────────────────────────────────────────
 
 pipeline: Optional[GemmaPipeline] = None
@@ -344,11 +365,13 @@ async def chat(
 ):
     history = [{"role": t.role, "content": t.content} for t in body.conversation_history]
 
+    category = _resolve_rag_category(body.category)
+
     result = await p.process(
         message=body.message,
         history=history,
         system_prompt=body.system_prompt if session["role"] == "admin" else None,
-        category=body.category,
+        category=category,
     )
 
     interaction_id = str(uuid.uuid4())
@@ -366,6 +389,8 @@ async def chat(
                     "message": body.message,
                     "response": result.response,
                     "role": session["role"],
+                    "category_used": category,
+                    "rag": result.rag_meta,
                 }
             )
         )
@@ -377,6 +402,8 @@ async def chat(
         metadata={
             "session_role": session["role"],
             "rate_limit_remaining": rate_limiter.remaining(client_ip),
+            "category_used": category,
+            "rag": result.rag_meta,
         },
     )
 
@@ -408,16 +435,23 @@ async def admin_interactions(
     offset: int = 0,
     search: Optional[str] = None,
     feedback_value: Optional[str] = None,
+    feedback_reason: Optional[str] = None,
     db: InteractionStore = Depends(_get_store),
     _admin: dict = Depends(_require_admin),
 ):
+    total = await db.count_interactions(
+        search=search,
+        feedback_value=feedback_value,
+        feedback_reason=feedback_reason,
+    )
     items = await db.list_interactions(
         limit=limit,
         offset=offset,
         search=search,
         feedback_value=feedback_value,
+        feedback_reason=feedback_reason,
     )
-    return {"items": items, "count": len(items)}
+    return {"items": items, "count": len(items), "total": total}
 
 
 @app.get("/admin/interactions/{interaction_id}")
@@ -438,9 +472,8 @@ async def admin_conversation(
     db: InteractionStore = Depends(_get_store),
     _admin: dict = Depends(_require_admin),
 ):
-    items = await db.list_interactions(limit=200, search=None)
-    filtered = [i for i in items if i.get("session_id") == session_id]
-    return {"items": filtered, "count": len(filtered)}
+    items = await db.list_interactions_for_session(session_id)
+    return {"items": items, "count": len(items)}
 
 
 # ── Stub endpoints (eval / Darija toggle / cache — kept for UI compatibility) ─

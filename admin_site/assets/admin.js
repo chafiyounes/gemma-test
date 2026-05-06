@@ -202,7 +202,7 @@ async function loadInteractions() {
   const response = await apiFetch(`/admin/interactions?${buildListQuery()}`);
   const payload = await response.json();
   state.items = payload.items;
-  resultsCount.textContent = `${payload.total} resultat(s)`;
+  resultsCount.textContent = `${payload.total ?? payload.count ?? 0} resultat(s)`;
   renderList();
 
   if (!state.selectedId && payload.items.length) {
@@ -323,13 +323,22 @@ async function loadConversation(sessionId, currentId) {
     state.conversationCache[sessionId] = data.items;
     renderConversation(data.items, currentId);
   } catch {
-    // silently ignore — non-critical
+    const c = document.getElementById("conversation-context");
+    if (c) {
+      c.innerHTML =
+        '<div class="detail-text">Impossible de charger la conversation.</div>';
+    }
   }
 }
 
 function renderConversation(items, currentId) {
   const container = document.getElementById("conversation-context");
-  if (!container || items.length <= 1) return;
+  if (!container) return;
+  if (!items.length) {
+    container.innerHTML =
+      '<div class="detail-text">Aucun message pour cette session.</div>';
+    return;
+  }
 
   container.innerHTML = items
     .map((item) => {
@@ -350,6 +359,33 @@ function renderConversation(items, currentId) {
   container.querySelectorAll("[data-nav-id]").forEach((el) => {
     el.addEventListener("click", () => loadInteractionDetail(el.dataset.navId));
   });
+}
+
+function renderRagMetadata(item) {
+  const meta = item.metadata || {};
+  const rag = meta.rag || {};
+  const cat = meta.category_used || rag.category || "—";
+  const chars = rag.context_chars;
+  const docs = rag.documents_in_prompt;
+  const note = rag.note || rag.retrieval_error;
+  const preview = rag.context_preview || "";
+  const empty =
+    (chars === 0 || chars === undefined) && !preview && (note === undefined || note === null);
+
+  if (empty) {
+    return `<section class="detail-block">
+      <div class="detail-label">RAG (contexte documents)</div>
+      <div class="detail-text eval-warn">Aucun bloc DOCUMENTS injecté dans le prompt pour cet appel.</div>
+      <div class="detail-text">Catégorie résolue : <strong>${escapeHtml(String(cat))}</strong></div>
+    </section>`;
+  }
+
+  return `<section class="detail-block">
+    <div class="detail-label">RAG (contexte documents)</div>
+    <div class="detail-text">Catégorie : <strong>${escapeHtml(String(cat))}</strong> · caractères injectés : ${escapeHtml(String(chars ?? "—"))} · sections document : ${escapeHtml(String(docs ?? "—"))}</div>
+    ${note ? `<div class="detail-text eval-warn">${escapeHtml(String(note))}</div>` : ""}
+    ${preview ? `<pre class="rag-preview">${escapeHtml(preview)}</pre>` : ""}
+  </section>`;
 }
 
 function truncate(text, max) {
@@ -378,8 +414,10 @@ function renderDetail(item) {
         <span class="pill">${new Date(item.created_at).toLocaleString()}</span>
         <span class="pill">${item.user_id}</span>
         <span class="pill">${item.session_id || "no-session"}</span>
-        <span class="pill">${item.detected_language || "unknown"}</span>
+        <span class="pill">${item.metadata?.detected_language || item.metadata?.lang || "—"}</span>
       </div>
+
+      ${renderRagMetadata(item)}
 
       ${item.session_id ? `<section class="detail-block"><div class="detail-label">Conversation</div><div id="conversation-context" class="conversation-context"><div class="detail-text" style="color:var(--muted)">Loading…</div></div></section>` : ""}
 
@@ -416,8 +454,9 @@ async function handleRunEval(interactionId) {
     button.textContent = "Running…";
   }
   try {
-    await apiFetch(`/admin/eval-run/${interactionId}`, { method: "POST" });
-    // Reload the detail to show the new eval
+    const response = await apiFetch(`/admin/eval-run/${interactionId}`, { method: "POST" });
+    const data = await response.json();
+    alert(data.reason || data.status || "Évaluation terminée.");
     await loadInteractionDetail(interactionId);
   } catch (error) {
     alert("Evaluation failed: " + error.message);
@@ -511,7 +550,10 @@ async function handleEvalToggle() {
 
 loginForm.addEventListener("submit", handleLogin);
 logoutButton.addEventListener("click", handleLogout);
-refreshButton.addEventListener("click", () => loadInteractions().catch(handleLoadError));
+refreshButton.addEventListener("click", () => {
+  state.conversationCache = {};
+  loadInteractions().catch(handleLoadError);
+});
 evalToggle.addEventListener("click", handleEvalToggle);
 searchInput.addEventListener("input", (event) => {
   state.search = event.target.value.trim();
