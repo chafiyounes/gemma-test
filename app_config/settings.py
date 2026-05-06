@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     RAG_FULL_CATEGORY_MAX_CHARS: int = 999_999
     # Hard cap per inject pass — keep headroom inside vLLM --max-model-len (often
     # 8192–12288) for instructions + chat template + completion (see start_vllm.sh).
-    RAG_INJECT_MAX_CHARS: int = 14_000
+    RAG_INJECT_MAX_CHARS: int = 18_000
     RAG_BM25_K: int = 8
 
     # ── Available model slots (for admin model switching) ──────────────────
