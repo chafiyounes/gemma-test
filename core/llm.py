@@ -210,7 +210,9 @@ class GemmaModel:
                 f"wait for `curl {self._base_url}/v1/models` on the pod, then "
                 "restart the API if needed. If `curl` keeps failing and "
                 "`nvidia-smi` shows almost all memory used but no processes, "
-                "stop and start the RunPod to clear stuck GPU memory, then run "
+                "recycle the GPU host: RunPod dashboard Stop→Start, or from your PC "
+                "set RUNPOD_API_KEY and RUNPOD_POD_ID and run "
+                "`python scripts/runpod_recycle_pod.py`, then on the pod run "
                 "`bash start_all.sh gemma4` again."
             )
 

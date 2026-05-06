@@ -44,16 +44,36 @@ if [[ ! -f "$VENV/bin/activate" ]]; then
     exit 1
 fi
 
+# Tear down previous inference first so the **same container** can reclaim VRAM.
+# (The old check ran before pkill, so legitimate child processes still held memory.)
+pkill -9 -f "vllm.entrypoints" 2>/dev/null || true
+pkill -9 -f "vllm serve"       2>/dev/null || true
+pkill -9 -f "serve_gemma4"     2>/dev/null || true
+sleep 8
+
+# Optional: ask the driver to reset GPUs (sometimes clears zombie contexts). Off by default.
+if [[ "${VLLM_TRY_GPU_RESET:-0}" == "1" ]]; then
+    echo "── trying nvidia-smi --gpu-reset on each GPU (VLLM_TRY_GPU_RESET=1) ──"
+    _gpu_count=$(nvidia-smi -L 2>/dev/null | wc -l | tr -d " ")
+    for ((i = 0; i < _gpu_count; i++)); do
+        nvidia-smi --gpu-reset -i "$i" 2>/dev/null || true
+    done
+    sleep 5
+fi
+
 # Gemma 4 @ tp=2 + default gpu_memory_util 0.85 needs tens of GiB **free** per GPU.
-# If a previous vLLM crashed, the host can keep GPU memory with no visible PID in the
-# container — only a RunPod stop/start (or support reset) clears it.
 FREE_MIB=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | sort -n | head -1 || echo "0")
 if [[ "${FREE_MIB:-0}" -lt 15000 ]]; then
     echo "══════════════════════════════════════════════════"
     echo "✗ GPU free memory too low for vLLM (min free across GPUs: ${FREE_MIB} MiB; need ~15+ GiB to start)."
-    echo "  This often happens after an engine crash: VRAM stays allocated on the host."
-    echo "  Fix: stop the pod in the RunPod dashboard, start it again, then:"
-    echo "       bash start_all.sh ${TARGET}"
+    echo "  Try on this pod (same session):"
+    echo "    export VLLM_TRY_GPU_RESET=1"
+    echo "    bash scripts/start_vllm.sh ${TARGET}"
+    echo "  If still low, VRAM is often held **outside** this container — recycle the pod:"
+    echo "    • Dashboard: Stop → Start"
+    echo "    • Or from your PC: set RUNPOD_API_KEY + RUNPOD_POD_ID, then:"
+    echo "      python3 scripts/runpod_recycle_pod.py"
+    echo "  Then SSH back in and: bash start_all.sh ${TARGET}"
     echo "══════════════════════════════════════════════════"
     exit 1
 fi
@@ -70,12 +90,6 @@ export VLLM_TENSOR_PARALLEL_SIZE="${VLLM_TENSOR_PARALLEL_SIZE:-2}"
 export VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-12288}"
 export VLLM_GPU_MEMORY_UTILIZATION="${VLLM_GPU_MEMORY_UTILIZATION:-0.85}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
-
-# Kill any previous vllm / serve_gemma4 process
-pkill -9 -f "vllm.entrypoints" 2>/dev/null || true
-pkill -9 -f "vllm serve"       2>/dev/null || true
-pkill -9 -f "serve_gemma4"     2>/dev/null && echo "Killed previous serve_gemma4" || true
-sleep 5
 
 echo "══════════════════════════════════════════════════"
 echo "  Starting vLLM server"
