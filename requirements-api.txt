@@ -1,0 +1,8 @@
+# FastAPI stack only (no torch). Use on RunPod for the chat API while vLLM lives in /workspace/vllm-venv.
+fastapi==0.115.0
+uvicorn[standard]==0.30.0
+pydantic==2.7.0
+pydantic-settings==2.3.0
+httpx==0.27.0
+python-dotenv==1.0.1
+python-docx==1.1.2
