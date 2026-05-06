@@ -93,6 +93,9 @@ _LOGISTICS_FR_HINTS: tuple[tuple[str, str], ...] = (
     ("adresse", "modification destination livraison changement"),
     ("destination", "adresse ville modification livraison"),
     ("téléphone", "contact téléphone client ramassage"),
+    ("telephone", "téléphone coordonnées client contact modification livraison"),
+    ("numéro", "téléphone contact client modification"),
+    ("numero", "téléphone contact client modification"),
     ("supprimer", "annulation suppression colis annuler"),
     ("annuler", "annulation colis statut"),
     ("à préparer", "stock entrepôt préparation colis"),
@@ -103,6 +106,11 @@ _LOGISTICS_FR_HINTS: tuple[tuple[str, str], ...] = (
     ("aide", "assistance centre d'aide documentation SENDIT"),
     ("hors casablanca", "transport zone hub dommage responsabilité"),
     ("200 dh", "seuil validation remboursement montant dirhams"),
+    ("livraison", "colis en cours tournée livreur statut modification coordonnées"),
+    ("modifier", "modification changement coordonnées client procédure"),
+    ("changement", "modification coordonnées téléphone adresse client"),
+    ("coordonnées", "contact téléphone adresse client modification livraison"),
+    ("coordonnees", "contact téléphone adresse client modification livraison"),
 )
 
 

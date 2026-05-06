@@ -36,6 +36,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Model evaluation toggle in admin UI (no evaluator job yet — persisted for session only).
+_eval_pipeline_enabled = False
+
 APP_ROOT = Path(__file__).resolve().parent.parent
 WEB_DIST_CANDIDATES = [
     APP_ROOT / "web_test" / "dist",
@@ -444,13 +447,18 @@ async def admin_conversation(
 
 @app.get("/admin/eval-status")
 async def admin_eval_status(_admin: dict = Depends(_require_admin)):
-    # Evaluation not implemented in this test harness
-    return {"available": False, "enabled": False, "reason": "No eval system in Gemma test harness"}
+    return {
+        "available": True,
+        "enabled": _eval_pipeline_enabled,
+        "reason": "Evaluator job not wired; toggle is preparatory",
+    }
 
 
 @app.post("/admin/eval-toggle")
 async def admin_eval_toggle(_admin: dict = Depends(_require_admin)):
-    return {"available": False, "enabled": False}
+    global _eval_pipeline_enabled
+    _eval_pipeline_enabled = not _eval_pipeline_enabled
+    return {"available": True, "enabled": _eval_pipeline_enabled}
 
 
 @app.post("/admin/eval-run/{interaction_id}")

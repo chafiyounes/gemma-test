@@ -1,23 +1,20 @@
 import { useState, useEffect } from "react";
-import { getApiUrl, setApiUrl, checkHealth, getDebugRag, setDebugRag } from "../services/api";
+import { getApiUrl, setApiUrl, checkHealth } from "../services/api";
 import "./SettingsModal.css";
 
 export default function SettingsModal({ open, onClose }) {
   const [url, setUrl] = useState("");
-  const [debugRag, setDebugRagState] = useState(false);
   const [health, setHealth] = useState(null);
   const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     if (open) {
       setUrl(getApiUrl());
-      setDebugRagState(getDebugRag());
     }
   }, [open]);
 
   const handleSave = () => {
     setApiUrl(url);
-    setDebugRag(debugRag);
     onClose();
   };
 
@@ -61,21 +58,6 @@ export default function SettingsModal({ open, onClose }) {
           <p className="field-hint">
             Use http://localhost:9000 when you are connected through an SSH tunnel. Use a public RunPod URL only if you exposed the API directly.
           </p>
-
-          <label className="toggle-row">
-            <div>
-              <span className="field-label toggle-label">Show RAG debug info</span>
-              <p className="field-hint toggle-hint">
-                Adds selected chunks, retrieval scores, and injected context to assistant messages.
-              </p>
-            </div>
-            <input
-              className="toggle-input"
-              type="checkbox"
-              checked={debugRag}
-              onChange={(e) => setDebugRagState(e.target.checked)}
-            />
-          </label>
 
           <div className="modal-actions">
             <button className="btn-test" onClick={handleTest} disabled={!url || testing}>
