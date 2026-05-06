@@ -173,9 +173,12 @@ class GemmaModel:
                 corpus = store.category_corpus_chars(category)
                 rq = retrieval_anchor_query(message, hist)
                 if 0 < corpus <= settings.RAG_FULL_CATEGORY_MAX_CHARS:
+                    expand_hints = bucket in ("fr", "darija", "en")
                     ctx = store.build_all_docs_context(
                         category=category,
                         max_chars=settings.RAG_INJECT_MAX_CHARS,
+                        query=rq,
+                        expand_for_retrieval=expand_hints,
                     )
                     logger.info(
                         "RAG full category inject: %d corpus chars → %d ctx chars",
@@ -183,9 +186,9 @@ class GemmaModel:
                         len(ctx or ""),
                     )
                 else:
-                    # BM25 : synonymes FR ajoutés seulement pour questions FR/darija
-                    # (les questions EN restent en mots anglais normaux).
-                    expand_hints = bucket in ("fr", "darija")
+                    # BM25: FR/darija hints + EN→FR lemmas when English keywords match
+                    # (French SOPs still match "vendor", "delivery", "phone", …).
+                    expand_hints = bucket in ("fr", "darija", "en")
                     ctx = store.build_context(
                         rq,
                         category=category,
@@ -193,6 +196,13 @@ class GemmaModel:
                         max_chars=settings.RAG_INJECT_MAX_CHARS,
                         expand_fr_darija_hints=expand_hints,
                     )
+                    if not ctx:
+                        ctx = store.build_all_docs_context(
+                            category=category,
+                            max_chars=settings.RAG_INJECT_MAX_CHARS,
+                            query=rq,
+                            expand_for_retrieval=expand_hints,
+                        )
             if ctx:
                 cat_hint = f" (catégorie : {category})" if category else ""
                 sys_prompt = (

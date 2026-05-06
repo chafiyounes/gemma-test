@@ -33,6 +33,15 @@ DOCS_TXT_DIR = REPO_ROOT / "data" / "documents_txt"
 
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9\u0600-\u06FF]+", re.UNICODE)
 
+# If hints didn't fire, Darija / mixed messages often have no French lemmas for BM25.
+_DARIJA_LEX_BOOST = re.compile(
+    r"\b("
+    r"bghay|bgha|bghit|bghiti|chno|chnowa|ntebi3|ntebi3ohom|dyal|dial|diali|"
+    r"walakin|wakha|katlab|ybdel|ybeddel|flivraison|f\s+livraison"
+    r")\b",
+    re.IGNORECASE,
+)
+
 _HEADER_TABLE_KEYWORDS = {
     "titre", "référence", "reference", "version",
     "date d'application", "date d\u2019application",
@@ -74,6 +83,11 @@ _LOGISTICS_EN_FR: tuple[tuple[str, str], ...] = (
     ("specific", "spécifique"),
     ("asking if", "question demande"),
     ("final client", "client final"),
+    ("phone", "téléphone téléphone coordonnées client contact"),
+    ("mobile", "téléphone portable contact client"),
+    ("number", "numéro téléphone contact client coordonnées"),
+    ("change", "modification changement coordonnées procédure"),
+    ("update", "mise à jour modification changement coordonnées"),
 )
 
 
@@ -115,9 +129,10 @@ _LOGISTICS_FR_HINTS: tuple[tuple[str, str], ...] = (
 
 
 def expand_query_for_retrieval_fr_darija(query: str) -> str:
-    """Append French logistics hints when the *user query* is French or Darija.
+    """Broaden BM25 recall: French/Darija hints + English→FR lemmas when EN terms match.
 
-    For **English** queries, do not call this — keep the query as plain English.
+    English stays **without** blind French stuffing: only `_LOGISTICS_EN_FR` adds
+    French when matching English substrings are present (vendor, delivery, …).
     """
     low = (query or "").lower()
     extra: List[str] = []
@@ -127,6 +142,10 @@ def expand_query_for_retrieval_fr_darija(query: str) -> str:
     for trigger, fr in _LOGISTICS_FR_HINTS:
         if trigger in low:
             extra.append(fr)
+    if not extra and _DARIJA_LEX_BOOST.search(query or ""):
+        extra.append(
+            "livraison colis client téléphone coordonnées modification vendeur procédure"
+        )
     if not extra:
         return query
     return f"{query}\n{' '.join(extra)}"
@@ -422,7 +441,13 @@ class DocStore:
 
         q_tokens = _tokenize(query)
         if not q_tokens:
-            return []
+            fallback_nt: List[Doc] = []
+            for idx in targets:
+                for d in idx.docs:
+                    fallback_nt.append(d)
+                    if len(fallback_nt) >= k:
+                        return fallback_nt[:k]
+            return fallback_nt
 
         scored = []
         for idx in targets:
@@ -431,7 +456,36 @@ class DocStore:
                 if s > 0:
                     scored.append((s, d))
         scored.sort(key=lambda x: x[0], reverse=True)
-        return [d for _, d in scored[:k]]
+        out = [d for _, d in scored[:k]]
+        if out:
+            return out
+        # Query terms missed the lexicon (scripts, typos): still return *some* docs.
+        fallback: List[Doc] = []
+        for idx in targets:
+            for d in idx.docs:
+                fallback.append(d)
+                if len(fallback) >= k:
+                    return fallback[:k]
+        return fallback
+
+    def _rank_docs_in_index(
+        self,
+        idx: CategoryIndex,
+        query: str,
+        *,
+        expand_for_retrieval: bool,
+    ) -> List[Doc]:
+        """Stable sort: BM25 score desc, then original file order."""
+        q = expand_query_for_retrieval_fr_darija(query) if expand_for_retrieval else query
+        q_tokens = _tokenize(q)
+        if not q_tokens:
+            return list(idx.docs)
+        scored: List[tuple[float, int, Doc]] = []
+        for i, d in enumerate(idx.docs):
+            s = self._bm25(q_tokens, d, idx)
+            scored.append((s, i, d))
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        return [t[2] for t in scored]
 
     def build_context(
         self,
@@ -459,12 +513,19 @@ class DocStore:
             budget -= len(block)
         return "\n".join(parts)
 
-    def build_all_docs_context(self, category: Optional[str] = None,
-                                max_chars: int = 15000) -> str:
-        """Return the full text of ALL documents in a category.
+    def build_all_docs_context(
+        self,
+        category: Optional[str] = None,
+        max_chars: int = 15000,
+        *,
+        query: Optional[str] = None,
+        expand_for_retrieval: bool = False,
+    ) -> str:
+        """Concatenate documents in a category up to *max_chars*.
 
-        Unlike build_context() which uses BM25 to pick top-k, this method
-        dumps every document so the model always has the complete SOP set.
+        When *query* is set, documents are ordered by BM25 relevance first so the
+        character budget is more likely to contain passages that answer the question
+        (alphabetical file order often leaves the right SOP out when the cap bites).
         """
         if not self.indexes:
             return ""
@@ -476,7 +537,12 @@ class DocStore:
         parts: List[str] = []
         budget = max_chars
         for idx in targets:
-            for d in idx.docs:
+            docs = (
+                self._rank_docs_in_index(idx, query, expand_for_retrieval=expand_for_retrieval)
+                if (query and query.strip())
+                else list(idx.docs)
+            )
+            for d in docs:
                 block = f"### Document : {d.name}  (catégorie : {d.category})\n{d.text.strip()}\n"
                 if len(block) > budget:
                     block = block[:budget].rsplit("\n", 1)[0] + "\n…(tronqué)"
