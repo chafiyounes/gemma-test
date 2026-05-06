@@ -31,6 +31,9 @@ class Settings(BaseSettings):
     # 8192–12288) for instructions + chat template + completion (see start_vllm.sh).
     RAG_INJECT_MAX_CHARS: int = 18_000
     RAG_BM25_K: int = 8
+    # When the UI sends no category, pick this folder under data/documents/ if it
+    # exists; otherwise the first category name (sorted).
+    RAG_DEFAULT_CATEGORY: str = "procedures"
 
     # ── Available model slots (for admin model switching) ──────────────────
     AVAILABLE_MODELS: str = "gemma4-26b-it"

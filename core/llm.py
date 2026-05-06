@@ -1,6 +1,7 @@
 import asyncio
 import logging
-from typing import Optional
+from dataclasses import dataclass, field
+from typing import Any, Dict, Optional
 
 import httpx
 
@@ -18,6 +19,15 @@ from core.chat_policy import (
 from core.documents import get_store
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LLMGenerateResult:
+    """Completion text plus RAG/debug fields for persistence and admin UI."""
+
+    text: str
+    rag: Dict[str, Any] = field(default_factory=dict)
+
 
 # After deploy / start_all, vLLM often needs several minutes before :8002 accepts HTTP.
 _VLLM_CONNECT_RETRIES = 4
@@ -69,9 +79,10 @@ SYSTEM_PROMPT = """
 Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu aides les collaborateurs sur les **procédures officielles (SOP)** décrites dans les documents fournis.
 
 ## Documents fournis (contexte RAG)
-- Après ce bloc, tu reçois une section **DOCUMENTS DE RÉFÉRENCE** : extraits ou dossier complet d’une catégorie (ex. `procedures`).
+- Après ce bloc, tu peux recevoir une section **DOCUMENTS DE RÉFÉRENCE** : extraits ou dossier (parfois tronqué) d’une catégorie (ex. `procedures`).
 - Chaque morceau commence par `### Document : [Nom]`.
 - **Ancrage factuel** : n’invente pas de faits qui ne figurent pas dans ces documents. Tu peux **ordonner, reformuler et regrouper** ce qui y est écrit.
+- **Si la section DOCUMENTS DE RÉFÉRENCE est présente et non vide** : considère que l’information pertinente s’y trouve **quelque part** (même avec une formulation différente de la question). Cherche des passages sur le **même cas métier** avant toute réponse du type « absent des documents ».
 
 ## Procédures voisines et reformulation métier (important)
 - Les questions (surtout en **darija / mélange FR**) utilisent souvent des mots différents des SOP (ex. « modifier numéro », « colis f livraison »). **Traduis mentalement** vers les notions des procédures : coordonnées, contact, client, colis, statut, livraison, expédition, ramassage, retour, litige, etc.
@@ -146,23 +157,33 @@ class GemmaModel:
         max_tokens: int | None = None,
         temperature: float | None = None,
         category: str | None = None,
-    ) -> str:
+    ) -> LLMGenerateResult:
         """Call the vLLM OpenAI-compatible chat completions endpoint."""
+        rag_meta: Dict[str, Any] = {"category": category}
+
         if not self.available or not self._client:
-            return "⚠️ LLM server is not available. Please check vLLM is running on the pod."
+            rag_meta["context_chars"] = 0
+            rag_meta["note"] = "llm_client_unavailable"
+            return LLMGenerateResult(
+                text="⚠️ LLM server is not available. Please check vLLM is running on the pod.",
+                rag=rag_meta,
+            )
 
         hist = history or []
         bucket = detect_lang_bucket(message)
 
         if message_contains_profanity(message):
-            return POLICY_PROFANITY.get(bucket, POLICY_PROFANITY["fr"])
+            return LLMGenerateResult(text=POLICY_PROFANITY.get(bucket, POLICY_PROFANITY["fr"]), rag=rag_meta)
 
         if has_unsupported_script(message):
-            return POLICY_UNSUPPORTED_LANG.get(bucket, POLICY_UNSUPPORTED_LANG["fr"])
+            return LLMGenerateResult(
+                text=POLICY_UNSUPPORTED_LANG.get(bucket, POLICY_UNSUPPORTED_LANG["fr"]),
+                rag=rag_meta,
+            )
 
         wrong_lang = unsupported_latin_language_message(message)
         if wrong_lang:
-            return wrong_lang
+            return LLMGenerateResult(text=wrong_lang, rag=rag_meta)
 
         sys_prompt = (system_prompt or SYSTEM_PROMPT).strip()
 
@@ -172,7 +193,9 @@ class GemmaModel:
                 store = get_store()
                 corpus = store.category_corpus_chars(category)
                 rq = retrieval_anchor_query(message, hist)
-                if 0 < corpus <= settings.RAG_FULL_CATEGORY_MAX_CHARS:
+                if corpus <= 0:
+                    rag_meta["note"] = "category_empty_or_missing"
+                elif 0 < corpus <= settings.RAG_FULL_CATEGORY_MAX_CHARS:
                     expand_hints = bucket in ("fr", "darija", "en")
                     ctx = store.build_all_docs_context(
                         category=category,
@@ -203,6 +226,15 @@ class GemmaModel:
                             query=rq,
                             expand_for_retrieval=expand_hints,
                         )
+            rag_meta["context_chars"] = len(ctx) if ctx else 0
+            rag_meta["documents_in_prompt"] = ctx.count("### Document :") if ctx else 0
+            if ctx:
+                prev = rag_meta.get("note")
+                rag_meta["context_preview"] = ctx[:900] + ("…" if len(ctx) > 900 else "")
+                if prev and prev == "category_empty_or_missing":
+                    del rag_meta["note"]
+            elif category:
+                rag_meta.setdefault("note", "no_context_built")
             if ctx:
                 cat_hint = f" (catégorie : {category})" if category else ""
                 sys_prompt = (
@@ -213,6 +245,9 @@ class GemmaModel:
                 )
         except Exception as exc:
             logger.warning("Doc retrieval failed: %s", exc)
+            rag_meta["retrieval_error"] = str(exc)
+            rag_meta["context_chars"] = 0
+            rag_meta["documents_in_prompt"] = 0
 
         messages = [{"role": "system", "content": sys_prompt}]
 
@@ -249,11 +284,17 @@ class GemmaModel:
                         )
                         await asyncio.sleep(_VLLM_CONNECT_RETRY_DELAY_S)
                     else:
-                        return _vllm_unavailable_message(
-                            self._base_url, bucket, after_retries=True
+                        return LLMGenerateResult(
+                            text=_vllm_unavailable_message(
+                                self._base_url, bucket, after_retries=True
+                            ),
+                            rag=rag_meta,
                         )
             if resp is None:
-                return _vllm_unavailable_message(self._base_url, bucket, after_retries=True)
+                return LLMGenerateResult(
+                    text=_vllm_unavailable_message(self._base_url, bucket, after_retries=True),
+                    rag=rag_meta,
+                )
             data = resp.json()
             choice = data["choices"][0]
             msg = choice.get("message") or {}
@@ -275,17 +316,29 @@ class GemmaModel:
                     "Raise VLLM_MAX_MODEL_LEN / RAG_INJECT_MAX_CHARS or MAX_NEW_TOKENS. tail=%r",
                     raw[-80:] if raw else "",
                 )
-            return normalize_not_found_response(message, raw)
+            return LLMGenerateResult(
+                text=normalize_not_found_response(message, raw),
+                rag=rag_meta,
+            )
         except httpx.HTTPStatusError as exc:
             logger.error("vLLM HTTP error %s: %s", exc.response.status_code, exc.response.text)
-            return f"⚠️ Model error ({exc.response.status_code}). Please try again."
+            return LLMGenerateResult(
+                text=f"⚠️ Model error ({exc.response.status_code}). Please try again.",
+                rag=rag_meta,
+            )
         except httpx.ConnectError:
-            return _vllm_unavailable_message(self._base_url, bucket, after_retries=False)
+            return LLMGenerateResult(
+                text=_vllm_unavailable_message(self._base_url, bucket, after_retries=False),
+                rag=rag_meta,
+            )
         except Exception as exc:
             logger.error("vLLM request failed: %s", exc, exc_info=True)
-            return (
-                "⚠️ Unexpected error calling the inference server. "
-                f"If the stack was just restarted, wait for vLLM: `{self._base_url}/v1/models`."
+            return LLMGenerateResult(
+                text=(
+                    "⚠️ Unexpected error calling the inference server. "
+                    f"If the stack was just restarted, wait for vLLM: `{self._base_url}/v1/models`."
+                ),
+                rag=rag_meta,
             )
 
     async def aclose(self) -> None:

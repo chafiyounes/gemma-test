@@ -1,6 +1,8 @@
 # Gemma Test — Deployment Guide
 
-Full diagrams and RAG behaviour: [`ARCHITECTURE.md`](ARCHITECTURE.md).
+**Prochain focus produit** (prompt, contexte RAG, admin) : [`PRIORITIES_AND_CONTEXT.md`](PRIORITIES_AND_CONTEXT.md).
+
+Full diagrams et détail RAG : [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
 ## Architecture (summary)
 
