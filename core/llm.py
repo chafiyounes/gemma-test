@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from typing import Optional
 
@@ -17,6 +18,48 @@ from core.chat_policy import (
 from core.documents import get_store
 
 logger = logging.getLogger(__name__)
+
+# After deploy / start_all, vLLM often needs several minutes before :8002 accepts HTTP.
+_VLLM_CONNECT_RETRIES = 4
+_VLLM_CONNECT_RETRY_DELAY_S = 15.0
+
+
+def _vllm_unavailable_message(base_url: str, bucket: str, *, after_retries: bool) -> str:
+    """User-facing text when vLLM cannot be reached (loading vs broken host)."""
+    wait_hint = (
+        "Réessayez dans une minute ou deux. "
+        if after_retries
+        else ""
+    )
+    if bucket == "en":
+        return (
+            "⚠️ The inference server is not accepting connections yet "
+            f"({base_url}). After a restart, loading Gemma can take **several minutes** "
+            "before this port opens. "
+            + wait_hint
+            + f"On the pod, `curl -sS {base_url}/v1/models` should return JSON when ready. "
+            "If it never does, check `tmux attach -t gemma-test`, GPU memory, or recycle the pod."
+        )
+    if bucket == "ar":
+        return (
+            "⚠️ خادم الاستدلال (vLLM) غير متاح بعد على المنفذ 8002. "
+            "بعد إعادة التشغيل قد يستغرق تحميل النموذج **عدة دقائق** قبل فتح المنفذ. "
+            + (wait_hint.replace("Réessayez", "أعد المحاولة") if wait_hint else "")
+            + "على الـ pod نفّذ: `curl -sS "
+            + base_url
+            + "/v1/models` — يجب أن يعيد JSON عند الجاهزية."
+        )
+    # fr, darija, es → French message (service language for ops)
+    return (
+        "⚠️ Le moteur vLLM ne répond pas encore sur "
+        f"{base_url}. Après un `start_all.sh` ou un déploiement, le chargement des "
+        "poids peut prendre **plusieurs minutes** : le port 8002 ne s’ouvre qu’une fois "
+        "le modèle prêt. "
+        + wait_hint
+        + f"Sur le pod : `curl -sS {base_url}/v1/models` doit renvoyer du JSON quand c’est bon. "
+        "Si ça échoue toujours : `tmux attach -t gemma-test` (voir le panneau vllm), "
+        "ou recycler le pod (mémoire GPU bloquée)."
+    )
 
 # System prompt: keep ONE place for behaviour (language, RAG, continuations).
 # Retrieval: French/Darija queries may get French synonym expansion for BM25;
@@ -180,8 +223,27 @@ class GemmaModel:
         }
 
         try:
-            resp = await self._client.post("/v1/chat/completions", json=payload)
-            resp.raise_for_status()
+            resp = None
+            for attempt in range(_VLLM_CONNECT_RETRIES):
+                try:
+                    resp = await self._client.post("/v1/chat/completions", json=payload)
+                    resp.raise_for_status()
+                    break
+                except httpx.ConnectError:
+                    if attempt + 1 < _VLLM_CONNECT_RETRIES:
+                        logger.warning(
+                            "vLLM unreachable (attempt %s/%s), retry in %ss",
+                            attempt + 1,
+                            _VLLM_CONNECT_RETRIES,
+                            _VLLM_CONNECT_RETRY_DELAY_S,
+                        )
+                        await asyncio.sleep(_VLLM_CONNECT_RETRY_DELAY_S)
+                    else:
+                        return _vllm_unavailable_message(
+                            self._base_url, bucket, after_retries=True
+                        )
+            if resp is None:
+                return _vllm_unavailable_message(self._base_url, bucket, after_retries=True)
             data = resp.json()
             choice = data["choices"][0]
             msg = choice.get("message") or {}
@@ -207,19 +269,13 @@ class GemmaModel:
         except httpx.HTTPStatusError as exc:
             logger.error("vLLM HTTP error %s: %s", exc.response.status_code, exc.response.text)
             return f"⚠️ Model error ({exc.response.status_code}). Please try again."
+        except httpx.ConnectError:
+            return _vllm_unavailable_message(self._base_url, bucket, after_retries=False)
         except Exception as exc:
             logger.error("vLLM request failed: %s", exc, exc_info=True)
             return (
-                "⚠️ Cannot reach the inference server at "
-                f"{self._base_url}. If VRAM looks busy but chat fails, vLLM may "
-                "still be loading weights or nothing is listening on that URL — "
-                f"wait for `curl {self._base_url}/v1/models` on the pod, then "
-                "restart the API if needed. If `curl` keeps failing and "
-                "`nvidia-smi` shows almost all memory used but no processes, "
-                "recycle the GPU host: RunPod dashboard Stop→Start, or from your PC "
-                "set RUNPOD_API_KEY and RUNPOD_POD_ID and run "
-                "`python scripts/runpod_recycle_pod.py`, then on the pod run "
-                "`bash start_all.sh gemma4` again."
+                "⚠️ Unexpected error calling the inference server. "
+                f"If the stack was just restarted, wait for vLLM: `{self._base_url}/v1/models`."
             )
 
     async def aclose(self) -> None:
