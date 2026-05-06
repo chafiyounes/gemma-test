@@ -17,6 +17,8 @@ const logoutButton = document.getElementById("logout-button");
 const refreshButton = document.getElementById("refresh-button");
 const evalToggle = document.getElementById("eval-toggle");
 const gatedContent = document.getElementById("gated-content");
+const preAuthPanel = document.getElementById("admin-pre-auth");
+const dashboardRoot = document.getElementById("admin-dashboard-root");
 const searchInput = document.getElementById("search-input");
 const feedbackFilter = document.getElementById("feedback-filter");
 const reasonFilter = document.getElementById("reason-filter");
@@ -144,9 +146,15 @@ function renderSession() {
   const isAdmin = state.session?.role === "admin";
   loginForm.classList.toggle("hidden", Boolean(isAdmin));
   sessionCard.classList.toggle("hidden", !isAdmin);
-  gatedContent.classList.toggle("hidden", !isAdmin);
+  if (preAuthPanel) preAuthPanel.classList.toggle("hidden", Boolean(isAdmin));
+  if (dashboardRoot) dashboardRoot.classList.toggle("hidden", !isAdmin);
   if (isAdmin) {
     sessionRole.textContent = "Administrateur";
+  }
+  const userHint = document.getElementById("pre-auth-user-hint");
+  if (userHint) {
+    const showUserHint = Boolean(state.session?.authenticated && state.session?.role === "user");
+    userHint.classList.toggle("hidden", !showUserHint);
   }
 }
 

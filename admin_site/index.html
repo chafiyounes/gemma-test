@@ -30,6 +30,21 @@
       </aside>
 
       <main class="admin-main">
+        <div id="admin-pre-auth" class="admin-pre-auth">
+          <div class="pre-auth-card">
+            <h2 class="pre-auth-title">Console admin</h2>
+            <p class="pre-auth-lead">
+              Connectez-vous avec le mot de passe <strong>administrateur</strong> dans la colonne de gauche
+              pour afficher les interactions, le détail RAG et le feedback.
+            </p>
+            <p id="pre-auth-user-hint" class="pre-auth-warning hidden">
+              Vous êtes connecté en tant qu’<strong>utilisateur</strong>. Déconnectez-vous du chat ou ouvrez cette page en navigation privée,
+              puis saisissez le <strong>mot de passe administrateur</strong> à gauche (le même compte ne suffit pas).
+            </p>
+          </div>
+        </div>
+
+        <div id="admin-dashboard-root" class="admin-dashboard-root hidden">
         <header class="toolbar">
           <div>
             <div class="toolbar-title">Console admin</div>
@@ -41,7 +56,7 @@
           </div>
         </header>
 
-        <section id="gated-content" class="gated-content hidden">
+        <section id="gated-content" class="gated-content">
           <div class="filter-row">
             <input id="search-input" type="search" placeholder="Rechercher prompt, reponse ou commentaire" />
             <select id="feedback-filter">
@@ -74,6 +89,7 @@
             </section>
           </div>
         </section>
+        </div>
       </main>
     </div>
 
