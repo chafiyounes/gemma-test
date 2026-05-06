@@ -13,6 +13,19 @@ La sécurité (mots de passe forts, secrets rotatifs) est **volontairement secon
 - Chaque réponse persistante en base inclut `metadata.rag` : `context_chars`, `documents_in_prompt`, `context_preview`, `note` éventuelle.
 - L’**admin** (`/admin`) affiche ce bloc pour chaque interaction.
 
+## Vérifier si la réponse est *vraiment* absente du corpus
+
+Le dépôt Git peut ne **pas** contenir vos `.docx` / `.txt` (données sur le pod uniquement). Pour trancher **absence réelle** vs **modèle qui refuse** :
+
+1. Sur la machine où vivent les fichiers (`data/documents/…` ou `data/documents_txt/…`), exécuter :
+   ```bash
+   cd /workspace/gemma-test   # ou le chemin local
+   python scripts/rag_audit.py "Vendor bghay ybdel numéro ... livraison" procedures
+   ```
+2. Le script affiche, **par fichier**, des compteurs sur des thèmes (téléphone, livraison, modification, etc.), l’ordre BM25 et un extrait du texte injecté.  
+   - Si **tous les compteurs sont 0** : le thème est probablement **absent** des textes — la phrase « absent des documents » peut être fondée.  
+   - Si des compteurs sont **> 0** : le contenu est là — regarder la **prévisualisation RAG** dans l’admin et la troncature (`RAG_INJECT_MAX_CHARS`).
+
 ## Console admin
 
 - URL : **`http://<hôte>:8000/admin`** (même origine que l’API ; cookies de session admin).
