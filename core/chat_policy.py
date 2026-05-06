@@ -209,6 +209,15 @@ _NOT_FOUND_MARKERS = (
     "لم اعثر على هذه المعلومة",
     "ma لقيتش",
     "ma ل9يتش",
+    "absente des documents",
+    "absente de ces documents",
+    "pas dans les documents",
+    "pas dans les procédures",
+    "n'est pas dans les documents",
+    "ne figure pas dans les documents",
+    "l'information que tu demandes est absente",
+    "l'information demandée est absente",
+    "information est absente",
 )
 
 

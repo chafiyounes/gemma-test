@@ -125,6 +125,8 @@ _LOGISTICS_FR_HINTS: tuple[tuple[str, str], ...] = (
     ("changement", "modification coordonnées téléphone adresse client"),
     ("coordonnées", "contact téléphone adresse client modification livraison"),
     ("coordonnees", "contact téléphone adresse client modification livraison"),
+    ("déjà", "colis déjà statut livraison en cours tournée livreur"),
+    ("deja", "colis statut livraison en cours tournée"),
 )
 
 
