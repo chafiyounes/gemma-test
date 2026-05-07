@@ -46,6 +46,10 @@ class Settings(BaseSettings):
     ADMIN_GIT_REFRESH_ENABLED: bool = True
     GIT_BRANCH: str = "main"
 
+    # Standard SOP numbering (sections 1–7): keep only 1..N for RAG; drop N+1 onward.
+    # Set to 0 to keep the full document. Default 5 removes sections 6 and 7 when detected.
+    SOP_MAX_SECTION_TO_KEEP: int = 5
+
     # ── Available model slots (for admin model switching) ──────────────────
     AVAILABLE_MODELS: str = "gemma4-26b-it"
 

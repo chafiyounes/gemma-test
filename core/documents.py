@@ -5,6 +5,7 @@ Layout (pick one per category, first match wins):
 1. **Preferred — Markdown exports** (systematic DOCX→MD, tables + headings):
        data/documents_md/<Category>/*.md
    Produce with ``python -m scripts.export_sop_to_md`` from ``data/documents/…/*.docx``.
+   Read as UTF-8 text for the model (``.md`` is convention only; ``#`` and pipe tables are fine).
 
 2. **Plain text exports** (legacy / hand-edited):
        data/documents_txt/<Category>/*.txt
