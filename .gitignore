@@ -10,3 +10,4 @@ web_test/node_modules/
 web_test/dist/
 *.egg-info/
 .venv/
+media/
