@@ -1,40 +1,53 @@
 """
-Convert Word `.docx` body to GitHub-flavoured Markdown for RAG.
+Convert Word `.docx` main body to GitHub-flavoured Markdown for RAG.
 
-**In scope (main document body only)**:
-- Paragraphs → Markdown blocks (headings from Word styles when possible).
-- Tables → pipe tables; cell text preserves line breaks; ``|`` escaped.
-- Soft line breaks (Shift+Enter) inside a paragraph → single newline.
+Serialises the **entire document body** in order: headings, paragraphs (including
+simple lists), and **all** tables (including cells that contain nested tables).
+Boilerplate author/validation tables are still removed in a final cleanup pass
+via ``clean_sop_markdown`` where they match author keywords.
 
-**Out of scope (ignored)**:
-- Headers, footers, and watermarks — not part of ``word/document.xml`` body; untyped.
-- Images, shapes, embedded logos — no placeholder; paragraphs that only contain drawings emit nothing.
-- Text boxes anchored outside normal flow may not always appear (Word OOXML limitation).
+**In scope (``word/document.xml`` body)**:
+- Paragraphs with heading styles (Title / Titre / Heading n).
+- List paragraphs (numPr or style name containing "list") as ``- `` bullets with indent.
+- Tables as GFM pipe tables; ``|`` escaped in cells; line breaks as ``<br>``.
 
-See: ``python -m scripts.export_sop_to_md`` to batch ``data/documents/<cat>/*.docx`` → ``data/documents_md/<cat>/*.md``.
+**Out of scope**:
+- Headers, footers (different OOXML parts).
+- Images / logos: no output unless there is visible text in the paragraph.
+
+See: ``python -m scripts.export_sop_to_md`` for batch export.
 """
 from __future__ import annotations
 
 import logging
 import re
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
 from core.sop_text_clean import clean_sop_markdown
 
 logger = logging.getLogger(__name__)
 
-_HEADER_TABLE_KEYWORDS = {
+_HEADER_TABLE_KEYWORDS = frozenset({
     "titre", "référence", "reference", "version",
     "date d'application", "date d\u2019application",
     "domaine d'application", "domaine d\u2019application",
     "responsable",
-}
-_FOOTER_TABLE_KEYWORDS = {
+})
+_FOOTER_TABLE_KEYWORDS = frozenset({
     "rédigé par", "redige par", "réalisé par", "realise par",
     "vérifié par", "verifie par", "approuvé par", "approuve par",
     "validé par", "valide par",
-}
+})
+
+
+def _drop_metadata_tables_setting() -> bool:
+    try:
+        from app_config.settings import settings
+
+        return bool(getattr(settings, "DOCX_MD_DROP_METADATA_TABLES", False))
+    except Exception:
+        return False
 
 
 def _escape_cell(text: str) -> str:
@@ -56,7 +69,7 @@ def _table_to_markdown(table_xml) -> str:
         cells = row.findall(qn("w:tc"))
         cell_texts = []
         for cell in cells:
-            cell_texts.append(_paragraphs_text_in_cell(cell))
+            cell_texts.append(_cell_content_markdown(cell))
         parsed_rows.append(cell_texts)
 
     if not parsed_rows:
@@ -84,20 +97,26 @@ def _table_to_markdown(table_xml) -> str:
     return "\n".join(lines)
 
 
-def _paragraphs_text_in_cell(cell_xml) -> str:
-    """Join all w:p in a table cell (handles nested paragraph structure)."""
+def _cell_content_markdown(cell_xml) -> str:
+    """Ordered content inside a cell: paragraphs and nested tables."""
     from docx.oxml.ns import qn
 
     parts: List[str] = []
-    for p in cell_xml.findall(qn("w:p")):
-        t = _paragraph_element_plain(p)
-        if t:
-            parts.append(t)
-    return "\n".join(parts).strip()
+    for child in cell_xml:
+        tag = child.tag.split("}")[-1]
+        if tag == "p":
+            t = _paragraph_element_plain(child)
+            if t:
+                parts.append(t)
+        elif tag == "tbl":
+            nested = _table_to_markdown(child)
+            if nested:
+                parts.append(nested)
+    return "\n\n".join(parts).strip()
 
 
 def _paragraph_element_plain(p_xml) -> str:
-    """Text + line breaks for one ``w:p`` (body or table). Drawings produce no ``w:t``."""
+    """Text + soft breaks; drawings without ``w:t`` yield empty."""
     buf: List[str] = []
     for child in p_xml:
         for sub in child.iter():
@@ -109,6 +128,28 @@ def _paragraph_element_plain(p_xml) -> str:
             elif tag == "tab":
                 buf.append("\t")
     return "".join(buf).strip()
+
+
+def _list_markdown_prefix(p_xml) -> str:
+    from docx.oxml.ns import qn
+
+    p_pr = p_xml.find(qn("w:pPr"))
+    if p_pr is None:
+        return ""
+    num_pr = p_pr.find(qn("w:numPr"))
+    if num_pr is None:
+        return ""
+    ilvl_el = num_pr.find(qn("w:ilvl"))
+    level = 0
+    if ilvl_el is not None:
+        v = ilvl_el.get(qn("w:val"))
+        if v is not None:
+            try:
+                level = int(v)
+            except ValueError:
+                level = 0
+    indent = "  " * max(0, min(level, 8))
+    return f"{indent}- "
 
 
 def _md_heading_prefix_for_style(style_name: str) -> str:
@@ -135,14 +176,41 @@ def _is_metadata_markdown_table(md: str) -> bool:
         parts = [p.strip() for p in ln.strip().strip("|").split("|")]
         parts = [p.replace("\\|", "|") for p in parts]
         if parts:
-            first_cols.append(parts[0].lower())
+            c0 = parts[0].lower()
+            if "<br>" in c0:
+                c0 = c0.split("<br>", 1)[0].strip()
+            first_cols.append(c0)
     all_kw = _HEADER_TABLE_KEYWORDS | _FOOTER_TABLE_KEYWORDS
     matches = sum(1 for v in first_cols if v in all_kw)
     return matches >= 2 or (bool(first_cols) and matches / len(first_cols) >= 0.5)
 
 
+def _body_paragraph_as_markdown(doc, p_xml, Paragraph) -> Optional[str]:
+    text = _paragraph_element_plain(p_xml)
+    if not text:
+        return None
+    heading_prefix = ""
+    style_name = "Normal"
+    try:
+        p = Paragraph(p_xml, doc)
+        style_name = p.style.name if p.style else "Normal"
+        heading_prefix = _md_heading_prefix_for_style(style_name)
+    except Exception:
+        pass
+
+    if heading_prefix:
+        return f"{heading_prefix}{text}"
+
+    lp = _list_markdown_prefix(p_xml)
+    if lp:
+        return f"{lp}{text}"
+    if style_name and "list" in style_name.lower():
+        alt = _list_markdown_prefix(p_xml) or "- "
+        return f"{alt}{text}"
+    return text
+
+
 def _ordered_body_chunks(doc) -> List[str]:
-    """Body-order blocks: paragraphs (as heading or plain) and non-metadata tables."""
     from docx.oxml.ns import qn
     try:
         from docx.text.paragraph import Paragraph
@@ -151,31 +219,31 @@ def _ordered_body_chunks(doc) -> List[str]:
 
     body = doc.element.body
     out: List[str] = []
+    Paragraph_cls = Paragraph
+
     for child in body:
         tag = child.tag.split("}")[-1]
         if tag == "p":
-            text = _paragraph_element_plain(child)
-            if not text:
-                continue
-            prefix = ""
-            if Paragraph is not None:
-                try:
-                    p = Paragraph(child, doc)
-                    st = p.style.name if p.style else "Normal"
-                    prefix = _md_heading_prefix_for_style(st)
-                except Exception:
-                    prefix = ""
-            line = f"{prefix}{text}" if prefix else text
-            out.append(line)
+            if Paragraph_cls is None:
+                t = _paragraph_element_plain(child)
+                if t:
+                    out.append(t)
+            else:
+                line = _body_paragraph_as_markdown(doc, child, Paragraph_cls)
+                if line:
+                    out.append(line)
         elif tag == "tbl":
             md = _table_to_markdown(child)
-            if md and not _is_metadata_markdown_table(md):
-                out.append(md)
+            if not md:
+                continue
+            if _drop_metadata_tables_setting() and _is_metadata_markdown_table(md):
+                continue
+            out.append(md)
     return out
 
 
 def convert_docx_to_markdown(path: Path | str) -> str:
-    """Parse ``.docx`` main body to Markdown; drop boilerplate tables; clean SOP cruft."""
+    """Parse ``.docx`` main body to Markdown; clean SOP cruft (images, author tables)."""
     try:
         from docx import Document
     except ImportError:

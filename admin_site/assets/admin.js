@@ -15,6 +15,7 @@ const sessionCard = document.getElementById("session-card");
 const sessionRole = document.getElementById("session-role");
 const logoutButton = document.getElementById("logout-button");
 const refreshButton = document.getElementById("refresh-button");
+const gitRefreshButton = document.getElementById("git-refresh-button");
 const evalToggle = document.getElementById("eval-toggle");
 const gatedContent = document.getElementById("gated-content");
 const preAuthPanel = document.getElementById("admin-pre-auth");
@@ -562,6 +563,27 @@ refreshButton.addEventListener("click", () => {
   state.conversationCache = {};
   loadInteractions().catch(handleLoadError);
 });
+
+if (gitRefreshButton) {
+  gitRefreshButton.addEventListener("click", async () => {
+    const ok = confirm(
+      "Télécharger la dernière version depuis Git (origin) et recharger l’index RAG ?\n\n" +
+        "Les changements de documents seront pris en compte sans redémarrer l’API. " +
+        "Les changements de code Python peuvent encore exiger un redémarrage du serveur (tmux).",
+    );
+    if (!ok) return;
+    setToggleLoading(gitRefreshButton, "Git...", true);
+    try {
+      const response = await apiFetch("/admin/git-refresh", { method: "POST" });
+      const data = await response.json();
+      alert(`Branche ${data.branch} @ ${data.commit}\n\n${data.note || "OK"}`);
+    } catch (error) {
+      alert("Échec Git / RAG: " + error.message);
+    } finally {
+      setToggleLoading(gitRefreshButton, "Git...", false);
+    }
+  });
+}
 evalToggle.addEventListener("click", handleEvalToggle);
 searchInput.addEventListener("input", (event) => {
   state.search = event.target.value.trim();

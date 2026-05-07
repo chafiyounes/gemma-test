@@ -39,6 +39,12 @@ class Settings(BaseSettings):
     # When the UI sends no category, pick this folder under data/documents/ if it
     # exists; otherwise the first category name (sorted).
     RAG_DEFAULT_CATEGORY: str = "procedures"
+    # If True, omit SOP cover-sheet-style tables (titre / référence / …) from MD export.
+    DOCX_MD_DROP_METADATA_TABLES: bool = False
+
+    # ── Admin: git pull + RAG reload (no process restart for document index) ─
+    ADMIN_GIT_REFRESH_ENABLED: bool = True
+    GIT_BRANCH: str = "main"
 
     # ── Available model slots (for admin model switching) ──────────────────
     AVAILABLE_MODELS: str = "gemma4-26b-it"
