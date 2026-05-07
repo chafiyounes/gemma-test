@@ -116,6 +116,15 @@ rate_limiter = RateLimiter(
 )
 
 
+def _rag_for_client(rag: dict) -> dict:
+    """Hide heavy debug fields from regular /chat payloads."""
+    if not isinstance(rag, dict):
+        return {}
+    out = dict(rag)
+    out.pop("context_full", None)
+    return out
+
+
 # ── Lifespan ──────────────────────────────────────────────────────────────────
 
 
@@ -414,6 +423,7 @@ async def chat(
         system_prompt=body.system_prompt if session["role"] == "admin" else None,
         category=category,
     )
+    rag_client = _rag_for_client(result.rag_meta)
 
     if not body.skip_persist:
         await db.save_interaction(
@@ -439,7 +449,7 @@ async def chat(
             "session_role": session["role"],
             "rate_limit_remaining": rate_limiter.remaining(client_ip),
             "category_used": category,
-            "rag": result.rag_meta,
+            "rag": rag_client,
         },
     )
 
