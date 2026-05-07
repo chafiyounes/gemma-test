@@ -490,7 +490,7 @@ class DocStore:
                 else:
                     chunk = body[:cap].rsplit("\n", 1)[0] if cap > 80 else body[:cap]
                     chunk = chunk or body[:cap]
-                    suffix = "\n…(tronqué — voir source .txt complète)\n"
+                    suffix = "\n…(tronqué — budget contexte atteint)\n"
                 block = header + chunk + suffix
                 parts.append(block)
                 used += len(block)
