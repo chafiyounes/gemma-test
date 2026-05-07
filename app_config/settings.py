@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     RAG_INJECT_MAX_CHARS: int = 24_000
     RAG_BM25_K: int = 8
     # Tighten whitespace/newlines in injected bodies so more SOP text fits the budget
-    # (semantic content unchanged; prefer ``data/documents_txt`` sources when possible).
+    # Prefer ``data/documents_md`` (export_sop_to_md); ``documents_txt`` remains supported.
     RAG_CONDENSE_DOCUMENTS: bool = True
     # Replay answers only after explicit user « like »; dislikes remove the entry for that Q.
     LIKED_ANSWER_CACHE_ENABLED: bool = True
