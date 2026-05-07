@@ -276,6 +276,11 @@ class GemmaModel:
             if ctx:
                 prev = rag_meta.get("note")
                 rag_meta["context_preview"] = ctx[:900] + ("…" if len(ctx) > 900 else "")
+                cap = max(0, int(settings.RAG_ADMIN_FULL_CONTEXT_MAX_CHARS))
+                if cap > 0:
+                    rag_meta["context_full"] = ctx[:cap]
+                else:
+                    rag_meta["context_full"] = ctx
                 if prev and prev == "category_empty_or_missing":
                     del rag_meta["note"]
             elif category:

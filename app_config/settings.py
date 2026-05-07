@@ -34,6 +34,9 @@ class Settings(BaseSettings):
     # Tighten whitespace/newlines in injected bodies so more SOP text fits the budget
     # Prefer ``data/documents_md`` (export_sop_to_md); ``documents_txt`` remains supported.
     RAG_CONDENSE_DOCUMENTS: bool = True
+    # Persist full injected document block for admin inspection (DB metadata).
+    # Client-facing /chat metadata still strips this field.
+    RAG_ADMIN_FULL_CONTEXT_MAX_CHARS: int = 120_000
     # Replay answers only after explicit user « like »; dislikes remove the entry for that Q.
     LIKED_ANSWER_CACHE_ENABLED: bool = True
     # When the UI sends no category, pick this folder under data/documents/ if it

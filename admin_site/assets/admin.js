@@ -378,8 +378,9 @@ function renderRagMetadata(item) {
   const docs = rag.documents_in_prompt;
   const note = rag.note || rag.retrieval_error;
   const preview = rag.context_preview || "";
+  const full = rag.context_full || "";
   const empty =
-    (chars === 0 || chars === undefined) && !preview && (note === undefined || note === null);
+    (chars === 0 || chars === undefined) && !preview && !full && (note === undefined || note === null);
 
   if (empty) {
     return `<section class="detail-block">
@@ -393,7 +394,8 @@ function renderRagMetadata(item) {
     <div class="detail-label">RAG (contexte documents)</div>
     <div class="detail-text">Catégorie : <strong>${escapeHtml(String(cat))}</strong> · caractères injectés : ${escapeHtml(String(chars ?? "—"))} · sections document : ${escapeHtml(String(docs ?? "—"))}</div>
     ${note ? `<div class="detail-text eval-warn">${escapeHtml(String(note))}</div>` : ""}
-    ${preview ? `<pre class="rag-preview">${escapeHtml(preview)}</pre>` : ""}
+    ${full ? `<details class="rag-full-wrap" open><summary>Contexte complet injecté (${escapeHtml(String(full.length))} caractères)</summary><pre class="rag-preview rag-full">${escapeHtml(full)}</pre></details>` : ""}
+    ${!full && preview ? `<pre class="rag-preview">${escapeHtml(preview)}</pre>` : ""}
   </section>`;
 }
 
