@@ -284,6 +284,11 @@ class DocStore:
         if not self.indexes:
             logger.warning("DocStore: no categories loaded from %s", self.docs_dir)
 
+    def reload(self) -> None:
+        """Rebuild BM25 indexes from disk (used after git pull or document export)."""
+        self.indexes.clear()
+        self._load()
+
     def list_categories(self) -> List[Dict]:
         return [
             {"name": c.name, "doc_count": len(c.docs), "doc_names": [d.name for d in c.docs]}
@@ -499,3 +504,12 @@ def get_store() -> DocStore:
     if _store is None:
         _store = DocStore()
     return _store
+
+
+def reload_document_store() -> None:
+    """Reload RAG indices from disk without restarting the API process."""
+    global _store
+    if _store is None:
+        _store = DocStore()
+    else:
+        _store.reload()

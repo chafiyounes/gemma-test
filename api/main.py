@@ -25,7 +25,7 @@ from api.schemas import (
     ModelInfo,
 )
 from app_config.settings import settings
-from core.documents import get_store as get_doc_store
+from core.documents import get_store as get_doc_store, reload_document_store
 from core.pipeline import GemmaPipeline
 from core.persistence import InteractionStore
 from core.security import AuthManager
@@ -515,6 +515,67 @@ async def admin_conversation(
 ):
     items = await db.list_interactions_for_session(session_id)
     return {"items": items, "count": len(items)}
+
+
+def _git_pull_and_reindex_sync() -> dict:
+    import os
+    import subprocess
+
+    root = APP_ROOT
+    branch = (settings.GIT_BRANCH or "main").strip()
+    env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
+    fetch = subprocess.run(
+        ["git", "-C", str(root), "fetch", "origin", branch],
+        capture_output=True,
+        text=True,
+        timeout=300,
+        env=env,
+    )
+    if fetch.returncode != 0:
+        err = (fetch.stderr or fetch.stdout or "").strip()
+        return {"ok": False, "step": "fetch", "stderr": err or "git fetch failed"}
+    reset = subprocess.run(
+        ["git", "-C", str(root), "reset", "--hard", f"origin/{branch}"],
+        capture_output=True,
+        text=True,
+        timeout=120,
+        env=env,
+    )
+    if reset.returncode != 0:
+        err = (reset.stderr or reset.stdout or "").strip()
+        return {"ok": False, "step": "reset", "stderr": err or "git reset failed"}
+    rev = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        env=env,
+    )
+    commit = (rev.stdout or "").strip() if rev.returncode == 0 else "unknown"
+    reload_document_store()
+    cats = get_doc_store().list_categories()
+    return {
+        "ok": True,
+        "commit": commit,
+        "branch": branch,
+        "rag_categories": cats,
+        "note": (
+            "Index RAG rechargé depuis le disque. Les changements de code Python "
+            "exigent encore un redémarrage du processus API (ex. fenêtre tmux / uvicorn)."
+        ),
+    }
+
+
+@app.post("/admin/git-refresh")
+async def admin_git_refresh(_admin: dict = Depends(_require_admin)):
+    """``git fetch`` + ``reset --hard origin/<branch>``, puis rechargement du BM25."""
+    if not settings.ADMIN_GIT_REFRESH_ENABLED:
+        raise HTTPException(403, detail="ADMIN_GIT_REFRESH_ENABLED=false")
+    out = await asyncio.to_thread(_git_pull_and_reindex_sync)
+    if not out.get("ok"):
+        detail = (out.get("stderr") or out.get("step") or "git failed")[:4000]
+        raise HTTPException(status_code=500, detail=detail)
+    return out
 
 
 # ── Stub endpoints (eval / Darija toggle / cache — kept for UI compatibility) ─
