@@ -85,9 +85,9 @@ export VLLM_TENSOR_PARALLEL_SIZE="${VLLM_TENSOR_PARALLEL_SIZE:-2}"
 # RAG: full-category inject can be tens of thousands of characters (~3 chars/token
 # for FR). If prompt_tokens + max_tokens would exceed --max-model-len, vLLM shrinks
 # the completion budget → mid-sentence stops (same place each time).
-# 12288 is a practical default on 2× A40 for Gemma 4; raise to 16384 if stable.
+# 16384 offers significantly more RAG headroom on 2× A40 while staying practical.
 # If startup OOMs/hangs, lower VLLM_MAX_MODEL_LEN or reduce RAG_INJECT_MAX_CHARS.
-export VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-12288}"
+export VLLM_MAX_MODEL_LEN="${VLLM_MAX_MODEL_LEN:-16384}"
 export VLLM_GPU_MEMORY_UTILIZATION="${VLLM_GPU_MEMORY_UTILIZATION:-0.85}"
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
