@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, Optional
 
@@ -391,6 +392,42 @@ class GemmaModel:
                 rag=rag_meta,
             )
         except httpx.HTTPStatusError as exc:
+            body = exc.response.text or ""
+            if exc.response.status_code == 400 and "maximum context length" in body.lower():
+                max_ctx_m = re.search(r"maximum context length is (\d+)", body, flags=re.IGNORECASE)
+                in_tok_m = re.search(r"input tokens[^\d]*(\d+)", body, flags=re.IGNORECASE)
+                current_max = int(payload.get("max_tokens") or settings.MAX_NEW_TOKENS)
+                if max_ctx_m and in_tok_m:
+                    max_ctx = int(max_ctx_m.group(1))
+                    in_tok = int(in_tok_m.group(1))
+                    # Keep a small safety margin for template/system jitter.
+                    reduced = max(64, min(current_max, max_ctx - in_tok - 16))
+                    if reduced < current_max:
+                        logger.warning(
+                            "vLLM 400 context overflow; retry with lower max_tokens=%s (was %s, max_ctx=%s, input=%s)",
+                            reduced,
+                            current_max,
+                            max_ctx,
+                            in_tok,
+                        )
+                        payload_retry = dict(payload)
+                        payload_retry["max_tokens"] = reduced
+                        try:
+                            resp2 = await self._client.post("/v1/chat/completions", json=payload_retry)
+                            resp2.raise_for_status()
+                            data = resp2.json()
+                            choice = data["choices"][0]
+                            msg = choice.get("message") or {}
+                            raw = (msg.get("content") or "").strip()
+                            rag_meta["max_tokens_reduced"] = reduced
+                            return LLMGenerateResult(
+                                text=normalize_not_found_response(
+                                    message, raw, rag_context_chars=ctx_len
+                                ),
+                                rag=rag_meta,
+                            )
+                        except Exception as retry_exc:
+                            logger.error("Retry after context overflow failed: %s", retry_exc)
             logger.error("vLLM HTTP error %s: %s", exc.response.status_code, exc.response.text)
             return LLMGenerateResult(
                 text=f"⚠️ Model error ({exc.response.status_code}). Please try again.",
