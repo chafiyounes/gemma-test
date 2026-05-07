@@ -25,6 +25,7 @@ from api.schemas import (
     ModelInfo,
 )
 from app_config.settings import settings
+from core.chat_policy import detect_lang_bucket, retrieval_anchor_query
 from core.documents import get_store as get_doc_store, reload_document_store
 from core.pipeline import GemmaPipeline
 from core.persistence import InteractionStore
@@ -123,6 +124,76 @@ def _rag_for_client(rag: dict) -> dict:
     out = dict(rag)
     out.pop("context_full", None)
     return out
+
+
+def _reconstruct_rag_for_admin(message: str, category: Optional[str]) -> dict:
+    """Best-effort RAG reconstruction for legacy rows missing rag metadata."""
+    rag: dict = {"category": category}
+    if not message:
+        rag["note"] = "reconstruct_empty_message"
+        rag["context_chars"] = 0
+        rag["documents_in_prompt"] = 0
+        return rag
+
+    try:
+        store_docs = get_doc_store()
+        if not category:
+            category = _resolve_rag_category(None)
+        if not category:
+            rag["note"] = "reconstruct_no_category"
+            rag["context_chars"] = 0
+            rag["documents_in_prompt"] = 0
+            return rag
+
+        rag["category"] = category
+        corpus = store_docs.category_corpus_chars(category)
+        rq = retrieval_anchor_query(message, [])
+        bucket = detect_lang_bucket(message)
+        expand_hints = bucket in ("fr", "darija", "en")
+
+        ctx = ""
+        if 0 < corpus <= settings.RAG_FULL_CATEGORY_MAX_CHARS:
+            ctx = store_docs.build_all_docs_context(
+                category=category,
+                max_chars=settings.RAG_INJECT_MAX_CHARS,
+                query=rq,
+                expand_for_retrieval=expand_hints,
+                condense=settings.RAG_CONDENSE_DOCUMENTS,
+            )
+        elif corpus > 0:
+            ctx = store_docs.build_context(
+                rq,
+                category=category,
+                k=settings.RAG_BM25_K,
+                max_chars=settings.RAG_INJECT_MAX_CHARS,
+                expand_fr_darija_hints=expand_hints,
+                condense=settings.RAG_CONDENSE_DOCUMENTS,
+            )
+            if not ctx:
+                ctx = store_docs.build_all_docs_context(
+                    category=category,
+                    max_chars=settings.RAG_INJECT_MAX_CHARS,
+                    query=rq,
+                    expand_for_retrieval=expand_hints,
+                    condense=settings.RAG_CONDENSE_DOCUMENTS,
+                )
+
+        rag["context_chars"] = len(ctx) if ctx else 0
+        rag["documents_in_prompt"] = ctx.count("### Document :") if ctx else 0
+        rag["context_preview"] = ctx[:900] + ("…" if len(ctx) > 900 else "") if ctx else ""
+        if ctx:
+            cap = max(0, int(settings.RAG_ADMIN_FULL_CONTEXT_MAX_CHARS))
+            rag["context_full"] = ctx[:cap] if cap > 0 else ctx
+            rag["note"] = "reconstructed_for_admin"
+        else:
+            rag["note"] = "reconstruct_no_context"
+        return rag
+    except Exception as exc:
+        rag["note"] = "reconstruct_failed"
+        rag["retrieval_error"] = str(exc)
+        rag["context_chars"] = 0
+        rag["documents_in_prompt"] = 0
+        return rag
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
@@ -514,6 +585,15 @@ async def admin_interaction_detail(
     item = await db.get_interaction(interaction_id)
     if item is None:
         raise HTTPException(404, "Interaction not found")
+    meta = item.get("metadata") if isinstance(item, dict) else None
+    if isinstance(meta, dict):
+        rag = meta.get("rag")
+        # Legacy rows can have metadata={"role": "..."} only; reconstruct for visibility.
+        if not isinstance(rag, dict) or not rag:
+            category = meta.get("category_used")
+            msg = item.get("message", "")
+            meta["rag"] = _reconstruct_rag_for_admin(msg, category)
+            item["metadata"] = meta
     return item
 
 
