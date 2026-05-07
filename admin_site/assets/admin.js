@@ -372,7 +372,7 @@ function renderConversation(items, currentId) {
 
 function renderRagMetadata(item) {
   const meta = item.metadata || {};
-  const rag = meta.rag || {};
+  const rag = meta.rag || meta.rag_reconstructed || {};
   const cat = meta.category_used || rag.category || "—";
   const chars = rag.context_chars;
   const docs = rag.documents_in_prompt;
