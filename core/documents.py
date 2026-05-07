@@ -145,6 +145,14 @@ def _collapse_ws(text: str) -> str:
     return collapse_whitespace(text)
 
 
+def condense_sop_plaintext(text: str) -> str:
+    """Tighten spacing/newlines for prompt budget without semantic rewriting."""
+    if not text:
+        return ""
+    t = text.replace("\r\n", "\n").replace("\r", "\n")
+    return _collapse_ws(t)
+
+
 def _read_txt(path: Path) -> str:
     try:
         text = path.read_text(encoding="utf-8")
