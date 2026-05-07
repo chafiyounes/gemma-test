@@ -3,10 +3,18 @@
 One-click deployment to RunPod pod.
 
 Usage:
-    python scripts/deploy_runner.py              # full deploy
-    python scripts/deploy_runner.py --skip-deps  # skip system/Python deps (faster redeploy)
+    python scripts/deploy_runner.py                        # full deploy
+    python scripts/deploy_runner.py --skip-deps            # skip apt/pip (faster)
+    python scripts/deploy_runner.py --skip-deps --restart none    # pull + build only
+    python scripts/deploy_runner.py --skip-deps --restart api-only # default: no vLLM restart
+    python scripts/deploy_runner.py --skip-deps --restart all    # kill tmux + start_all (reloads GPU model)
 
 Connects via paramiko (PTY-aware) to bypass RunPod's SSH gateway restriction.
+
+Restart modes:
+  api-only — run scripts/restart_api.sh (uvicorn only; keeps vLLM loaded).
+  all      — bash start_all.sh (kills whole tmux session; vLLM reloads).
+  none     — do not touch running processes.
 """
 import argparse
 import paramiko
@@ -78,6 +86,12 @@ def main():
     parser = argparse.ArgumentParser(description="Deploy gemma-test to RunPod")
     parser.add_argument("--skip-deps", action="store_true",
                         help="Skip system and Python dependency installation")
+    parser.add_argument(
+        "--restart",
+        choices=("api-only", "all", "none"),
+        default="api-only",
+        help="What to restart on the pod after git/build (default: api-only = no vLLM reload)",
+    )
     args = parser.parse_args()
 
     dep_cmds = []
@@ -113,12 +127,20 @@ def main():
         "npm install",
         "npm run build",
         "cd ..",
-        # Start services
-        "bash start_all.sh gemma4",
     ]
 
-    all_cmds = dep_cmds + deploy_cmds
-    run_commands(all_cmds, label="full deploy" if not args.skip_deps else "quick deploy")
+    if args.restart == "all":
+        deploy_cmds.append("bash start_all.sh gemma4")
+    elif args.restart == "api-only":
+        deploy_cmds.append("bash scripts/restart_api.sh")
+
+    run_commands(
+        all_cmds,
+        label=(
+            f"{'full deploy' if not args.skip_deps else 'quick deploy'} "
+            f"[restart={args.restart}]"
+        ),
+    )
 
 
 if __name__ == "__main__":
