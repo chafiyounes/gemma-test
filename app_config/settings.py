@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     RAG_FULL_CATEGORY_MAX_CHARS: int = 999_999
     # Hard cap per inject pass — keep headroom inside vLLM --max-model-len (often
     # 8192–12288) for instructions + chat template + completion (see start_vllm.sh).
-    RAG_INJECT_MAX_CHARS: int = 50_000
+    RAG_INJECT_MAX_CHARS: int = 60_000
     RAG_BM25_K: int = 8
     # Tighten whitespace/newlines in injected bodies so more SOP text fits the budget
     # Prefer ``data/documents_md`` (export_sop_to_md); ``documents_txt`` remains supported.
@@ -81,8 +81,8 @@ class Settings(BaseSettings):
 
     # ── Generation parameters ─────────────────────────────────────────────
     # Procédures longues (FR + darija, plusieurs « cas ») dépassent vite 768 sorties.
-    # 2048 évite les coupures au milieu d’un mot / d’une étape (finish_reason=length).
-    MAX_NEW_TOKENS: int = 2048
+    # 1536 garde des réponses longues tout en libérant plus de budget d'entrée RAG.
+    MAX_NEW_TOKENS: int = 1536
     TEMPERATURE: float = 0.7
     TOP_P: float = 0.9
 
