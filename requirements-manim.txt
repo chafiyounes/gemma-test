@@ -1,0 +1,4 @@
+# Optional: architecture video diagrams (scripts/manim_gemma_architecture.py)
+# pip install -r requirements-manim.txt
+# https://docs.manim.community/en/stable/installation.html
+manim>=0.18.0
