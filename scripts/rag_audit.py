@@ -2,7 +2,7 @@
 """Check whether local SOP files likely contain an answer theme (keyword audit).
 
 Run on the same machine as the API / pod, from the repo root, so
-``data/documents/<category>`` (or ``documents_txt``) are visible.
+``data/documents/<category>`` (or ``documents_md`` / ``documents_txt``) are visible.
 
 Examples:
   python scripts/rag_audit.py \\
@@ -123,7 +123,7 @@ def main() -> None:
         print(
             "Verdict: **no keyword/theme hits** in this category for the listed themes.\n"
             "If your SOPs truly omit téléphone + livraison + modification, the model may be correct to say absent.\n"
-            "Otherwise add or re-export text under data/documents_txt/."
+            "Otherwise add or export Markdown under data/documents_md/ (see export_sop_to_md)."
         )
     else:
         print(
