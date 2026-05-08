@@ -356,6 +356,55 @@ function collectDroppedFiles(dataTransfer) {
   return files;
 }
 
+function assignFolderFilesToCategories(files, fallbackCategory) {
+  const assignments = [];
+  const errors = [];
+  const byRoot = new Map();
+
+  for (const file of files) {
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith(".docx") && !lower.endsWith(".txt")) continue;
+    const rel = (file.webkitRelativePath || "").replaceAll("\\", "/");
+    if (!rel) {
+      assignments.push({ file, category: fallbackCategory });
+      continue;
+    }
+    const parts = rel.split("/").filter(Boolean);
+    if (parts.length < 2) {
+      assignments.push({ file, category: fallbackCategory });
+      continue;
+    }
+    const root = parts[0];
+    const subPathDepth = parts.length - 2; // without root + filename
+    const current = byRoot.get(root) || { hasDirectFiles: false, files: [] };
+    if (subPathDepth === 0) current.hasDirectFiles = true;
+    current.files.push({ file, parts, subPathDepth });
+    byRoot.set(root, current);
+  }
+
+  for (const [root, group] of byRoot.entries()) {
+    const hasSubfolders = group.files.some((f) => f.subPathDepth >= 1);
+    const mustUseSubfolders = hasSubfolders;
+    for (const item of group.files) {
+      if (item.subPathDepth >= 2) {
+        errors.push(`Arborescence trop profonde dans "${item.parts.join("/")}" (max: root/category/file).`);
+        continue;
+      }
+      if (mustUseSubfolders) {
+        if (item.subPathDepth === 0) {
+          errors.push(`Fichier a la racine de "${root}" non autorise quand des sous-dossiers existent: "${item.parts.join("/")}".`);
+          continue;
+        }
+        assignments.push({ file: item.file, category: item.parts[1] });
+      } else {
+        assignments.push({ file: item.file, category: root });
+      }
+    }
+  }
+
+  return { assignments, errors };
+}
+
 function renderDocuments() {
   const data = state.docsOverview;
   const draft = state.docsDraft;
@@ -493,25 +542,17 @@ async function handleUploadDocument() {
 }
 
 function handleFolderSelection() {
-  const category = (docCategoryInput?.value || "").trim();
-  if (!category) {
-    showDocError("Choisissez une categorie avant d'ajouter un dossier.");
-    return;
-  }
   const files = Array.from(docFolderInput?.files || []);
   if (!files.length) return;
-  let added = 0;
-  for (const file of files) {
-    const lower = file.name.toLowerCase();
-    if (lower.endsWith(".docx") || lower.endsWith(".txt")) {
-      draftAddUpload(file, category);
-      added += 1;
-    }
+  const fallbackCategory = (docCategoryInput?.value || "").trim() || "procedures";
+  const { assignments, errors } = assignFolderFilesToCategories(files, fallbackCategory);
+  for (const item of assignments) {
+    draftAddUpload(item.file, item.category);
   }
-  if (!added) {
-    showDocError("Aucun fichier .docx/.txt detecte dans ce dossier.");
+  if (!assignments.length) {
+    showDocError(errors[0] || "Aucun fichier .docx/.txt detecte dans ce dossier.");
   } else {
-    showDocError("");
+    showDocError(errors.length ? errors[0] : "");
     renderDocuments();
   }
   if (docFolderInput) docFolderInput.value = "";
@@ -952,20 +993,17 @@ if (docDropzone) {
   docDropzone.addEventListener("drop", (event) => {
     event.preventDefault();
     docDropzone.classList.remove("dragover");
-    const category = (docCategoryInput?.value || "").trim();
-    if (!category) {
-      showDocError("Choisissez une categorie avant de glisser-deposer.");
-      return;
-    }
     const files = collectDroppedFiles(event.dataTransfer);
-    if (!files.length) {
-      showDocError("Aucun fichier .docx/.txt detecte dans ce depot.");
+    const fallbackCategory = (docCategoryInput?.value || "").trim() || "procedures";
+    const { assignments, errors } = assignFolderFilesToCategories(files, fallbackCategory);
+    if (!assignments.length) {
+      showDocError(errors[0] || "Aucun fichier .docx/.txt detecte dans ce depot.");
       return;
     }
-    for (const file of files) {
-      draftAddUpload(file, category);
+    for (const item of assignments) {
+      draftAddUpload(item.file, item.category);
     }
-    showDocError("");
+    showDocError(errors.length ? errors[0] : "");
     renderDocuments();
   });
 }
