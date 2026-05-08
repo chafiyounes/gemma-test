@@ -129,7 +129,7 @@ def _assert_no_overflow(category: str) -> None:
         )
 
 
-def upload_document(category: str, filename: str, data: bytes) -> dict:
+def upload_document(category: str, filename: str, data: bytes, *, enforce_overflow: bool = True) -> dict:
     cat = ensure_category(category)
     safe_name = _sanitize_segment(filename, field_name="filename")
     ext = Path(safe_name).suffix.lower()
@@ -162,7 +162,8 @@ def upload_document(category: str, filename: str, data: bytes) -> dict:
         else:
             raise DocumentAdminError("Only .docx and .txt are supported")
 
-        _assert_no_overflow(cat)
+        if enforce_overflow:
+            _assert_no_overflow(cat)
         return {"category": cat, "filename": f"{stem}{ext}"}
     except Exception:
         for p in reversed(created):
@@ -170,7 +171,14 @@ def upload_document(category: str, filename: str, data: bytes) -> dict:
         raise
 
 
-def move_document(source_category: str, target_category: str, source_kind: str, filename: str) -> dict:
+def move_document(
+    source_category: str,
+    target_category: str,
+    source_kind: str,
+    filename: str,
+    *,
+    enforce_overflow: bool = True,
+) -> dict:
     src_cat = ensure_category(source_category)
     dst_cat = ensure_category(target_category)
     if src_cat == dst_cat:
@@ -214,7 +222,8 @@ def move_document(source_category: str, target_category: str, source_kind: str, 
         else:
             raise DocumentAdminError("Unsupported source kind")
 
-        _assert_no_overflow(dst_cat)
+        if enforce_overflow:
+            _assert_no_overflow(dst_cat)
         return {"from": src_cat, "to": dst_cat, "filename": safe_name, "source": kind}
     except Exception:
         for dst, src in reversed(moved_pairs):
@@ -245,3 +254,139 @@ def delete_document(category: str, source_kind: str, filename: str) -> dict:
         raise DocumentAdminError("Unsupported source kind")
 
     return {"deleted": True, "category": cat, "filename": safe_name, "source": kind}
+
+
+def _restore_deleted(file_bytes: bytes, category: str, source_kind: str, filename: str, md_bytes: Optional[bytes]) -> None:
+    cat = ensure_category(category)
+    kind = _sanitize_segment(source_kind, field_name="source").lower()
+    safe_name = _sanitize_segment(filename, field_name="filename")
+    if kind == "txt":
+        path = DOCS_TXT_DIR / cat / safe_name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(file_bytes)
+    elif kind == "docx":
+        path = DOCS_DIR / cat / safe_name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(file_bytes)
+        if md_bytes is not None:
+            md = DOCS_MD_DIR / cat / f"{Path(safe_name).stem}.md"
+            md.parent.mkdir(parents=True, exist_ok=True)
+            md.write_bytes(md_bytes)
+
+
+def apply_plan(
+    *,
+    uploads: List[dict],
+    moves: List[dict],
+    deletes: List[dict],
+) -> dict:
+    """Apply staged document operations atomically (best-effort rollback)."""
+    undo_stack: List[dict] = []
+    try:
+        for op in deletes:
+            cat = ensure_category(op.get("category", ""))
+            kind = _sanitize_segment(op.get("source_kind", ""), field_name="source").lower()
+            filename = _sanitize_segment(op.get("filename", ""), field_name="filename")
+
+            if kind == "txt":
+                path = DOCS_TXT_DIR / cat / filename
+                if not path.exists():
+                    raise DocumentAdminError(f"File not found for delete: {filename}")
+                file_bytes = path.read_bytes()
+                delete_document(cat, kind, filename)
+                undo_stack.append(
+                    {
+                        "type": "restore_delete",
+                        "category": cat,
+                        "source_kind": kind,
+                        "filename": filename,
+                        "file_bytes": file_bytes,
+                        "md_bytes": None,
+                    }
+                )
+            elif kind == "docx":
+                path = DOCS_DIR / cat / filename
+                if not path.exists():
+                    raise DocumentAdminError(f"File not found for delete: {filename}")
+                file_bytes = path.read_bytes()
+                md_path = DOCS_MD_DIR / cat / f"{Path(filename).stem}.md"
+                md_bytes = md_path.read_bytes() if md_path.exists() else None
+                delete_document(cat, kind, filename)
+                undo_stack.append(
+                    {
+                        "type": "restore_delete",
+                        "category": cat,
+                        "source_kind": kind,
+                        "filename": filename,
+                        "file_bytes": file_bytes,
+                        "md_bytes": md_bytes,
+                    }
+                )
+            else:
+                raise DocumentAdminError("Unsupported source kind")
+
+        for op in moves:
+            src = ensure_category(op.get("source_category", ""))
+            dst = ensure_category(op.get("target_category", ""))
+            kind = _sanitize_segment(op.get("source_kind", ""), field_name="source").lower()
+            filename = _sanitize_segment(op.get("filename", ""), field_name="filename")
+            move_document(src, dst, kind, filename, enforce_overflow=False)
+            undo_stack.append(
+                {
+                    "type": "reverse_move",
+                    "source_category": dst,
+                    "target_category": src,
+                    "source_kind": kind,
+                    "filename": filename,
+                }
+            )
+
+        for op in uploads:
+            cat = ensure_category(op.get("category", ""))
+            filename = op.get("filename", "")
+            data = op.get("data", b"")
+            if not isinstance(data, (bytes, bytearray)) or not data:
+                raise DocumentAdminError(f"Upload payload missing for {filename}")
+            out = upload_document(cat, filename, bytes(data), enforce_overflow=False)
+            undo_stack.append(
+                {
+                    "type": "delete_upload",
+                    "category": cat,
+                    "source_kind": Path(out["filename"]).suffix.lower().lstrip("."),
+                    "filename": out["filename"],
+                }
+            )
+
+        overview = get_overview()
+        limit = overview["budget"]["category_limit_chars"]
+        offenders = [c for c in overview["categories"] if c["overflow"]]
+        if offenders:
+            detail = ", ".join(f"{c['name']} ({c['total_chars']}/{limit})" for c in offenders)
+            raise DocumentAdminError(f"Context budget exceeded after save: {detail}")
+        return overview
+    except Exception:
+        for step in reversed(undo_stack):
+            try:
+                if step["type"] == "restore_delete":
+                    _restore_deleted(
+                        file_bytes=step["file_bytes"],
+                        category=step["category"],
+                        source_kind=step["source_kind"],
+                        filename=step["filename"],
+                        md_bytes=step.get("md_bytes"),
+                    )
+                elif step["type"] == "reverse_move":
+                    move_document(
+                        step["source_category"],
+                        step["target_category"],
+                        step["source_kind"],
+                        step["filename"],
+                        enforce_overflow=False,
+                    )
+                elif step["type"] == "delete_upload":
+                    kind = step["source_kind"]
+                    source_kind = "txt" if kind == "txt" else "docx"
+                    delete_document(step["category"], source_kind, step["filename"])
+            except Exception:
+                pass
+        raise

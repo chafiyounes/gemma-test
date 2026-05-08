@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -28,6 +29,7 @@ from api.schemas import (
 from app_config.settings import settings
 from core.chat_policy import detect_lang_bucket, retrieval_anchor_query
 from core.documents_admin import (
+    apply_plan as apply_documents_plan,
     DocumentAdminError,
     delete_document,
     get_overview as get_documents_overview,
@@ -102,6 +104,12 @@ class DeleteDocumentRequest(BaseModel):
     category: str
     source_kind: str
     filename: str
+
+
+class ApplyDocumentsPlanRequest(BaseModel):
+    uploads: list[dict] = []
+    moves: list[dict] = []
+    deletes: list[dict] = []
 
 
 # ── Rate limiter ──────────────────────────────────────────────────────────────
@@ -813,6 +821,46 @@ async def admin_documents_delete(
     except Exception as exc:
         logger.error("Delete failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to delete document")
+
+
+@app.post("/admin/documents/apply-plan")
+async def admin_documents_apply_plan(
+    plan_json: str = Form(...),
+    files: list[UploadFile] = File(default=[]),
+    _admin: dict = Depends(_require_admin),
+):
+    try:
+        plan_raw = json.loads(plan_json)
+        plan = ApplyDocumentsPlanRequest(**plan_raw)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid plan_json payload")
+
+    if len(plan.uploads) != len(files):
+        raise HTTPException(status_code=400, detail="Uploads/files count mismatch")
+
+    upload_ops: list[dict] = []
+    for i, upload in enumerate(plan.uploads):
+        f = files[i]
+        data = await f.read()
+        if not data:
+            raise HTTPException(status_code=400, detail=f"Empty upload: {f.filename or i}")
+        filename = upload.get("filename") or f.filename
+        category = upload.get("category")
+        upload_ops.append({"filename": filename, "category": category, "data": data})
+
+    try:
+        overview = apply_documents_plan(
+            uploads=upload_ops,
+            moves=plan.moves,
+            deletes=plan.deletes,
+        )
+        reload_document_store()
+        return {"ok": True, "overview": overview}
+    except DocumentAdminError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Apply plan failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to apply plan")
 
 
 # ── Static serving ────────────────────────────────────────────────────────────

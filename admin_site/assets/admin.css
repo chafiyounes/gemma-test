@@ -600,8 +600,22 @@ body {
 
 .documents-actions {
   display: grid;
-  grid-template-columns: minmax(200px, 280px) minmax(220px, 1fr) auto auto;
+  grid-template-columns: minmax(180px, 240px) minmax(220px, 1fr) repeat(5, auto);
   gap: 10px;
+}
+
+.doc-dropzone {
+  border: 1px dashed rgba(255, 255, 255, 0.2);
+  border-radius: 12px;
+  padding: 12px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.doc-dropzone.dragover {
+  border-color: rgba(217, 119, 69, 0.7);
+  background: rgba(217, 119, 69, 0.12);
+  color: #f7c798;
 }
 
 .documents-categories {
@@ -661,6 +675,10 @@ body {
 
 .doc-file-name {
   font-size: 13px;
+}
+
+.doc-file.pending {
+  border-color: rgba(217, 119, 69, 0.4);
 }
 
 .doc-move-select {
