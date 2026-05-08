@@ -356,6 +356,54 @@ function collectDroppedFiles(dataTransfer) {
   return files;
 }
 
+function readEntryFile(entry) {
+  return new Promise((resolve, reject) => {
+    entry.file(resolve, reject);
+  });
+}
+
+function readEntryChildren(entry) {
+  return new Promise((resolve, reject) => {
+    const reader = entry.createReader();
+    reader.readEntries(resolve, reject);
+  });
+}
+
+async function collectDroppedFilesDeep(dataTransfer) {
+  const out = [];
+  const items = Array.from(dataTransfer?.items || []);
+  if (!items.length) return collectDroppedFiles(dataTransfer);
+
+  async function walk(entry, prefix = "") {
+    if (!entry) return;
+    if (entry.isFile) {
+      const file = await readEntryFile(entry);
+      const rel = [prefix, file.name].filter(Boolean).join("/");
+      Object.defineProperty(file, "__relativePath", { value: rel, configurable: true });
+      out.push(file);
+      return;
+    }
+    if (entry.isDirectory) {
+      const nextPrefix = [prefix, entry.name].filter(Boolean).join("/");
+      const children = await readEntryChildren(entry);
+      for (const child of children) {
+        await walk(child, nextPrefix);
+      }
+    }
+  }
+
+  for (const item of items) {
+    const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
+    if (entry) {
+      await walk(entry, "");
+      continue;
+    }
+    const f = item.getAsFile?.();
+    if (f) out.push(f);
+  }
+  return out.length ? out : collectDroppedFiles(dataTransfer);
+}
+
 function assignFolderFilesToCategories(files, fallbackCategory) {
   const assignments = [];
   const errors = [];
@@ -364,7 +412,7 @@ function assignFolderFilesToCategories(files, fallbackCategory) {
   for (const file of files) {
     const lower = file.name.toLowerCase();
     if (!lower.endsWith(".docx") && !lower.endsWith(".txt")) continue;
-    const rel = (file.webkitRelativePath || "").replaceAll("\\", "/");
+    const rel = (file.webkitRelativePath || file.__relativePath || "").replaceAll("\\", "/");
     if (!rel) {
       assignments.push({ file, category: fallbackCategory });
       continue;
@@ -990,10 +1038,10 @@ if (docDropzone) {
   docDropzone.addEventListener("dragleave", () => {
     docDropzone.classList.remove("dragover");
   });
-  docDropzone.addEventListener("drop", (event) => {
+  docDropzone.addEventListener("drop", async (event) => {
     event.preventDefault();
     docDropzone.classList.remove("dragover");
-    const files = collectDroppedFiles(event.dataTransfer);
+    const files = await collectDroppedFilesDeep(event.dataTransfer);
     const fallbackCategory = (docCategoryInput?.value || "").trim() || "procedures";
     const { assignments, errors } = assignFolderFilesToCategories(files, fallbackCategory);
     if (!assignments.length) {
