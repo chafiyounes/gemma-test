@@ -44,7 +44,6 @@ const docAddFolderButton = document.getElementById("doc-add-folder-button");
 const docSaveButton = document.getElementById("doc-save-button");
 const docDiscardButton = document.getElementById("doc-discard-button");
 const docRefreshButton = document.getElementById("doc-refresh-button");
-const docDropzone = document.getElementById("doc-dropzone");
 const docPendingSummary = document.getElementById("doc-pending-summary");
 const docError = document.getElementById("doc-error");
 let activeToggleConfirmationCleanup = null;
@@ -346,64 +345,6 @@ function draftAddUpload(file, category) {
   _setDirty(true);
 }
 
-function collectDroppedFiles(dataTransfer) {
-  const files = [];
-  if (!dataTransfer?.files) return files;
-  for (const f of dataTransfer.files) {
-    const lower = f.name.toLowerCase();
-    if (lower.endsWith(".docx") || lower.endsWith(".txt")) files.push(f);
-  }
-  return files;
-}
-
-function readEntryFile(entry) {
-  return new Promise((resolve, reject) => {
-    entry.file(resolve, reject);
-  });
-}
-
-function readEntryChildren(entry) {
-  return new Promise((resolve, reject) => {
-    const reader = entry.createReader();
-    reader.readEntries(resolve, reject);
-  });
-}
-
-async function collectDroppedFilesDeep(dataTransfer) {
-  const out = [];
-  const items = Array.from(dataTransfer?.items || []);
-  if (!items.length) return collectDroppedFiles(dataTransfer);
-
-  async function walk(entry, prefix = "") {
-    if (!entry) return;
-    if (entry.isFile) {
-      const file = await readEntryFile(entry);
-      const rel = [prefix, file.name].filter(Boolean).join("/");
-      Object.defineProperty(file, "__relativePath", { value: rel, configurable: true });
-      out.push(file);
-      return;
-    }
-    if (entry.isDirectory) {
-      const nextPrefix = [prefix, entry.name].filter(Boolean).join("/");
-      const children = await readEntryChildren(entry);
-      for (const child of children) {
-        await walk(child, nextPrefix);
-      }
-    }
-  }
-
-  for (const item of items) {
-    const entry = item.webkitGetAsEntry ? item.webkitGetAsEntry() : null;
-    if (entry) {
-      await walk(entry, "");
-      continue;
-    }
-    const f = item.getAsFile?.();
-    if (f) out.push(f);
-  }
-  return out.length ? out : collectDroppedFiles(dataTransfer);
-}
-
 function assignFolderFilesToCategories(files, fallbackCategory) {
   const assignments = [];
   const errors = [];
@@ -569,22 +510,35 @@ async function loadDocumentsOverview() {
 async function handleUploadDocument() {
   showDocError("");
   const category = (docCategoryInput?.value || "").trim();
-  const file = docFileInput?.files?.[0];
+  const list = Array.from(docFileInput?.files || []);
   if (!category) {
     showDocError("La categorie est obligatoire.");
     return;
   }
-  if (!file) {
-    showDocError("Choisissez un fichier .docx ou .txt.");
+  if (!list.length) {
+    showDocError("Choisissez un ou plusieurs fichiers .docx ou .txt.");
     return;
   }
-  const lower = file.name.toLowerCase();
-  if (!lower.endsWith(".docx") && !lower.endsWith(".txt")) {
-    showDocError("Seuls les fichiers .docx et .txt sont autorises.");
+  let added = 0;
+  let skipped = 0;
+  for (const file of list) {
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith(".docx") && !lower.endsWith(".txt")) {
+      skipped += 1;
+      continue;
+    }
+    draftAddUpload(file, category);
+    added += 1;
+  }
+  if (!added) {
+    showDocError("Aucun fichier .docx ou .txt valide dans la selection.");
     return;
   }
-
-  draftAddUpload(file, category);
+  if (skipped > 0) {
+    showDocError(`${added} fichier(s) ajoute(s) au brouillon. ${skipped} fichier(s) ignores (extensions non autorisees).`);
+  } else {
+    showDocError("");
+  }
   if (docFileInput) docFileInput.value = "";
   renderDocuments();
 }
@@ -1028,31 +982,6 @@ if (docDiscardButton) {
 if (docRefreshButton) {
   docRefreshButton.addEventListener("click", () => {
     loadDocumentsOverview().catch((error) => showDocError(error.message));
-  });
-}
-if (docDropzone) {
-  docDropzone.addEventListener("dragover", (event) => {
-    event.preventDefault();
-    docDropzone.classList.add("dragover");
-  });
-  docDropzone.addEventListener("dragleave", () => {
-    docDropzone.classList.remove("dragover");
-  });
-  docDropzone.addEventListener("drop", async (event) => {
-    event.preventDefault();
-    docDropzone.classList.remove("dragover");
-    const files = await collectDroppedFilesDeep(event.dataTransfer);
-    const fallbackCategory = (docCategoryInput?.value || "").trim() || "procedures";
-    const { assignments, errors } = assignFolderFilesToCategories(files, fallbackCategory);
-    if (!assignments.length) {
-      showDocError(errors[0] || "Aucun fichier .docx/.txt detecte dans ce depot.");
-      return;
-    }
-    for (const item of assignments) {
-      draftAddUpload(item.file, item.category);
-    }
-    showDocError(errors.length ? errors[0] : "");
-    renderDocuments();
   });
 }
 
