@@ -72,6 +72,56 @@
   unicode-bidi: isolate;
 }
 
+.msg-text p {
+  margin: 0 0 10px;
+}
+
+.msg-text p:last-child {
+  margin-bottom: 0;
+}
+
+.msg-text strong {
+  font-weight: 700;
+}
+
+.msg-text a {
+  color: #f5c18a;
+  text-decoration: underline;
+}
+
+.msg-section-title {
+  margin: 10px 0 8px;
+  font-weight: 700;
+  color: #f5c18a;
+}
+
+.msg-list {
+  margin: 2px 0 10px;
+  padding-inline-start: 20px;
+}
+
+.msg-list-ordered {
+  list-style: decimal;
+}
+
+.msg-list li {
+  margin: 4px 0;
+}
+
+.msg-source {
+  margin-top: 12px;
+  padding: 8px 10px;
+  border-inline-start: 3px solid rgba(245, 193, 138, 0.65);
+  background: rgba(245, 193, 138, 0.08);
+  border-radius: 8px;
+  color: #efd8bf;
+}
+
+.msg-source-label {
+  font-weight: 700;
+  color: #f5c18a;
+}
+
 .feedback-section {
   margin-top: 14px;
 }
