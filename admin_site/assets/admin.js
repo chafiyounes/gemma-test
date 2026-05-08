@@ -761,12 +761,14 @@ async function handleEvalToggle() {
   });
 }
 
-loginForm.addEventListener("submit", handleLogin);
-logoutButton.addEventListener("click", handleLogout);
-refreshButton.addEventListener("click", () => {
-  state.conversationCache = {};
-  loadInteractions().catch(handleLoadError);
-});
+if (loginForm) loginForm.addEventListener("submit", handleLogin);
+if (logoutButton) logoutButton.addEventListener("click", handleLogout);
+if (refreshButton) {
+  refreshButton.addEventListener("click", () => {
+    state.conversationCache = {};
+    loadInteractions().catch(handleLoadError);
+  });
+}
 if (viewInteractionsButton) {
   viewInteractionsButton.addEventListener("click", () => setAdminView("interactions"));
 }
@@ -807,19 +809,25 @@ if (gitRefreshButton) {
     }
   });
 }
-evalToggle.addEventListener("click", handleEvalToggle);
-searchInput.addEventListener("input", (event) => {
-  state.search = event.target.value.trim();
-  loadInteractions().catch(handleLoadError);
-});
-feedbackFilter.addEventListener("change", (event) => {
-  state.feedbackValue = event.target.value;
-  loadInteractions().catch(handleLoadError);
-});
-reasonFilter.addEventListener("change", (event) => {
-  state.feedbackReason = event.target.value;
-  loadInteractions().catch(handleLoadError);
-});
+if (evalToggle) evalToggle.addEventListener("click", handleEvalToggle);
+if (searchInput) {
+  searchInput.addEventListener("input", (event) => {
+    state.search = event.target.value.trim();
+    loadInteractions().catch(handleLoadError);
+  });
+}
+if (feedbackFilter) {
+  feedbackFilter.addEventListener("change", (event) => {
+    state.feedbackValue = event.target.value;
+    loadInteractions().catch(handleLoadError);
+  });
+}
+if (reasonFilter) {
+  reasonFilter.addEventListener("change", (event) => {
+    state.feedbackReason = event.target.value;
+    loadInteractions().catch(handleLoadError);
+  });
+}
 
 function handleLoadError(error) {
   interactionList.innerHTML = `<div class="detail-empty">${escapeHtml(error.message || "Chargement impossible.")}</div>`;
