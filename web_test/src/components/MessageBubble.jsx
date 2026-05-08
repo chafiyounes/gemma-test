@@ -14,6 +14,187 @@ function detectDir(text) {
   return arabic >= latin ? "rtl" : "ltr";
 }
 
+function parseInline(text, keyPrefix) {
+  const nodes = [];
+  const tokenRegex = /(\*\*[^*]+\*\*|\[[^\]]+\]\((https?:\/\/[^\s)]+)\))/g;
+  let cursor = 0;
+  let idx = 0;
+  let match = tokenRegex.exec(text);
+
+  while (match) {
+    const [token] = match;
+    const start = match.index;
+    if (start > cursor) {
+      nodes.push(<span key={`${keyPrefix}-t-${idx++}`}>{text.slice(cursor, start)}</span>);
+    }
+    if (token.startsWith("**") && token.endsWith("**")) {
+      nodes.push(<strong key={`${keyPrefix}-b-${idx++}`}>{token.slice(2, -2)}</strong>);
+    } else {
+      const linkMatch = token.match(/^\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)$/);
+      if (linkMatch) {
+        nodes.push(
+          <a key={`${keyPrefix}-l-${idx++}`} href={linkMatch[2]} target="_blank" rel="noreferrer">
+            {linkMatch[1]}
+          </a>
+        );
+      } else {
+        nodes.push(<span key={`${keyPrefix}-f-${idx++}`}>{token}</span>);
+      }
+    }
+    cursor = start + token.length;
+    match = tokenRegex.exec(text);
+  }
+
+  if (cursor < text.length) {
+    nodes.push(<span key={`${keyPrefix}-end`}>{text.slice(cursor)}</span>);
+  }
+  return nodes;
+}
+
+function normalizeLine(line) {
+  let normalized = line
+    .replace(/^\s*[*•]\s{0,2}(?=[*•-])/, "- ")
+    .replace(/^\s*\*\*\s*([*•-])\s*/, "$1 ")
+    .replace(/\*\*(\s*[:;.,!?])/, "$1");
+
+  const boldMarkerCount = (normalized.match(/\*\*/g) || []).length;
+  if (boldMarkerCount % 2 !== 0) {
+    // Broken markdown from model output: keep text, drop dangling markers.
+    normalized = normalized.replace(/\*\*/g, "");
+  }
+  return normalized;
+}
+
+function renderFormattedMessage(content) {
+  const lines = content.split(/\r?\n/).map(normalizeLine);
+  const blocks = [];
+  let paragraph = [];
+  let listItems = [];
+  let listType = null;
+
+  const flushParagraph = () => {
+    if (paragraph.length === 0) return;
+    const text = paragraph.join(" ").trim();
+    if (text) {
+      blocks.push({ type: "p", text });
+    }
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (listItems.length === 0 || !listType) return;
+    blocks.push({ type: listType, items: [...listItems] });
+    listItems = [];
+    listType = null;
+  };
+
+  lines.forEach((rawLine) => {
+    const line = rawLine.trim();
+    if (!line) {
+      flushParagraph();
+      flushList();
+      return;
+    }
+
+    const headingMatch = line.match(/^\*\*(.+)\*\*$/);
+    if (headingMatch) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: "h", text: headingMatch[1].trim() });
+      return;
+    }
+
+    const sourceMatch = line.match(/^\**\s*source\s*[:\-]\s*(.+)\s*\**$/i);
+    if (sourceMatch) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: "source", text: sourceMatch[1].trim() });
+      return;
+    }
+
+    const bulletMatch = rawLine.match(/^(\s*)[-*•]\s+(.+)$/);
+    if (bulletMatch) {
+      flushParagraph();
+      if (listType && listType !== "ul") {
+        flushList();
+      }
+      listType = "ul";
+      listItems.push({
+        text: bulletMatch[2].trim(),
+        level: Math.min(Math.floor((bulletMatch[1] || "").length / 2), 4),
+      });
+      return;
+    }
+
+    const orderedMatch = rawLine.match(/^(\s*)\d+[.)]\s+(.+)$/);
+    if (orderedMatch) {
+      flushParagraph();
+      if (listType && listType !== "ol") {
+        flushList();
+      }
+      listType = "ol";
+      listItems.push({
+        text: orderedMatch[2].trim(),
+        level: Math.min(Math.floor((orderedMatch[1] || "").length / 2), 4),
+      });
+      return;
+    }
+
+    flushList();
+    paragraph.push(line);
+  });
+
+  flushParagraph();
+  flushList();
+
+  return blocks.map((block, blockIndex) => {
+    if (block.type === "h") {
+      return (
+        <p key={`h-${blockIndex}`} className="msg-section-title">
+          {parseInline(block.text, `h-${blockIndex}`)}
+        </p>
+      );
+    }
+    if (block.type === "ul") {
+      return (
+        <ul key={`ul-${blockIndex}`} className="msg-list">
+          {block.items.map((item, itemIndex) => (
+            <li
+              key={`li-${blockIndex}-${itemIndex}`}
+              style={{ marginInlineStart: `${item.level * 14}px` }}
+            >
+              {parseInline(item.text, `li-${blockIndex}-${itemIndex}`)}
+            </li>
+          ))}
+        </ul>
+      );
+    }
+    if (block.type === "ol") {
+      return (
+        <ol key={`ol-${blockIndex}`} className="msg-list msg-list-ordered">
+          {block.items.map((item, itemIndex) => (
+            <li
+              key={`oli-${blockIndex}-${itemIndex}`}
+              style={{ marginInlineStart: `${item.level * 14}px` }}
+            >
+              {parseInline(item.text, `oli-${blockIndex}-${itemIndex}`)}
+            </li>
+          ))}
+        </ol>
+      );
+    }
+    if (block.type === "source") {
+      return (
+        <p key={`source-${blockIndex}`} className="msg-source">
+          <span className="msg-source-label">Source:</span>{" "}
+          {parseInline(block.text, `source-${blockIndex}`)}
+        </p>
+      );
+    }
+    return <p key={`p-${blockIndex}`}>{parseInline(block.text, `p-${blockIndex}`)}</p>;
+  });
+}
+
 export default function MessageBubble({ message, onSubmitFeedback }) {
   const isUser = message.role === "user";
   const isError = message.error;
@@ -71,7 +252,9 @@ export default function MessageBubble({ message, onSubmitFeedback }) {
         </div>
       )}
       <div className={`msg-bubble ${isUser ? "user-bubble" : "bot-bubble"} ${isError ? "error-bubble" : ""}`}>
-        <div className="msg-text" dir={textDir}>{message.content}</div>
+        <div className="msg-text" dir={textDir}>
+          {isUser || isError ? message.content : renderFormattedMessage(message.content)}
+        </div>
         {!isUser && !isError && message.interactionId ? (
           <div className="feedback-section">
             <div className="feedback-actions">
