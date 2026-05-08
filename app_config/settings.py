@@ -30,6 +30,10 @@ class Settings(BaseSettings):
     # Hard cap per inject pass — keep headroom inside vLLM --max-model-len (often
     # 8192–12288) for instructions + chat template + completion (see start_vllm.sh).
     RAG_INJECT_MAX_CHARS: int = 60_000
+    # Reserve part of the prompt budget for conversation history so long chats keep coherence.
+    # Admin document manager blocks category writes that exceed:
+    #   RAG_INJECT_MAX_CHARS - RAG_CHAT_HISTORY_RESERVE_CHARS
+    RAG_CHAT_HISTORY_RESERVE_CHARS: int = 12_000
     RAG_BM25_K: int = 8
     # Tighten whitespace/newlines in injected bodies so more SOP text fits the budget
     # Prefer ``data/documents_md`` (export_sop_to_md); ``documents_txt`` remains supported.

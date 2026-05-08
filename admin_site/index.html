@@ -51,6 +51,8 @@
             <div class="toolbar-subtitle">Filtrer les interactions et consulter le détail.</div>
           </div>
           <div class="toolbar-actions">
+            <button id="view-interactions-button" type="button" class="toolbar-button secondary active">Interactions</button>
+            <button id="view-documents-button" type="button" class="toolbar-button secondary">Documents</button>
             <button id="git-refresh-button" type="button" class="toolbar-button git-refresh" title="git pull + recharger les documents RAG">
               Git: MAJ + RAG
             </button>
@@ -60,6 +62,7 @@
         </header>
 
         <section id="gated-content" class="gated-content">
+          <div id="interactions-view">
           <div class="filter-row">
             <input id="search-input" type="search" placeholder="Rechercher prompt, reponse ou commentaire" />
             <select id="feedback-filter">
@@ -89,6 +92,24 @@
                 <h2>Detail</h2>
               </div>
               <div id="interaction-detail" class="detail-empty">Selectionnez une interaction.</div>
+            </section>
+          </div>
+          </div>
+
+          <div id="documents-view" class="hidden">
+            <section class="panel documents-panel">
+              <div class="panel-header">
+                <h2>Documents manager</h2>
+                <span id="documents-budget"></span>
+              </div>
+              <div class="documents-actions">
+                <input id="doc-category-input" type="text" placeholder="Categorie (ex: procedures)" />
+                <input id="doc-file-input" type="file" accept=".docx,.txt" />
+                <button id="doc-upload-button" type="button" class="toolbar-button">Ajouter fichier</button>
+                <button id="doc-refresh-button" type="button" class="toolbar-button secondary">Rafraichir</button>
+              </div>
+              <div id="doc-error" class="login-error hidden"></div>
+              <div id="documents-categories" class="documents-categories"></div>
             </section>
           </div>
         </section>

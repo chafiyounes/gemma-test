@@ -7,11 +7,12 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict, Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Request, Response, UploadFile, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from api.schemas import (
     AuthLoginRequest,
@@ -26,6 +27,13 @@ from api.schemas import (
 )
 from app_config.settings import settings
 from core.chat_policy import detect_lang_bucket, retrieval_anchor_query
+from core.documents_admin import (
+    DocumentAdminError,
+    delete_document,
+    get_overview as get_documents_overview,
+    move_document,
+    upload_document,
+)
 from core.documents import get_store as get_doc_store, reload_document_store
 from core.pipeline import GemmaPipeline
 from core.persistence import InteractionStore
@@ -81,6 +89,19 @@ def _resolve_rag_category(requested: Optional[str]) -> Optional[str]:
 pipeline: Optional[GemmaPipeline] = None
 store: Optional[InteractionStore] = None
 auth: Optional[AuthManager] = None
+
+
+class MoveDocumentRequest(BaseModel):
+    source_category: str
+    target_category: str
+    source_kind: str
+    filename: str
+
+
+class DeleteDocumentRequest(BaseModel):
+    category: str
+    source_kind: str
+    filename: str
 
 
 # ── Rate limiter ──────────────────────────────────────────────────────────────
@@ -713,6 +734,74 @@ async def admin_cache_flush(_admin: dict = Depends(_require_admin)):
         "deleted": deleted,
         "message": "Liked-answer cache cleared (SQLite liked_answer_cache)",
     }
+
+
+@app.get("/admin/documents/overview")
+async def admin_documents_overview(_admin: dict = Depends(_require_admin)):
+    return get_documents_overview()
+
+
+@app.post("/admin/documents/upload")
+async def admin_documents_upload(
+    category: str = Form(...),
+    file: UploadFile = File(...),
+    _admin: dict = Depends(_require_admin),
+):
+    if not file.filename:
+        raise HTTPException(400, "Filename is required")
+    data = await file.read()
+    if not data:
+        raise HTTPException(400, "Uploaded file is empty")
+    try:
+        out = upload_document(category=category, filename=file.filename, data=data)
+        reload_document_store()
+        return {"ok": True, **out, "overview": get_documents_overview()}
+    except DocumentAdminError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Upload failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to upload document")
+
+
+@app.post("/admin/documents/move")
+async def admin_documents_move(
+    body: MoveDocumentRequest,
+    _admin: dict = Depends(_require_admin),
+):
+    try:
+        out = move_document(
+            source_category=body.source_category,
+            target_category=body.target_category,
+            source_kind=body.source_kind,
+            filename=body.filename,
+        )
+        reload_document_store()
+        return {"ok": True, **out, "overview": get_documents_overview()}
+    except DocumentAdminError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Move failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to move document")
+
+
+@app.post("/admin/documents/delete")
+async def admin_documents_delete(
+    body: DeleteDocumentRequest,
+    _admin: dict = Depends(_require_admin),
+):
+    try:
+        out = delete_document(
+            category=body.category,
+            source_kind=body.source_kind,
+            filename=body.filename,
+        )
+        reload_document_store()
+        return {"ok": True, **out, "overview": get_documents_overview()}
+    except DocumentAdminError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Delete failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to delete document")
 
 
 # ── Static serving ────────────────────────────────────────────────────────────

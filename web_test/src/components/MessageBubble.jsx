@@ -96,19 +96,20 @@ function renderFormattedMessage(content) {
       return;
     }
 
+    const sourceCandidate = line.replace(/^\*\*\s*/, "").replace(/\s*\*\*$/, "").trim();
+    const sourceMatch = sourceCandidate.match(/^source\s*[:\-]\s*(.+)$/i);
+    if (sourceMatch) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: "source", text: sourceMatch[1].trim() });
+      return;
+    }
+
     const headingMatch = line.match(/^\*\*(.+)\*\*$/);
     if (headingMatch) {
       flushParagraph();
       flushList();
       blocks.push({ type: "h", text: headingMatch[1].trim() });
-      return;
-    }
-
-    const sourceMatch = line.match(/^\**\s*source\s*[:\-]\s*(.+)\s*\**$/i);
-    if (sourceMatch) {
-      flushParagraph();
-      flushList();
-      blocks.push({ type: "source", text: sourceMatch[1].trim() });
       return;
     }
 
