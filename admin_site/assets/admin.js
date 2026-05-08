@@ -6,6 +6,8 @@ const state = {
   feedbackValue: "",
   feedbackReason: "",
   conversationCache: {},
+  adminView: "interactions",
+  docsOverview: null,
 };
 
 const loginForm = document.getElementById("login-form");
@@ -26,6 +28,17 @@ const reasonFilter = document.getElementById("reason-filter");
 const interactionList = document.getElementById("interaction-list");
 const interactionDetail = document.getElementById("interaction-detail");
 const resultsCount = document.getElementById("results-count");
+const interactionsView = document.getElementById("interactions-view");
+const documentsView = document.getElementById("documents-view");
+const viewInteractionsButton = document.getElementById("view-interactions-button");
+const viewDocumentsButton = document.getElementById("view-documents-button");
+const documentsBudget = document.getElementById("documents-budget");
+const documentsCategories = document.getElementById("documents-categories");
+const docCategoryInput = document.getElementById("doc-category-input");
+const docFileInput = document.getElementById("doc-file-input");
+const docUploadButton = document.getElementById("doc-upload-button");
+const docRefreshButton = document.getElementById("doc-refresh-button");
+const docError = document.getElementById("doc-error");
 let activeToggleConfirmationCleanup = null;
 
 function setToggleLoading(button, loadingLabel, isLoading) {
@@ -151,12 +164,21 @@ function renderSession() {
   if (dashboardRoot) dashboardRoot.classList.toggle("hidden", !isAdmin);
   if (isAdmin) {
     sessionRole.textContent = "Administrateur";
+    setAdminView(state.adminView || "interactions");
   }
   const userHint = document.getElementById("pre-auth-user-hint");
   if (userHint) {
     const showUserHint = Boolean(state.session?.authenticated && state.session?.role === "user");
     userHint.classList.toggle("hidden", !showUserHint);
   }
+}
+
+function setAdminView(view) {
+  state.adminView = view === "documents" ? "documents" : "interactions";
+  if (interactionsView) interactionsView.classList.toggle("hidden", state.adminView !== "interactions");
+  if (documentsView) documentsView.classList.toggle("hidden", state.adminView !== "documents");
+  if (viewInteractionsButton) viewInteractionsButton.classList.toggle("active", state.adminView === "interactions");
+  if (viewDocumentsButton) viewDocumentsButton.classList.toggle("active", state.adminView === "documents");
 }
 
 async function handleLogin(event) {
@@ -179,6 +201,7 @@ async function handleLogin(event) {
     renderSession();
     await loadInteractions();
     await loadEvalStatus();
+    await loadDocumentsOverview();
   } catch (error) {
     loginError.textContent = error.message;
     loginError.classList.remove("hidden");
@@ -193,6 +216,7 @@ async function handleLogout() {
   state.session = null;
   state.items = [];
   state.selectedId = null;
+  state.docsOverview = null;
   renderSession();
   renderList();
   renderDetail(null);
@@ -205,6 +229,184 @@ function buildListQuery() {
   if (state.feedbackValue) params.set("feedback_value", state.feedbackValue);
   if (state.feedbackReason) params.set("feedback_reason", state.feedbackReason);
   return params.toString();
+}
+
+function showDocError(message) {
+  if (!docError) return;
+  if (!message) {
+    docError.textContent = "";
+    docError.classList.add("hidden");
+    return;
+  }
+  docError.textContent = message;
+  docError.classList.remove("hidden");
+}
+
+function renderDocuments() {
+  const data = state.docsOverview;
+  if (!data || !documentsCategories) return;
+
+  const budget = data.budget || {};
+  const limit = budget.category_limit_chars ?? 0;
+  const reserve = budget.history_reserve_chars ?? 0;
+  const inject = budget.inject_cap_chars ?? 0;
+  if (documentsBudget) {
+    documentsBudget.textContent = `Budget categorie: ${limit} chars (reserve chat: ${reserve}, cap inject: ${inject})`;
+  }
+
+  const categories = data.categories || [];
+  if (!categories.length) {
+    documentsCategories.innerHTML = '<div class="detail-empty">Aucune categorie detectee. Creez-en une en uploadant un fichier.</div>';
+    return;
+  }
+
+  const categoryOptions = categories
+    .map((cat) => `<option value="${escapeHtml(cat.name)}">${escapeHtml(cat.name)}</option>`)
+    .join("");
+
+  documentsCategories.innerHTML = categories
+    .map((cat, idx) => {
+      const overflowPill = cat.overflow
+        ? `<span class="pill bad">overflow (${cat.total_chars} / ${limit})</span>`
+        : `<span class="pill good">${cat.total_chars} / ${limit}</span>`;
+      const files = (cat.files || [])
+        .map((file) => `
+          <div class="doc-file">
+            <div class="doc-file-name">${escapeHtml(file.name)} <span class="pill">${file.source}</span> <span class="pill">${file.chars} chars</span></div>
+            <select class="doc-move-select" data-move-select data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">
+              <option value="">Deplacer vers...</option>
+              ${categoryOptions}
+            </select>
+            <button type="button" data-move-button data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">Deplacer</button>
+            <button type="button" class="delete" data-delete-button data-category="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">Supprimer</button>
+          </div>
+        `)
+        .join("");
+
+      return `
+        <div class="doc-category ${cat.overflow ? "overflow" : ""} ${idx === 0 ? "expanded" : ""}">
+          <button type="button" class="doc-category-head" data-doc-toggle>
+            <div><strong>${escapeHtml(cat.name)}</strong></div>
+            <div class="doc-category-meta">
+              <span class="pill">source active: ${escapeHtml(cat.active_source)}</span>
+              <span class="pill">${cat.file_count} fichier(s)</span>
+              ${overflowPill}
+            </div>
+          </button>
+          <div class="doc-files">
+            ${files || '<div class="detail-empty">Aucun fichier actif dans cette categorie.</div>'}
+          </div>
+        </div>
+      `;
+    })
+    .join("");
+
+  documentsCategories.querySelectorAll("[data-doc-toggle]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      btn.closest(".doc-category")?.classList.toggle("expanded");
+    });
+  });
+
+  documentsCategories.querySelectorAll("[data-move-button]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const from = btn.dataset.from;
+      const filename = btn.dataset.name;
+      const source = btn.dataset.source;
+      const select = btn.closest(".doc-file")?.querySelector("select[data-move-select]");
+      const target = select?.value || "";
+      if (!target) {
+        showDocError("Choisissez d'abord une categorie cible.");
+        return;
+      }
+      if (target === from) {
+        showDocError("La categorie cible doit etre differente.");
+        return;
+      }
+      showDocError("");
+      try {
+        await apiFetch("/admin/documents/move", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            source_category: from,
+            target_category: target,
+            source_kind: source,
+            filename,
+          }),
+        });
+        await loadDocumentsOverview();
+      } catch (error) {
+        showDocError(error.message);
+      }
+    });
+  });
+
+  documentsCategories.querySelectorAll("[data-delete-button]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const category = btn.dataset.category;
+      const filename = btn.dataset.name;
+      const source = btn.dataset.source;
+      const ok = confirm(`Supprimer ${filename} de ${category} ?`);
+      if (!ok) return;
+      showDocError("");
+      try {
+        await apiFetch("/admin/documents/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            category,
+            source_kind: source,
+            filename,
+          }),
+        });
+        await loadDocumentsOverview();
+      } catch (error) {
+        showDocError(error.message);
+      }
+    });
+  });
+}
+
+async function loadDocumentsOverview() {
+  const response = await apiFetch("/admin/documents/overview");
+  state.docsOverview = await response.json();
+  renderDocuments();
+}
+
+async function handleUploadDocument() {
+  showDocError("");
+  const category = (docCategoryInput?.value || "").trim();
+  const file = docFileInput?.files?.[0];
+  if (!category) {
+    showDocError("La categorie est obligatoire.");
+    return;
+  }
+  if (!file) {
+    showDocError("Choisissez un fichier .docx ou .txt.");
+    return;
+  }
+  const lower = file.name.toLowerCase();
+  if (!lower.endsWith(".docx") && !lower.endsWith(".txt")) {
+    showDocError("Seuls les fichiers .docx et .txt sont autorises.");
+    return;
+  }
+
+  const body = new FormData();
+  body.append("category", category);
+  body.append("file", file);
+  docUploadButton.disabled = true;
+  try {
+    await apiFetch("/admin/documents/upload", {
+      method: "POST",
+      body,
+    });
+    if (docFileInput) docFileInput.value = "";
+    await loadDocumentsOverview();
+  } catch (error) {
+    showDocError(error.message);
+  } finally {
+    docUploadButton.disabled = false;
+  }
 }
 
 async function loadInteractions() {
@@ -565,6 +767,25 @@ refreshButton.addEventListener("click", () => {
   state.conversationCache = {};
   loadInteractions().catch(handleLoadError);
 });
+if (viewInteractionsButton) {
+  viewInteractionsButton.addEventListener("click", () => setAdminView("interactions"));
+}
+if (viewDocumentsButton) {
+  viewDocumentsButton.addEventListener("click", () => {
+    setAdminView("documents");
+    loadDocumentsOverview().catch((error) => showDocError(error.message));
+  });
+}
+if (docUploadButton) {
+  docUploadButton.addEventListener("click", () => {
+    handleUploadDocument().catch((error) => showDocError(error.message));
+  });
+}
+if (docRefreshButton) {
+  docRefreshButton.addEventListener("click", () => {
+    loadDocumentsOverview().catch((error) => showDocError(error.message));
+  });
+}
 
 if (gitRefreshButton) {
   gitRefreshButton.addEventListener("click", async () => {
@@ -608,7 +829,7 @@ function handleLoadError(error) {
 loadSession()
   .then(() => {
     if (state.session?.role === "admin") {
-      return Promise.all([loadInteractions(), loadEvalStatus()]);
+      return Promise.all([loadInteractions(), loadEvalStatus(), loadDocumentsOverview()]);
     }
     return null;
   })

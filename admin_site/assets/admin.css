@@ -106,6 +106,17 @@ body {
   cursor: pointer;
 }
 
+.toolbar-button.secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--text);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.toolbar-button.secondary.active {
+  background: var(--accent-soft);
+  border-color: rgba(217, 119, 69, 0.45);
+}
+
 .login-error {
   color: #fecaca;
   font-size: 13px;
@@ -218,6 +229,12 @@ body {
 }
 
 .gated-content {
+  display: grid;
+  gap: 18px;
+}
+
+#interactions-view,
+#documents-view {
   display: grid;
   gap: 18px;
 }
@@ -576,6 +593,94 @@ body {
   max-height: 520px;
 }
 
+.documents-panel {
+  display: grid;
+  gap: 14px;
+}
+
+.documents-actions {
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(220px, 1fr) auto auto;
+  gap: 10px;
+}
+
+.documents-categories {
+  display: grid;
+  gap: 10px;
+}
+
+.doc-category {
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 16px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.doc-category.overflow {
+  border-color: rgba(248, 113, 113, 0.45);
+  box-shadow: inset 0 0 0 1px rgba(248, 113, 113, 0.2);
+}
+
+.doc-category-head {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.doc-category-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.doc-files {
+  padding: 0 14px 12px;
+  display: none;
+  gap: 8px;
+}
+
+.doc-category.expanded .doc-files {
+  display: grid;
+}
+
+.doc-file {
+  display: grid;
+  grid-template-columns: minmax(200px, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 12px;
+  padding: 10px;
+  background: rgba(0, 0, 0, 0.18);
+}
+
+.doc-file-name {
+  font-size: 13px;
+}
+
+.doc-move-select {
+  min-width: 160px;
+}
+
+.doc-file button {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.doc-file button.delete {
+  border-color: rgba(248, 113, 113, 0.4);
+  color: #fecaca;
+}
+
 @media (max-width: 1100px) {
   .admin-shell {
     grid-template-columns: 1fr;
@@ -600,5 +705,10 @@ body {
   .filter-row {
     display: grid;
     justify-content: stretch;
+  }
+
+  .documents-actions,
+  .doc-file {
+    grid-template-columns: 1fr;
   }
 }
