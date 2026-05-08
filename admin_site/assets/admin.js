@@ -8,6 +8,8 @@ const state = {
   conversationCache: {},
   adminView: "interactions",
   docsOverview: null,
+  docsDraft: null,
+  docsDirty: false,
 };
 
 const loginForm = document.getElementById("login-form");
@@ -36,8 +38,14 @@ const documentsBudget = document.getElementById("documents-budget");
 const documentsCategories = document.getElementById("documents-categories");
 const docCategoryInput = document.getElementById("doc-category-input");
 const docFileInput = document.getElementById("doc-file-input");
+const docFolderInput = document.getElementById("doc-folder-input");
 const docUploadButton = document.getElementById("doc-upload-button");
+const docAddFolderButton = document.getElementById("doc-add-folder-button");
+const docSaveButton = document.getElementById("doc-save-button");
+const docDiscardButton = document.getElementById("doc-discard-button");
 const docRefreshButton = document.getElementById("doc-refresh-button");
+const docDropzone = document.getElementById("doc-dropzone");
+const docPendingSummary = document.getElementById("doc-pending-summary");
 const docError = document.getElementById("doc-error");
 let activeToggleConfirmationCleanup = null;
 
@@ -242,9 +250,116 @@ function showDocError(message) {
   docError.classList.remove("hidden");
 }
 
+function initDocsDraft() {
+  const cats = (state.docsOverview?.categories || []).map((cat) => ({
+    name: cat.name,
+    active_source: cat.active_source,
+    files: (cat.files || []).map((f) => ({
+      name: f.name,
+      source: f.source,
+      chars: f.chars,
+      isPending: false,
+      pendingOp: "",
+    })),
+  }));
+  state.docsDraft = {
+    categories: cats,
+    uploads: [],
+    moves: [],
+    deletes: [],
+  };
+  state.docsDirty = false;
+}
+
+function ensureDraftCategory(name) {
+  const n = String(name || "").trim();
+  if (!n) return null;
+  const existing = state.docsDraft.categories.find((c) => c.name === n);
+  if (existing) return existing;
+  const created = { name: n, active_source: "draft", files: [] };
+  state.docsDraft.categories.push(created);
+  return created;
+}
+
+function _setDirty(flag = true) {
+  state.docsDirty = flag;
+}
+
+function updatePendingSummary() {
+  if (!docPendingSummary || !state.docsDraft) return;
+  const up = state.docsDraft.uploads.length;
+  const mv = state.docsDraft.moves.length;
+  const del = state.docsDraft.deletes.length;
+  const total = up + mv + del;
+  docPendingSummary.textContent =
+    total === 0
+      ? "Aucun changement en attente."
+      : `Brouillon: ${up} ajout(s), ${mv} deplacement(s), ${del} suppression(s). Les calculs de budget se font a la sauvegarde.`;
+  if (docSaveButton) docSaveButton.disabled = total === 0;
+  if (docDiscardButton) docDiscardButton.disabled = total === 0;
+}
+
+function draftMoveFile(fromCategory, filename, sourceKind, targetCategory) {
+  if (!state.docsDraft) return;
+  const from = state.docsDraft.categories.find((c) => c.name === fromCategory);
+  const to = ensureDraftCategory(targetCategory);
+  if (!from || !to || fromCategory === targetCategory) return;
+  const idx = from.files.findIndex((f) => f.name === filename && f.source === sourceKind);
+  if (idx < 0) return;
+  const [file] = from.files.splice(idx, 1);
+  file.isPending = true;
+  file.pendingOp = "move";
+  to.files.push(file);
+  state.docsDraft.moves.push({
+    source_category: fromCategory,
+    target_category: targetCategory,
+    source_kind: sourceKind,
+    filename,
+  });
+  _setDirty(true);
+}
+
+function draftDeleteFile(category, filename, sourceKind) {
+  if (!state.docsDraft) return;
+  const cat = state.docsDraft.categories.find((c) => c.name === category);
+  if (!cat) return;
+  const idx = cat.files.findIndex((f) => f.name === filename && f.source === sourceKind);
+  if (idx < 0) return;
+  cat.files.splice(idx, 1);
+  state.docsDraft.deletes.push({ category, source_kind: sourceKind, filename });
+  _setDirty(true);
+}
+
+function draftAddUpload(file, category) {
+  if (!state.docsDraft) return;
+  const cat = ensureDraftCategory(category);
+  if (!cat) return;
+  const source = file.name.toLowerCase().endsWith(".txt") ? "txt" : "docx";
+  cat.files.push({
+    name: file.name,
+    source,
+    chars: "?",
+    isPending: true,
+    pendingOp: "upload",
+  });
+  state.docsDraft.uploads.push({ category, filename: file.name, file });
+  _setDirty(true);
+}
+
+function collectDroppedFiles(dataTransfer) {
+  const files = [];
+  if (!dataTransfer?.files) return files;
+  for (const f of dataTransfer.files) {
+    const lower = f.name.toLowerCase();
+    if (lower.endsWith(".docx") || lower.endsWith(".txt")) files.push(f);
+  }
+  return files;
+}
+
 function renderDocuments() {
   const data = state.docsOverview;
-  if (!data || !documentsCategories) return;
+  const draft = state.docsDraft;
+  if (!data || !draft || !documentsCategories) return;
 
   const budget = data.budget || {};
   const limit = budget.category_limit_chars ?? 0;
@@ -254,9 +369,10 @@ function renderDocuments() {
     documentsBudget.textContent = `Budget categorie: ${limit} chars (reserve chat: ${reserve}, cap inject: ${inject})`;
   }
 
-  const categories = data.categories || [];
+  const categories = draft.categories || [];
   if (!categories.length) {
     documentsCategories.innerHTML = '<div class="detail-empty">Aucune categorie detectee. Creez-en une en uploadant un fichier.</div>';
+    updatePendingSummary();
     return;
   }
 
@@ -266,13 +382,16 @@ function renderDocuments() {
 
   documentsCategories.innerHTML = categories
     .map((cat, idx) => {
-      const overflowPill = cat.overflow
-        ? `<span class="pill bad">overflow (${cat.total_chars} / ${limit})</span>`
-        : `<span class="pill good">${cat.total_chars} / ${limit}</span>`;
+      const live = (state.docsOverview.categories || []).find((x) => x.name === cat.name);
+      const overflowPill = live
+        ? live.overflow
+          ? `<span class="pill bad">live overflow (${live.total_chars} / ${limit})</span>`
+          : `<span class="pill good">live ${live.total_chars} / ${limit}</span>`
+        : `<span class="pill">nouvelle categorie</span>`;
       const files = (cat.files || [])
         .map((file) => `
-          <div class="doc-file">
-            <div class="doc-file-name">${escapeHtml(file.name)} <span class="pill">${file.source}</span> <span class="pill">${file.chars} chars</span></div>
+          <div class="doc-file ${file.isPending ? "pending" : ""}">
+            <div class="doc-file-name">${escapeHtml(file.name)} <span class="pill">${file.source}</span> <span class="pill">${file.chars} chars</span> ${file.pendingOp ? `<span class="pill conv-pill">${file.pendingOp}</span>` : ""}</div>
             <select class="doc-move-select" data-move-select data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">
               <option value="">Deplacer vers...</option>
               ${categoryOptions}
@@ -289,7 +408,7 @@ function renderDocuments() {
             <div><strong>${escapeHtml(cat.name)}</strong></div>
             <div class="doc-category-meta">
               <span class="pill">source active: ${escapeHtml(cat.active_source)}</span>
-              <span class="pill">${cat.file_count} fichier(s)</span>
+              <span class="pill">${(cat.files || []).length} fichier(s)</span>
               ${overflowPill}
             </div>
           </button>
@@ -323,21 +442,8 @@ function renderDocuments() {
         return;
       }
       showDocError("");
-      try {
-        await apiFetch("/admin/documents/move", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            source_category: from,
-            target_category: target,
-            source_kind: source,
-            filename,
-          }),
-        });
-        await loadDocumentsOverview();
-      } catch (error) {
-        showDocError(error.message);
-      }
+      draftMoveFile(from, filename, source, target);
+      renderDocuments();
     });
   });
 
@@ -349,27 +455,17 @@ function renderDocuments() {
       const ok = confirm(`Supprimer ${filename} de ${category} ?`);
       if (!ok) return;
       showDocError("");
-      try {
-        await apiFetch("/admin/documents/delete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            category,
-            source_kind: source,
-            filename,
-          }),
-        });
-        await loadDocumentsOverview();
-      } catch (error) {
-        showDocError(error.message);
-      }
+      draftDeleteFile(category, filename, source);
+      renderDocuments();
     });
   });
+  updatePendingSummary();
 }
 
 async function loadDocumentsOverview() {
   const response = await apiFetch("/admin/documents/overview");
   state.docsOverview = await response.json();
+  initDocsDraft();
   renderDocuments();
 }
 
@@ -391,21 +487,58 @@ async function handleUploadDocument() {
     return;
   }
 
+  draftAddUpload(file, category);
+  if (docFileInput) docFileInput.value = "";
+  renderDocuments();
+}
+
+function handleFolderSelection() {
+  const category = (docCategoryInput?.value || "").trim();
+  if (!category) {
+    showDocError("Choisissez une categorie avant d'ajouter un dossier.");
+    return;
+  }
+  const files = Array.from(docFolderInput?.files || []);
+  if (!files.length) return;
+  let added = 0;
+  for (const file of files) {
+    const lower = file.name.toLowerCase();
+    if (lower.endsWith(".docx") || lower.endsWith(".txt")) {
+      draftAddUpload(file, category);
+      added += 1;
+    }
+  }
+  if (!added) {
+    showDocError("Aucun fichier .docx/.txt detecte dans ce dossier.");
+  } else {
+    showDocError("");
+    renderDocuments();
+  }
+  if (docFolderInput) docFolderInput.value = "";
+}
+
+async function saveDraftChanges() {
+  if (!state.docsDraft) return;
+  showDocError("");
+  const plan = {
+    uploads: state.docsDraft.uploads.map((u) => ({ category: u.category, filename: u.filename })),
+    moves: state.docsDraft.moves,
+    deletes: state.docsDraft.deletes,
+  };
   const body = new FormData();
-  body.append("category", category);
-  body.append("file", file);
-  docUploadButton.disabled = true;
+  body.append("plan_json", JSON.stringify(plan));
+  for (const upload of state.docsDraft.uploads) {
+    body.append("files", upload.file, upload.filename);
+  }
+  if (docSaveButton) docSaveButton.disabled = true;
   try {
-    await apiFetch("/admin/documents/upload", {
-      method: "POST",
-      body,
-    });
-    if (docFileInput) docFileInput.value = "";
+    await apiFetch("/admin/documents/apply-plan", { method: "POST", body });
     await loadDocumentsOverview();
+    showDocError("");
   } catch (error) {
-    showDocError(error.message);
+    showDocError(error.message || "Echec de sauvegarde");
   } finally {
-    docUploadButton.disabled = false;
+    if (docSaveButton) docSaveButton.disabled = false;
   }
 }
 
@@ -783,9 +916,57 @@ if (docUploadButton) {
     handleUploadDocument().catch((error) => showDocError(error.message));
   });
 }
+if (docAddFolderButton) {
+  docAddFolderButton.addEventListener("click", () => docFolderInput?.click());
+}
+if (docFolderInput) {
+  docFolderInput.addEventListener("change", handleFolderSelection);
+}
+if (docSaveButton) {
+  docSaveButton.addEventListener("click", () => {
+    saveDraftChanges().catch((error) => showDocError(error.message));
+  });
+}
+if (docDiscardButton) {
+  docDiscardButton.addEventListener("click", () => {
+    if (!state.docsDirty) return;
+    const ok = confirm("Annuler tous les changements non sauvegardes ?");
+    if (!ok) return;
+    initDocsDraft();
+    renderDocuments();
+  });
+}
 if (docRefreshButton) {
   docRefreshButton.addEventListener("click", () => {
     loadDocumentsOverview().catch((error) => showDocError(error.message));
+  });
+}
+if (docDropzone) {
+  docDropzone.addEventListener("dragover", (event) => {
+    event.preventDefault();
+    docDropzone.classList.add("dragover");
+  });
+  docDropzone.addEventListener("dragleave", () => {
+    docDropzone.classList.remove("dragover");
+  });
+  docDropzone.addEventListener("drop", (event) => {
+    event.preventDefault();
+    docDropzone.classList.remove("dragover");
+    const category = (docCategoryInput?.value || "").trim();
+    if (!category) {
+      showDocError("Choisissez une categorie avant de glisser-deposer.");
+      return;
+    }
+    const files = collectDroppedFiles(event.dataTransfer);
+    if (!files.length) {
+      showDocError("Aucun fichier .docx/.txt detecte dans ce depot.");
+      return;
+    }
+    for (const file of files) {
+      draftAddUpload(file, category);
+    }
+    showDocError("");
+    renderDocuments();
   });
 }
 
