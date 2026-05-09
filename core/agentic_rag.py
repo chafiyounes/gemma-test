@@ -372,6 +372,9 @@ async def run_agentic_tool_loop(
         data = resp.json()
         choice = data["choices"][0]
         msg = choice.get("message") or {}
+        fr = choice.get("finish_reason")
+        if fr:
+            meta.setdefault("vllm_finish_reasons", []).append(fr)
         tool_calls = msg.get("tool_calls") or []
 
         if not tool_calls:
@@ -394,7 +397,13 @@ async def run_agentic_tool_loop(
             }
         )
 
-        for tc in tool_calls:
+        # If the model emits parallel calls, run map search before fetch_procedure.
+        def _tc_sort_key(tc: Dict[str, Any]) -> int:
+            fn = tc.get("function") or {}
+            n = fn.get("name") or ""
+            return 0 if n == "search_map" else 1
+
+        for tc in sorted(tool_calls, key=_tc_sort_key):
             tid = tc.get("id") or f"call_{round_i}"
             fn = (tc.get("function") or {})
             name = fn.get("name") or ""

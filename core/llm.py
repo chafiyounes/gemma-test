@@ -500,7 +500,11 @@ class GemmaModel:
         messages.append({"role": "user", "content": message})
 
         mt = max_tokens or settings.MAX_NEW_TOKENS
-        temp = temperature if temperature is not None else settings.TEMPERATURE
+        temp = (
+            temperature
+            if temperature is not None
+            else settings.AGENTIC_RAG_TEMPERATURE
+        )
 
         try:
             text, tool_meta = await run_agentic_tool_loop(

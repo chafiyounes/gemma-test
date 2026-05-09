@@ -56,6 +56,8 @@ class Settings(BaseSettings):
     # If False, only admin sessions may set agentic_rag on /chat.
     AGENTIC_RAG_ALLOW_NON_ADMIN: bool = False
     AGENTIC_RAG_MAP_DIR: str = "data/agentic_map"
+    # Lower temperature stabilizes tool selection vs default chat TEMPERATURE.
+    AGENTIC_RAG_TEMPERATURE: float = 0.35
 
     # ── Admin: git pull + RAG reload (no process restart for document index) ─
     ADMIN_GIT_REFRESH_ENABLED: bool = True
