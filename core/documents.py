@@ -325,6 +325,16 @@ class DocStore:
             return 0
         return sum(len(d.text) for d in idx.docs)
 
+    def get_document_by_stem(self, category: str, stem: str) -> Optional[str]:
+        """Return full document text for *stem* (filename without extension) or None."""
+        idx = self.indexes.get(category)
+        if not idx:
+            return None
+        for d in idx.docs:
+            if d.name == stem:
+                return d.text
+        return None
+
     def retrieve(
         self,
         query: str,

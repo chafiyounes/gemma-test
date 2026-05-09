@@ -52,6 +52,32 @@ class GemmaPipeline:
                 error=str(exc),
             )
 
+    async def process_agentic(
+        self,
+        message: str,
+        history: List[Dict[str, str]] | None = None,
+        category: Optional[str] = None,
+    ) -> PipelineResult:
+        """Agentic RAG: map + tools; no naive RAG inject."""
+        try:
+            out = await self.llm.generate_agentic_rag(
+                message=message,
+                history=history or [],
+                category=category or "",
+            )
+            return PipelineResult(
+                response=out.text,
+                model=self.model_name,
+                rag_meta=out.rag,
+            )
+        except Exception as exc:
+            logger.error("Agentic pipeline error: %s", exc, exc_info=True)
+            return PipelineResult(
+                response="⚠️ An error occurred in agentic mode.",
+                model=self.model_name,
+                error=str(exc),
+            )
+
     async def check_health(self) -> bool:
         return await self.llm.check_health()
 

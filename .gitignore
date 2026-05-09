@@ -5,6 +5,8 @@ __pycache__/
 data/*.db
 data/models/
 data/documents/
+# Generated per environment from DocStore (see scripts/bootstrap_agentic_map.py)
+data/agentic_map/*.json
 logs/
 web_test/node_modules/
 web_test/dist/

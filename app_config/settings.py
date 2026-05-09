@@ -49,6 +49,14 @@ class Settings(BaseSettings):
     # If True, omit SOP cover-sheet-style tables (titre / référence / …) from MD export.
     DOCX_MD_DROP_METADATA_TABLES: bool = False
 
+    # ── Agentic RAG (test / optional; see project/AGENTIC_RAG_TEST.md) ───────
+    # When enabled, POST /chat with "agentic_rag": true uses map + tools instead
+    # of injecting DOCUMENTS DE RÉFÉRENCE. Requires vLLM tool calling + map JSON.
+    AGENTIC_RAG_ENABLED: bool = False
+    # If False, only admin sessions may set agentic_rag on /chat.
+    AGENTIC_RAG_ALLOW_NON_ADMIN: bool = False
+    AGENTIC_RAG_MAP_DIR: str = "data/agentic_map"
+
     # ── Admin: git pull + RAG reload (no process restart for document index) ─
     ADMIN_GIT_REFRESH_ENABLED: bool = True
     GIT_BRANCH: str = "main"

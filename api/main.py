@@ -489,6 +489,50 @@ async def chat(
     interaction_id = str(uuid.uuid4())
     client_ip = request.client.host if request.client else "unknown"
 
+    if body.agentic_rag:
+        if not settings.AGENTIC_RAG_ENABLED:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Agentic RAG is disabled (set AGENTIC_RAG_ENABLED=true).",
+            )
+        if session["role"] != "admin" and not settings.AGENTIC_RAG_ALLOW_NON_ADMIN:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Agentic RAG is restricted to admin sessions.",
+            )
+        result = await p.process_agentic(
+            message=body.message,
+            history=history,
+            category=category,
+        )
+        rag_client = _rag_for_client(result.rag_meta)
+        if not body.skip_persist:
+            await db.save_interaction(
+                {
+                    "id": interaction_id,
+                    "user_id": body.user_id,
+                    "session_id": body.session_id,
+                    "client_ip": client_ip,
+                    "model": result.model,
+                    "message": body.message,
+                    "response": result.response,
+                    "role": session["role"],
+                    "category_used": category,
+                    "rag": result.rag_meta,
+                }
+            )
+        return ChatResponse(
+            response=result.response,
+            interaction_id=interaction_id,
+            model=result.model,
+            metadata={
+                "session_role": session["role"],
+                "rate_limit_remaining": rate_limiter.remaining(client_ip),
+                "category_used": category,
+                "rag": rag_client,
+            },
+        )
+
     use_liked_cache = settings.LIKED_ANSWER_CACHE_ENABLED and not body.system_prompt
     if use_liked_cache:
         cached = await db.get_cached_liked_answer(

@@ -15,6 +15,10 @@ class ChatRequest(BaseModel):
     system_prompt: Optional[str] = Field(default=None, description="Override system prompt (admin only)")
     skip_persist: bool = Field(default=False)
     category: Optional[str] = Field(default=None, description="Document category to use for RAG context")
+    agentic_rag: bool = Field(
+        default=False,
+        description="Use agentic RAG (map + tools) instead of injecting reference documents; see AGENTIC_RAG_ENABLED",
+    )
 
     @field_validator("message")
     @classmethod

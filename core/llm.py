@@ -18,6 +18,7 @@ from core.chat_policy import (
     retrieval_anchor_query,
     unsupported_latin_language_message,
 )
+from core.agentic_rag import AGENTIC_SYSTEM_PROMPT, run_agentic_tool_loop
 from core.documents import get_store
 
 logger = logging.getLogger(__name__)
@@ -445,6 +446,93 @@ class GemmaModel:
                     "⚠️ Unexpected error calling the inference server. "
                     f"If the stack was just restarted, wait for vLLM: `{self._base_url}/v1/models`."
                 ),
+                rag=rag_meta,
+            )
+
+    async def generate_agentic_rag(
+        self,
+        message: str,
+        history: list[dict] | None = None,
+        *,
+        category: str,
+        max_tokens: int | None = None,
+        temperature: float | None = None,
+    ) -> LLMGenerateResult:
+        """Tool-loop retrieval (map search + fetch by id). No DOCUMENTS DE RÉFÉRENCE inject."""
+        rag_meta: Dict[str, Any] = {"mode": "agentic_rag", "category": category}
+
+        if not self.available or not self._client:
+            rag_meta["note"] = "llm_client_unavailable"
+            return LLMGenerateResult(
+                text="⚠️ LLM server is not available. Please check vLLM is running on the pod.",
+                rag=rag_meta,
+            )
+
+        hist = history or []
+        bucket = detect_lang_bucket(message)
+
+        if message_contains_profanity(message):
+            return LLMGenerateResult(text=POLICY_PROFANITY.get(bucket, POLICY_PROFANITY["fr"]), rag=rag_meta)
+
+        if has_unsupported_script(message):
+            return LLMGenerateResult(
+                text=POLICY_UNSUPPORTED_LANG.get(bucket, POLICY_UNSUPPORTED_LANG["fr"]),
+                rag=rag_meta,
+            )
+
+        wrong_lang = unsupported_latin_language_message(message)
+        if wrong_lang:
+            return LLMGenerateResult(text=wrong_lang, rag=rag_meta)
+
+        if not category:
+            rag_meta["note"] = "agentic_missing_category"
+            return LLMGenerateResult(
+                text="⚠️ Agentic RAG requires a document category.",
+                rag=rag_meta,
+            )
+
+        messages: list[dict] = [{"role": "system", "content": AGENTIC_SYSTEM_PROMPT}]
+        for turn in hist:
+            role = turn.get("role", "user")
+            content = turn.get("content", "")
+            if role in ("user", "assistant") and content:
+                messages.append({"role": role, "content": content})
+        messages.append({"role": "user", "content": message})
+
+        mt = max_tokens or settings.MAX_NEW_TOKENS
+        temp = temperature if temperature is not None else settings.TEMPERATURE
+
+        try:
+            text, tool_meta = await run_agentic_tool_loop(
+                client=self._client,
+                model_name=self._model_name,
+                base_messages=messages,
+                category=category,
+                max_tokens=mt,
+                temperature=temp,
+                top_p=settings.TOP_P,
+            )
+            rag_meta.update(tool_meta)
+            ctx_len = int(rag_meta.get("context_chars") or 0)
+            return LLMGenerateResult(
+                text=normalize_not_found_response(message, text, rag_context_chars=ctx_len),
+                rag=rag_meta,
+            )
+        except httpx.HTTPStatusError as exc:
+            logger.error("vLLM HTTP error (agentic): %s %s", exc.response.status_code, exc.response.text)
+            return LLMGenerateResult(
+                text=f"⚠️ Model error ({exc.response.status_code}) in agentic mode. Tool calling may be unsupported.",
+                rag=rag_meta,
+            )
+        except httpx.ConnectError:
+            return LLMGenerateResult(
+                text=_vllm_unavailable_message(self._base_url, bucket, after_retries=True),
+                rag=rag_meta,
+            )
+        except Exception as exc:
+            logger.error("Agentic RAG failed: %s", exc, exc_info=True)
+            return LLMGenerateResult(
+                text="⚠️ Agentic RAG request failed. See server logs.",
                 rag=rag_meta,
             )
 
