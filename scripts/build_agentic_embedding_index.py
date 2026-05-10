@@ -25,6 +25,7 @@ from core.agentic_embeddings import (  # noqa: E402
     embed_passages,
     get_sentence_transformer,
     index_path_for_category,
+    invalidate_embedding_index_cache,
 )
 from core.agentic_rag import load_map_entries  # noqa: E402
 from core.documents import get_store  # noqa: E402
@@ -60,6 +61,7 @@ def main() -> int:
         path = index_path_for_category(cat)
         ids = np.array([e.id for e in entries], dtype=object)
         np.savez_compressed(path, emb=emb.astype(np.float32), ids=ids)
+        invalidate_embedding_index_cache(cat)
         print(f"Wrote {path} shape={emb.shape}")
 
     return 0
