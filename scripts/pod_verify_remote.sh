@@ -24,6 +24,20 @@ echo "=== restart API ==="
 bash scripts/restart_api.sh || true
 sleep 12
 
+echo "=== wait for vLLM (up to 15 min; model load after start_all) ==="
+_ready=0
+for _i in $(seq 1 180); do
+  if curl -sf -m 5 http://127.0.0.1:8002/v1/models >/dev/null 2>&1; then
+    echo "vLLM OK after ${_i} attempts (5s interval)"
+    _ready=1
+    break
+  fi
+  sleep 5
+done
+if [[ "${_ready}" != "1" ]]; then
+  echo "[warn] vLLM not ready after wait — tests may fail; check tmux pane vllm"
+fi
+
 echo "=== health ==="
 curl -sS -m 5 http://127.0.0.1:8000/health | head -c 400 || echo "api health fail"
 echo ""
