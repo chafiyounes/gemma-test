@@ -14,6 +14,16 @@ import sys
 
 import paramiko
 
+
+def _configure_stdio_utf8() -> None:
+    """Avoid UnicodeEncodeError on Windows (cp1252) when remote output contains Arabic/Darija."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            try:
+                stream.reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
 HOST = "ssh.runpod.io"
 USER = "l8lnmi6ofx0tpz-64411278"
 KEY = os.path.expanduser(r"~/.ssh/id_ed25519")
@@ -21,6 +31,7 @@ ANSI = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
 def main() -> int:
+    _configure_stdio_utf8()
     client = paramiko.SSHClient()
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     try:
