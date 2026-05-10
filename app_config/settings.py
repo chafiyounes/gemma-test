@@ -58,6 +58,19 @@ class Settings(BaseSettings):
     AGENTIC_RAG_MAP_DIR: str = "data/agentic_map"
     # Lower temperature stabilizes tool selection vs default chat TEMPERATURE.
     AGENTIC_RAG_TEMPERATURE: float = 0.35
+    # Design-spec retrieval: multilingual-e5-large + cosine on title+tags (see core/agentic_embeddings.py).
+    # If False or model missing, search_map falls back to BM25.
+    AGENTIC_RAG_USE_EMBEDDINGS: bool = True
+    AGENTIC_RAG_EMBEDDING_MODEL: str = "intfloat/multilingual-e5-large"
+    # cuda | cpu | mps | empty = auto (cuda if available)
+    AGENTIC_RAG_EMBEDDING_DEVICE: str = ""
+    AGENTIC_RAG_EMBEDDING_BATCH_SIZE: int = 32
+    # NPZ index built by scripts/build_agentic_embedding_index.py (one file per category).
+    AGENTIC_RAG_INDEX_DIR: str = "data/agentic_index"
+    # Top hit cosine similarity below this → low_confidence (design doc ~0.5).
+    AGENTIC_RAG_MAP_CONFIDENCE_THRESHOLD: float = 0.5
+    # Optional smaller/faster model for map extraction (OpenAI name on vLLM). Empty = VLLM_MODEL_NAME.
+    AGENTIC_MAP_EXTRACTION_MODEL: Optional[str] = None
 
     # ── Admin: git pull + RAG reload (no process restart for document index) ─
     ADMIN_GIT_REFRESH_ENABLED: bool = True
