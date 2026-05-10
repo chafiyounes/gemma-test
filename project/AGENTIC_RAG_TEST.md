@@ -6,15 +6,36 @@ This repo implements an **optional** agentic RAG path aligned with the external 
 
 It is **off by default** so production chat keeps the existing “inject DOCUMENTS DE RÉFÉRENCE” flow.
 
-## What is implemented (test stack)
+## What is implemented
 
 | Spec component | In this repo |
 |----------------|--------------|
-| Map index (e5 + Qdrant) | **BM25** on `title + tags` in JSON (per category) under `data/agentic_map/<category>.json` |
-| Map worker (LLM per doc) | **`scripts/bootstrap_agentic_map.py`** — heuristic titles/tags (no API calls) |
-| `search_map` / `fetch_procedure` | **`core/agentic_rag.py`** + `DocStore.get_document_by_stem` |
-| Runtime system prompt | **`AGENTIC_SYSTEM_PROMPT`** in `core/agentic_rag.py` (matches COMPONENT 4) |
-| Tool loop | **`run_agentic_tool_loop`** — requires vLLM (or compatible) **tool calling** |
+| Map rows (title, tags, category) | **`scripts/bootstrap_agentic_map.py`** — **heuristic** (default) or **`--llm`** via vLLM (`core/agentic_map_llm.py`, design prompt) |
+| Vector index | **`multilingual-e5-large`** + cosine on `title + tags` when **`data/agentic_index/<cat>.npz`** exists (`scripts/build_agentic_embedding_index.py`). **In-process** NumPy index (no Qdrant server — same math as cosine in DB). |
+| `search_map` fallback | **BM25** if embeddings off, model missing, index missing, or index out of sync |
+| `fetch_procedure` | **`core/agentic_rag.py`** + `DocStore.get_document_by_stem` |
+| Tool loop | **`run_agentic_tool_loop`** — requires vLLM **Gemma 4 tool flags** (see below) |
+
+### Production-style pipeline (GPU pod)
+
+```bash
+# 1) Map JSON — LLM per document (needs vLLM up; slow on first run)
+python scripts/bootstrap_agentic_map.py --llm
+
+# 2) Embedding index — loads e5-large (GPU recommended; ~1–2 GB VRAM + RAM)
+python scripts/build_agentic_embedding_index.py
+
+# 3) API + agentic chat as usual (AGENTIC_RAG_ENABLED=true)
+```
+
+Quick dev without LLM / without GPU for e5:
+
+```bash
+python scripts/bootstrap_agentic_map.py          # heuristic map only
+# skip build_agentic_embedding_index.py → search_map uses BM25 automatically
+```
+
+Env knobs: `AGENTIC_RAG_USE_EMBEDDINGS`, `AGENTIC_RAG_EMBEDDING_MODEL`, `AGENTIC_RAG_EMBEDDING_DEVICE` (`cuda`/`cpu`), `AGENTIC_MAP_EXTRACTION_MODEL` (smaller vLLM served name for map extraction).
 
 ## Enable
 
@@ -23,8 +44,20 @@ It is **off by default** so production chat keeps the existing “inject DOCUMEN
    ```bash
    python scripts/bootstrap_agentic_map.py
    ```
+   
+   Or with **design-spec LLM extraction** (requires `VLLM_BASE_URL` reachable):
 
-2. In `.env`:
+   ```bash
+   python scripts/bootstrap_agentic_map.py --llm
+   ```
+
+2. **Optional but recommended on GPU:** build the e5 index:
+
+   ```bash
+   python scripts/build_agentic_embedding_index.py
+   ```
+
+3. In `.env`:
 
    ```env
    AGENTIC_RAG_ENABLED=true
@@ -36,7 +69,7 @@ It is **off by default** so production chat keeps the existing “inject DOCUMEN
    AGENTIC_RAG_ALLOW_NON_ADMIN=true
    ```
 
-3. Call **`POST /chat`** with JSON:
+4. Call **`POST /chat`** with JSON:
 
    ```json
    {

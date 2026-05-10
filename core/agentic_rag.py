@@ -1,11 +1,11 @@
 """Agentic RAG test harness (procedure map + tool loop).
 
-Spec source: external build prompt « agentic-rag-darija ». This module implements
-a **test** stack you can iterate on without Qdrant/e5:
+Spec source: external build prompt « agentic-rag-darija ».
 
 - **Map**: JSON per category under ``data/agentic_map/<category>.json`` —
-  entries ``{id, title, tags[], category}``.
-- **search_map**: BM25 over ``title + tags`` (production target: multilingual-e5 + vector DB).
+  entries ``{id, title, tags[], category}`` (prefer LLM extraction: ``bootstrap_agentic_map.py --llm``).
+- **search_map**: ``multilingual-e5-large`` cosine on ``title + tags`` when index exists
+  (``scripts/build_agentic_embedding_index.py``); else BM25 over the same strings.
 - **fetch_procedure**: deterministic lookup by document stem in :class:`core.documents.DocStore`.
 
 Runtime UX: only the final assistant message is returned; tool traffic stays server-side.
@@ -25,6 +25,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from app_config.settings import settings
+
+from core.agentic_embeddings import (
+    cosine_top_k,
+    embed_query,
+    load_embedding_index,
+)
 from core.documents import (
     REPO_ROOT,
     CategoryIndex,
@@ -198,21 +204,76 @@ def _bm25_score(
     return store._bm25(q_tokens, doc, idx, k1=k1, b=b)  # type: ignore[attr-defined]
 
 
+def _search_map_embeddings(
+    category: str,
+    query: str,
+    entries: List[MapEntry],
+    *,
+    k: int,
+) -> Optional[List[Dict[str, Any]]]:
+    """Return results or None to signal fallback to BM25."""
+    if not settings.AGENTIC_RAG_USE_EMBEDDINGS:
+        return None
+    loaded = load_embedding_index(category)
+    if loaded is None:
+        logger.debug("No embedding index for category=%s", category)
+        return None
+    emb, idx_ids = loaded
+    entry_by_id = {e.id: e for e in entries}
+    if len(idx_ids) != len(entries) or set(idx_ids) != set(entry_by_id.keys()):
+        logger.warning(
+            "Embedding index out of sync with map JSON for %s — rebuild with "
+            "scripts/build_agentic_embedding_index.py",
+            category,
+        )
+        return None
+    qv = embed_query(query)
+    if qv is None:
+        return None
+    ranked = cosine_top_k(qv, emb, idx_ids, k=k)
+    if not ranked:
+        return []
+    thr = float(settings.AGENTIC_RAG_MAP_CONFIDENCE_THRESHOLD)
+    out: List[Dict[str, Any]] = []
+    for rank, (eid, score) in enumerate(ranked):
+        e = entry_by_id.get(eid)
+        if not e:
+            continue
+        row: Dict[str, Any] = {
+            "id": e.id,
+            "title": e.title,
+            "tags": e.tags,
+            "category": e.category,
+        }
+        if rank == 0 and score < thr:
+            row["low_confidence"] = True
+        out.append(row)
+    return out
+
+
 def search_map(
     store: DocStore,
     query: str,
     entries: List[MapEntry],
     *,
+    category: str = "",
     k: int = 5,
     expand_fr_darija_hints: bool = True,
 ) -> List[Dict[str, Any]]:
-    """Return up to *k* map rows with metadata. Uses BM25 (test); prod: e5 + cosine."""
+    """Return up to *k* map rows: e5+cosine when index exists, else BM25."""
     if not entries:
         return []
-    q = (query or "").strip()
-    if expand_fr_darija_hints:
-        q = expand_query_for_retrieval_fr_darija(q)
+    q_raw = (query or "").strip()
+    q = expand_query_for_retrieval_fr_darija(q_raw) if expand_fr_darija_hints else q_raw
+
+    if category:
+        emb_results = _search_map_embeddings(category, q, entries, k=k)
+        if emb_results is not None:
+            logger.info("search_map: multilingual-e5 index (%s, k=%s)", category, k)
+            return emb_results
+
     idx = _entries_to_category_index(entries)
+    logger.info("search_map: BM25 fallback (%s)", category or "?")
     if not idx.docs:
         return []
 
@@ -411,7 +472,7 @@ async def run_agentic_tool_loop(
 
             if name == "search_map":
                 q = str(args.get("query", "")).strip() or retrieval_fallback_query(messages)
-                results = search_map(store, q, entries, k=5)
+                results = search_map(store, q, entries, category=category, k=5)
                 content = json.dumps(results, ensure_ascii=False)
             elif name == "fetch_procedure":
                 pid = str(args.get("id", "")).strip()

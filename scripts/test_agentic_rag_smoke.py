@@ -30,7 +30,7 @@ def main() -> int:
         return 1
 
     q = sys.argv[2] if len(sys.argv) > 2 else "procédure livraison colis"
-    hits = search_map(store, q, entries, k=5)
+    hits = search_map(store, q, entries, category=cat, k=5)
     print("query:", q)
     print("hits:", json_dumps(hits))
 
