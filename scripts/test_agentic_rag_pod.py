@@ -106,7 +106,15 @@ def test_vllm_tool_roundtrip(vllm: httpx.Client, model: str) -> bool:
         t0 = time.perf_counter()
         r = vllm.post("/v1/chat/completions", json=payload, timeout=120.0)
         dt = (time.perf_counter() - t0) * 1000
-        r.raise_for_status()
+        if r.status_code >= 400:
+            body = (r.text or "")[:2000]
+            _fail(
+                "vllm_tool_roundtrip",
+                f"HTTP {r.status_code} — often means vLLM started without "
+                "`--enable-auto-tool-choice --tool-call-parser gemma4` + tool Jinja "
+                f"(restart with scripts/start_vllm.sh gemma4). Body: {body!r}",
+            )
+            return False
         data = r.json()
         msg = data["choices"][0].get("message") or {}
         tcalls = msg.get("tool_calls") or []
@@ -220,7 +228,12 @@ def main() -> int:
             lat = data.get("_latency_ms", "?")
             resp_len = len((data.get("response") or ""))
             if rag.get("mode") != "agentic_rag":
-                _fail("api_agentic_e2e", f"metadata.rag.mode={rag.get('mode')!r}")
+                meta_dbg = json.dumps(data.get("metadata"), ensure_ascii=False, indent=2)[:2500]
+                _fail(
+                    "api_agentic_e2e",
+                    f"metadata.rag.mode={rag.get('mode')!r} "
+                    f"(AGENTIC_RAG_ENABLED + vLLM tools?). metadata snippet:\n{meta_dbg}",
+                )
                 failed += 1
             elif int(rag.get("tool_rounds") or 0) < 1:
                 _fail(
@@ -254,10 +267,18 @@ def main() -> int:
             _fail("api_agentic_darija", f"status {sc2}")
             failed += 1
         else:
-            _ok(
-                "api_agentic_darija",
-                f"latency_ms={data2.get('_latency_ms')} chars={len(data2.get('response') or '')}",
-            )
+            rag2 = (data2.get("metadata") or {}).get("rag") or {}
+            if rag2.get("mode") != "agentic_rag":
+                _fail(
+                    "api_agentic_darija",
+                    f"metadata.rag.mode={rag2.get('mode')!r} (not a true agentic run)",
+                )
+                failed += 1
+            else:
+                _ok(
+                    "api_agentic_darija",
+                    f"latency_ms={data2.get('_latency_ms')} chars={len(data2.get('response') or '')}",
+                )
 
         # Wrong procedure id simulation: model might fetch bad id — we only check HTTP OK
         sc3, data3 = chat_agentic(
