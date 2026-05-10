@@ -48,23 +48,51 @@ _VLLM_CONNECT_RETRY_DELAY_S = 15.0
 
 
 async def _post_chat_completions_with_retries(client: Any, payload: Dict[str, Any]) -> Any:
+    """Retry on connection errors and transient vLLM HTTP failures."""
     last_exc: Optional[Exception] = None
-    for attempt in range(_VLLM_CONNECT_RETRIES):
+    max_attempts = _VLLM_CONNECT_RETRIES
+    for attempt in range(max_attempts):
         try:
             resp = await client.post("/v1/chat/completions", json=payload)
+            if resp.status_code in (429, 502, 503) and attempt + 1 < max_attempts:
+                retry_after = resp.headers.get("retry-after")
+                wait_s = min(5.0 * (attempt + 1), 45.0)
+                if retry_after:
+                    try:
+                        wait_s = min(float(str(retry_after).strip()), 60.0)
+                    except ValueError:
+                        pass
+                logger.warning(
+                    "vLLM transient HTTP %s during agentic loop; retry in %.1fs (%s/%s)",
+                    resp.status_code,
+                    wait_s,
+                    attempt + 1,
+                    max_attempts,
+                )
+                await asyncio.sleep(wait_s)
+                continue
             resp.raise_for_status()
             return resp
+        except httpx.HTTPStatusError as exc:
+            code = exc.response.status_code if exc.response is not None else 0
+            if code in (429, 502, 503) and attempt + 1 < max_attempts:
+                await asyncio.sleep(min(5.0 * (attempt + 1), 45.0))
+                continue
+            raise
         except httpx.ConnectError as exc:
             last_exc = exc
-            if attempt + 1 < _VLLM_CONNECT_RETRIES:
+            if attempt + 1 < max_attempts:
                 logger.warning(
                     "vLLM unreachable during agentic loop (attempt %s/%s)",
                     attempt + 1,
-                    _VLLM_CONNECT_RETRIES,
+                    max_attempts,
                 )
                 await asyncio.sleep(_VLLM_CONNECT_RETRY_DELAY_S)
-    assert last_exc is not None
-    raise last_exc
+                continue
+            raise exc
+    if last_exc is not None:
+        raise last_exc
+    raise RuntimeError("vLLM request exhausted retries without response")
 
 # COMMIT: v1.0 — agentic-rag-darija (aligned with build prompt COMPONENT 4)
 AGENTIC_SYSTEM_PROMPT = """
@@ -229,6 +257,13 @@ def _search_map_embeddings(
         return None
     qv = embed_query(query)
     if qv is None:
+        return None
+    if int(qv.shape[0]) != int(emb.shape[1]):
+        logger.warning(
+            "Query embedding dim %s != index dim %s — rebuild index or fix model",
+            qv.shape[0],
+            emb.shape[1],
+        )
         return None
     ranked = cosine_top_k(qv, emb, idx_ids, k=k)
     if not ranked:
@@ -430,8 +465,22 @@ async def run_agentic_tool_loop(
             "tool_choice": "auto",
         }
         resp = await _post_chat_completions_with_retries(client, payload)
-        data = resp.json()
-        choice = data["choices"][0]
+        try:
+            data = resp.json()
+        except Exception as exc:
+            logger.error("vLLM returned non-JSON in agentic loop: %s", exc)
+            return (
+                "⚠️ Réponse invalide du serveur d'inférence. Réessayez dans un instant.",
+                {**meta, "note": "vllm_response_not_json"},
+            )
+        choices = data.get("choices") or []
+        if not choices:
+            logger.error("vLLM returned no choices: %s", data)
+            return (
+                "⚠️ Réponse vide du serveur d'inférence.",
+                {**meta, "note": "vllm_empty_choices"},
+            )
+        choice = choices[0]
         msg = choice.get("message") or {}
         fr = choice.get("finish_reason")
         if fr:

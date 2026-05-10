@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -18,6 +18,9 @@ logger = logging.getLogger(__name__)
 
 _embedder_failed: Optional[bool] = None
 _embedder = None
+
+# (mtime, emb, ids) per category — avoids re-reading NPZ on every search_map call.
+_index_cache: Dict[str, Tuple[float, np.ndarray, List[str]]] = {}
 
 
 def _pick_device() -> str:
@@ -112,15 +115,32 @@ def load_embedding_index(category: str) -> Optional[Tuple[np.ndarray, List[str]]
     if not path.is_file():
         return None
     try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return None
+    hit = _index_cache.get(category)
+    if hit is not None and hit[0] == mtime:
+        return hit[1], hit[2]
+    try:
         data = np.load(path, allow_pickle=True)
         emb = data["emb"]
         ids = list(data["ids"])
         if emb.ndim != 2 or len(ids) != emb.shape[0]:
             return None
-        return emb.astype(np.float32), ids
+        emb = emb.astype(np.float32)
+        _index_cache[category] = (mtime, emb, ids)
+        return emb, ids
     except Exception as exc:
         logger.warning("Bad embedding index %s: %s", path, exc)
         return None
+
+
+def invalidate_embedding_index_cache(category: Optional[str] = None) -> None:
+    """Call after rebuilding NPZ (optional category clears one key only)."""
+    if category is None:
+        _index_cache.clear()
+    else:
+        _index_cache.pop(category, None)
 
 
 def cosine_top_k(
