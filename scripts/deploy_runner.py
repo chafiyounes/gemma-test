@@ -15,6 +15,12 @@ Restart modes:
   api-only — run scripts/restart_api.sh (uvicorn only; keeps vLLM loaded).
   all      — bash start_all.sh (kills whole tmux session; vLLM reloads).
   none     — do not touch running processes.
+
+Foolproofing:
+  - Web build must produce web_test/dist/index.html or the deploy step fails (set -e).
+  - Admin UI is served from repo admin_site/ (no separate npm build); hard-refresh the
+    browser after deploy so ?v= cache-busted admin.js loads.
+  - restart_api.sh requires an existing tmux session gemma-test (from start_all.sh).
 """
 import argparse
 import paramiko
@@ -122,11 +128,9 @@ def main():
         # Fix Windows line endings
         "sed -i 's/\\r//' scripts/*.sh start_all.sh",
         "chmod +x scripts/*.sh start_all.sh",
-        # Build frontend
-        "cd web_test",
-        "npm install",
-        "npm run build",
-        "cd ..",
+        # Build web_test (fail closed if dist missing) + admin static paths exist
+        "bash -lc 'set -euo pipefail; cd /workspace/gemma-test/web_test && npm install && npm run build && test -f dist/index.html'",
+        "bash -lc 'set -euo pipefail; cd /workspace/gemma-test && test -f admin_site/index.html && test -f admin_site/assets/admin.js'",
     ]
 
     if args.restart == "all":
@@ -134,6 +138,7 @@ def main():
     elif args.restart == "api-only":
         deploy_cmds.append("bash scripts/restart_api.sh")
 
+    all_cmds = dep_cmds + deploy_cmds
     run_commands(
         all_cmds,
         label=(

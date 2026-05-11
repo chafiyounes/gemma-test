@@ -148,7 +148,14 @@ async function apiFetch(path, options = {}) {
 
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
-    const error = new Error(payload.detail || `HTTP ${response.status}`);
+    let msg = payload.detail || `HTTP ${response.status}`;
+    if (response.status === 413) {
+      msg =
+        typeof msg === "string"
+          ? msg
+          : "Fichiers trop volumineux pour le serveur (413). Essayez moins de fichiers a la fois ou augmentez la limite du reverse-proxy.";
+    }
+    const error = new Error(typeof msg === "string" ? msg : JSON.stringify(msg));
     error.status = response.status;
     throw error;
   }
