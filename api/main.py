@@ -288,7 +288,11 @@ app.add_middleware(
 async def add_admin_no_cache_headers(request: Request, call_next):
     response = await call_next(request)
     path = request.url.path or ""
-    if path.startswith("/admin") or path.startswith("/admin-static"):
+    if (
+        path.startswith("/admin")
+        or path.startswith("/admin-static")
+        or path.startswith("/api/admin")
+    ):
         response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
@@ -805,11 +809,13 @@ async def admin_cache_flush(_admin: dict = Depends(_require_admin)):
 
 
 @app.get("/admin/documents/overview")
+@app.get("/api/admin/documents/overview")
 async def admin_documents_overview(_admin: dict = Depends(_require_admin)):
     return get_documents_overview()
 
 
 @app.post("/admin/documents/upload")
+@app.post("/api/admin/documents/upload")
 async def admin_documents_upload(
     file: UploadFile = File(...),
     category: Optional[str] = Form(None),
@@ -832,6 +838,7 @@ async def admin_documents_upload(
 
 
 @app.post("/admin/documents/move")
+@app.post("/api/admin/documents/move")
 async def admin_documents_move(
     body: MoveDocumentRequest,
     _admin: dict = Depends(_require_admin),
@@ -853,6 +860,7 @@ async def admin_documents_move(
 
 
 @app.post("/admin/documents/delete")
+@app.post("/api/admin/documents/delete")
 async def admin_documents_delete(
     body: DeleteDocumentRequest,
     _admin: dict = Depends(_require_admin),
@@ -873,6 +881,7 @@ async def admin_documents_delete(
 
 
 @app.post("/admin/documents/delete-category")
+@app.post("/api/admin/documents/delete-category")
 async def admin_documents_delete_category(
     body: DeleteDocumentCategoryRequest,
     _admin: dict = Depends(_require_admin),
@@ -889,6 +898,7 @@ async def admin_documents_delete_category(
 
 
 @app.post("/admin/documents/apply-plan")
+@app.post("/api/admin/documents/apply-plan")
 async def admin_documents_apply_plan(
     plan_json: str = Form(...),
     files: list[UploadFile] = File(default=[]),
