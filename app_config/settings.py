@@ -43,8 +43,9 @@ class Settings(BaseSettings):
     RAG_ADMIN_FULL_CONTEXT_MAX_CHARS: int = 120_000
     # Replay answers only after explicit user « like »; dislikes remove the entry for that Q.
     LIKED_ANSWER_CACHE_ENABLED: bool = True
-    # When the UI sends no category, pick this folder under data/documents/ if it
-    # exists; otherwise the first category name (sorted).
+    # Default document corpus folder under data/documents_md|txt|…/<name>/ and the
+    # default /chat category when the client omits category. Admin bulk uploads use
+    # this when the category field is left empty (single corpus + catalog lookup).
     RAG_DEFAULT_CATEGORY: str = "procedures"
     # If True, omit SOP cover-sheet-style tables (titre / référence / …) from MD export.
     DOCX_MD_DROP_METADATA_TABLES: bool = False

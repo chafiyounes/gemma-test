@@ -249,6 +249,14 @@ function showDocError(message) {
   docError.classList.remove("hidden");
 }
 
+/** Single corpus: manual override or server default (RAG_DEFAULT_CATEGORY). */
+function getCorpusCategory() {
+  const manual = (docCategoryInput?.value || "").trim();
+  if (manual) return manual;
+  const fromServer = (state.docsOverview?.corpus?.default_category || "").trim();
+  return fromServer || "procedures";
+}
+
 function initDocsDraft() {
   const cats = (state.docsOverview?.categories || []).map((cat) => ({
     name: cat.name,
@@ -345,52 +353,16 @@ function draftAddUpload(file, category) {
   _setDirty(true);
 }
 
-function assignFolderFilesToCategories(files, fallbackCategory) {
+/** All .docx/.txt from a folder tree go to one corpus (no subfolder→category split). */
+function assignFolderFilesToCategories(files, corpusCategory) {
   const assignments = [];
   const errors = [];
-  const byRoot = new Map();
-
+  const cat = (corpusCategory || "").trim() || "procedures";
   for (const file of files) {
     const lower = file.name.toLowerCase();
     if (!lower.endsWith(".docx") && !lower.endsWith(".txt")) continue;
-    const rel = (file.webkitRelativePath || file.__relativePath || "").replaceAll("\\", "/");
-    if (!rel) {
-      assignments.push({ file, category: fallbackCategory });
-      continue;
-    }
-    const parts = rel.split("/").filter(Boolean);
-    if (parts.length < 2) {
-      assignments.push({ file, category: fallbackCategory });
-      continue;
-    }
-    const root = parts[0];
-    const subPathDepth = parts.length - 2; // without root + filename
-    const current = byRoot.get(root) || { hasDirectFiles: false, files: [] };
-    if (subPathDepth === 0) current.hasDirectFiles = true;
-    current.files.push({ file, parts, subPathDepth });
-    byRoot.set(root, current);
+    assignments.push({ file, category: cat });
   }
-
-  for (const [root, group] of byRoot.entries()) {
-    const hasSubfolders = group.files.some((f) => f.subPathDepth >= 1);
-    const mustUseSubfolders = hasSubfolders;
-    for (const item of group.files) {
-      if (item.subPathDepth >= 2) {
-        errors.push(`Arborescence trop profonde dans "${item.parts.join("/")}" (max: root/category/file).`);
-        continue;
-      }
-      if (mustUseSubfolders) {
-        if (item.subPathDepth === 0) {
-          errors.push(`Fichier a la racine de "${root}" non autorise quand des sous-dossiers existent: "${item.parts.join("/")}".`);
-          continue;
-        }
-        assignments.push({ file: item.file, category: item.parts[1] });
-      } else {
-        assignments.push({ file: item.file, category: root });
-      }
-    }
-  }
-
   return { assignments, errors };
 }
 
@@ -404,7 +376,9 @@ function renderDocuments() {
   const reserve = budget.history_reserve_chars ?? 0;
   const inject = budget.inject_cap_chars ?? 0;
   if (documentsBudget) {
-    documentsBudget.textContent = `Budget categorie: ${limit} chars (reserve chat: ${reserve}, cap inject: ${inject})`;
+    const corp = data.corpus?.default_category || "";
+    const corpBit = corp ? ` · corpus defaut: ${corp}` : "";
+    documentsBudget.textContent = `Budget categorie: ${limit} chars (reserve chat: ${reserve}, cap inject: ${inject})${corpBit}`;
   }
 
   const categories = draft.categories || [];
@@ -503,18 +477,18 @@ function renderDocuments() {
 async function loadDocumentsOverview() {
   const response = await apiFetch("/admin/documents/overview");
   state.docsOverview = await response.json();
+  const def = state.docsOverview?.corpus?.default_category;
+  if (docCategoryInput && def && !(docCategoryInput.value || "").trim()) {
+    docCategoryInput.value = def;
+  }
   initDocsDraft();
   renderDocuments();
 }
 
 async function handleUploadDocument() {
   showDocError("");
-  const category = (docCategoryInput?.value || "").trim();
+  const category = getCorpusCategory();
   const list = Array.from(docFileInput?.files || []);
-  if (!category) {
-    showDocError("La categorie est obligatoire.");
-    return;
-  }
   if (!list.length) {
     showDocError("Choisissez un ou plusieurs fichiers .docx ou .txt.");
     return;
@@ -546,8 +520,8 @@ async function handleUploadDocument() {
 function handleFolderSelection() {
   const files = Array.from(docFolderInput?.files || []);
   if (!files.length) return;
-  const fallbackCategory = (docCategoryInput?.value || "").trim() || "procedures";
-  const { assignments, errors } = assignFolderFilesToCategories(files, fallbackCategory);
+  const corpus = getCorpusCategory();
+  const { assignments, errors } = assignFolderFilesToCategories(files, corpus);
   for (const item of assignments) {
     draftAddUpload(item.file, item.category);
   }
@@ -564,7 +538,10 @@ async function saveDraftChanges() {
   if (!state.docsDraft) return;
   showDocError("");
   const plan = {
-    uploads: state.docsDraft.uploads.map((u) => ({ category: u.category, filename: u.filename })),
+    uploads: state.docsDraft.uploads.map((u) => ({
+      filename: u.filename,
+      ...(u.category ? { category: u.category } : {}),
+    })),
     moves: state.docsDraft.moves,
     deletes: state.docsDraft.deletes,
   };

@@ -806,8 +806,8 @@ async def admin_documents_overview(_admin: dict = Depends(_require_admin)):
 
 @app.post("/admin/documents/upload")
 async def admin_documents_upload(
-    category: str = Form(...),
     file: UploadFile = File(...),
+    category: Optional[str] = Form(None),
     _admin: dict = Depends(_require_admin),
 ):
     if not file.filename:
