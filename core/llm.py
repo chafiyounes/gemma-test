@@ -18,7 +18,7 @@ from core.chat_policy import (
     retrieval_anchor_query,
     unsupported_latin_language_message,
 )
-from core.agentic_rag import AGENTIC_SYSTEM_PROMPT, run_agentic_tool_loop
+from core.agentic_rag import build_document_catalog, make_agentic_system_prompt, run_agentic_tool_loop
 from core.documents import get_store
 
 logger = logging.getLogger(__name__)
@@ -491,7 +491,18 @@ class GemmaModel:
                 rag=rag_meta,
             )
 
-        messages: list[dict] = [{"role": "system", "content": AGENTIC_SYSTEM_PROMPT}]
+        store = get_store()
+        catalog = build_document_catalog(store, category or "")
+        rag_meta["catalog_entries"] = len(catalog)
+        if not catalog:
+            rag_meta["note"] = "agentic_catalog_empty"
+            return LLMGenerateResult(
+                text="⚠️ Aucun document disponible dans cette catégorie pour l'agentic RAG.",
+                rag=rag_meta,
+            )
+
+        agentic_prompt = make_agentic_system_prompt(catalog)
+        messages: list[dict] = [{"role": "system", "content": agentic_prompt}]
         for turn in hist:
             role = turn.get("role", "user")
             content = turn.get("content", "")
