@@ -9,7 +9,13 @@ LOG_DIR="$PROJ/logs"
 mkdir -p "$LOG_DIR"
 
 if ! tmux has-session -t "$SESSION" 2>/dev/null; then
-  echo "No tmux session '$SESSION'. Start the stack first: bash start_all.sh gemma4"
+  echo "═══════════════════════════════════════════════════════════════"
+  echo "No tmux session '$SESSION' — API cannot attach to a window."
+  echo "  Start the full stack on the pod (from repo root):"
+  echo "    cd $PROJ && bash start_all.sh gemma4"
+  echo "  Then re-run: bash scripts/restart_api.sh"
+  echo "  (Deploy scripts only restart API if tmux already exists.)"
+  echo "═══════════════════════════════════════════════════════════════"
   exit 1
 fi
 
