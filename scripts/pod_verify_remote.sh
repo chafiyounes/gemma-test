@@ -9,10 +9,8 @@ python3 -m pip install -q -r requirements.txt
 echo "=== agentic map (heuristic, fast) ==="
 python3 scripts/bootstrap_agentic_map.py
 
-echo "=== embedding index (e5; uses free VRAM / CUDA) ==="
-python3 scripts/build_agentic_embedding_index.py || {
-  echo "[warn] embedding index failed — agentic will use BM25 for search_map"
-}
+echo "=== embedding index ==="
+echo "skipped (catalog-based agentic retrieval does not require embeddings)"
 
 if grep -q '^AGENTIC_RAG_ENABLED=' .env 2>/dev/null; then
   sed -i 's/^AGENTIC_RAG_ENABLED=.*/AGENTIC_RAG_ENABLED=true/' .env
