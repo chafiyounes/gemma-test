@@ -38,6 +38,14 @@ def ensure_category(category: str) -> str:
     return cat
 
 
+def resolve_upload_category(category: Optional[str]) -> str:
+    """Target folder under data/documents*. Empty → RAG_DEFAULT_CATEGORY (single corpus / catalog)."""
+    raw = (category or "").strip()
+    if raw:
+        return ensure_category(raw)
+    return ensure_category(settings.RAG_DEFAULT_CATEGORY)
+
+
 def _active_source(category: str) -> str:
     md_dir = DOCS_MD_DIR / category
     txt_dir = DOCS_TXT_DIR / category
@@ -107,7 +115,18 @@ def get_overview() -> dict:
                 "files": files,
             }
         )
-    return {"budget": budget, "categories": categories}
+    default_cat = _sanitize_segment(
+        settings.RAG_DEFAULT_CATEGORY, field_name="RAG_DEFAULT_CATEGORY"
+    )
+    return {
+        "budget": budget,
+        "categories": categories,
+        "corpus": {
+            "default_category": default_cat,
+            "single_corpus": True,
+            "hint": "Uploads sans categorie vont dans default_category (alignez RAG_DEFAULT_CATEGORY dans .env avec le filtre /chat).",
+        },
+    }
 
 
 def _category_overflow(category: str) -> Tuple[bool, int]:
@@ -129,8 +148,14 @@ def _assert_no_overflow(category: str) -> None:
         )
 
 
-def upload_document(category: str, filename: str, data: bytes, *, enforce_overflow: bool = True) -> dict:
-    cat = ensure_category(category)
+def upload_document(
+    category: Optional[str],
+    filename: str,
+    data: bytes,
+    *,
+    enforce_overflow: bool = True,
+) -> dict:
+    cat = resolve_upload_category(category)
     safe_name = _sanitize_segment(filename, field_name="filename")
     ext = Path(safe_name).suffix.lower()
     stem = Path(safe_name).stem
@@ -342,7 +367,7 @@ def apply_plan(
             )
 
         for op in uploads:
-            cat = ensure_category(op.get("category", ""))
+            cat = resolve_upload_category(op.get("category"))
             filename = op.get("filename", "")
             data = op.get("data", b"")
             if not isinstance(data, (bytes, bytearray)) or not data:
