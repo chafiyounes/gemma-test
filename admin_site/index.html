@@ -102,14 +102,21 @@
                 <h2>Documents manager</h2>
                 <span id="documents-budget"></span>
               </div>
+              <div id="doc-workflow-help" class="doc-workflow-help detail-text">
+                <strong>Workflow (un seul corpus RAG recommandé)</strong> — Laissez le champ corpus vide pour envoyer tous les fichiers vers le dossier par défaut
+                (<code>RAG_DEFAULT_CATEGORY</code> dans <code>.env</code>, souvent <code>procedures</code>). Le chat et l’agentic utilisent ce même nom de catégorie.
+                Pour n’avoir qu’un seul index : mettez tout dans ce corpus et supprimez les anciennes catégories avec 🗑️ à côté du titre (ou déplacez les fichiers puis supprimez le dossier vide).
+                <strong>Ajouter fichiers</strong> : choisissez un ou plusieurs .docx/.txt puis cliquez le bouton (le brouillon s’affiche ci‑dessous) → <strong>💾</strong> pour enregistrer sur le disque.
+                Pas de découpage « par lots » côté serveur : le navigateur envoie la sélection d’un coup ; les très gros dossiers peuvent être lents ou plafonnés par le proxy.
+              </div>
               <div class="documents-actions">
-                <input id="doc-category-input" type="text" placeholder="Corpus (optionnel — defaut: RAG_DEFAULT_CATEGORY)" title="Vide = tous les fichiers vers le corpus par defaut (.env RAG_DEFAULT_CATEGORY)" />
-                <input id="doc-file-input" type="file" accept=".docx,.txt" multiple />
+                <input id="doc-category-input" type="text" placeholder="Corpus (vide = défaut .env)" title="Vide = RAG_DEFAULT_CATEGORY" />
+                <input id="doc-file-input" type="file" accept=".docx,.txt,.DOCX,.TXT,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" multiple />
                 <input id="doc-folder-input" type="file" webkitdirectory directory multiple class="hidden" />
                 <button id="doc-upload-button" type="button" class="toolbar-button">Ajouter fichiers</button>
-                <button id="doc-add-folder-button" type="button" class="toolbar-button secondary">Ajouter dossier</button>
-                <button id="doc-save-button" type="button" class="toolbar-button">Sauvegarder changements</button>
-                <button id="doc-discard-button" type="button" class="toolbar-button secondary">Annuler changements</button>
+                <button id="doc-add-folder-button" type="button" class="toolbar-button secondary">Dossier → corpus</button>
+                <button id="doc-save-button" type="button" class="toolbar-button" title="Sauvegarder les changements">💾</button>
+                <button id="doc-discard-button" type="button" class="toolbar-button secondary" title="Annuler le brouillon">↩️</button>
                 <button id="doc-refresh-button" type="button" class="toolbar-button secondary">Rafraichir</button>
               </div>
               <div id="doc-pending-summary" class="detail-text">Aucun changement en attente.</div>
@@ -122,6 +129,6 @@
       </main>
     </div>
 
-    <script src="/admin-static/admin.js?v=20260511b" defer></script>
+    <script src="/admin-static/admin.js?v=20260511c" defer></script>
   </body>
   </html>

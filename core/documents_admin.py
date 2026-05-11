@@ -258,6 +258,33 @@ def move_document(
         raise
 
 
+def delete_document_category(category: str) -> dict:
+    """Remove all .docx/.md/.txt for one corpus folder (empty dirs removed)."""
+    cat = _sanitize_segment(category, field_name="category")
+    removed = 0
+    for folder, pattern in (
+        (DOCS_DIR / cat, "*.docx"),
+        (DOCS_MD_DIR / cat, "*.md"),
+        (DOCS_TXT_DIR / cat, "*.txt"),
+    ):
+        if not folder.is_dir():
+            continue
+        for p in list(folder.glob(pattern)):
+            try:
+                p.unlink(missing_ok=True)
+                removed += 1
+            except OSError:
+                pass
+    # Drop empty category directories (optional cleanup)
+    for folder in (DOCS_TXT_DIR / cat, DOCS_MD_DIR / cat, DOCS_DIR / cat):
+        try:
+            if folder.is_dir() and not any(folder.iterdir()):
+                folder.rmdir()
+        except OSError:
+            pass
+    return {"category": cat, "files_removed": removed}
+
+
 def delete_document(category: str, source_kind: str, filename: str) -> dict:
     cat = ensure_category(category)
     kind = _sanitize_segment(source_kind, field_name="source").lower()
