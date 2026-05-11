@@ -32,6 +32,7 @@ from core.documents_admin import (
     apply_plan as apply_documents_plan,
     DocumentAdminError,
     delete_document,
+    delete_document_category,
     get_overview as get_documents_overview,
     move_document,
     upload_document,
@@ -104,6 +105,10 @@ class DeleteDocumentRequest(BaseModel):
     category: str
     source_kind: str
     filename: str
+
+
+class DeleteDocumentCategoryRequest(BaseModel):
+    category: str
 
 
 class ApplyDocumentsPlanRequest(BaseModel):
@@ -865,6 +870,22 @@ async def admin_documents_delete(
     except Exception as exc:
         logger.error("Delete failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to delete document")
+
+
+@app.post("/admin/documents/delete-category")
+async def admin_documents_delete_category(
+    body: DeleteDocumentCategoryRequest,
+    _admin: dict = Depends(_require_admin),
+):
+    try:
+        out = delete_document_category(body.category)
+        reload_document_store()
+        return {"ok": True, **out, "overview": get_documents_overview()}
+    except DocumentAdminError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except Exception as exc:
+        logger.error("Delete category failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to delete category")
 
 
 @app.post("/admin/documents/apply-plan")

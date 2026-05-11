@@ -206,9 +206,7 @@ async function handleLogin(event) {
     passwordInput.value = "";
     state.session = session;
     renderSession();
-    await loadInteractions();
-    await loadEvalStatus();
-    await loadDocumentsOverview();
+    await Promise.allSettled([loadInteractions(), loadEvalStatus(), loadDocumentsOverview()]);
   } catch (error) {
     loginError.textContent = error.message;
     loginError.classList.remove("hidden");
@@ -255,6 +253,16 @@ function getCorpusCategory() {
   if (manual) return manual;
   const fromServer = (state.docsOverview?.corpus?.default_category || "").trim();
   return fromServer || "procedures";
+}
+
+/** Draft is null until overview loads; adding files before that was a no-op. */
+async function ensureDocsReadyForEdits() {
+  if (!state.docsOverview || !state.docsDraft) {
+    await loadDocumentsOverview();
+  }
+  if (!state.docsDraft) {
+    throw new Error("Impossible d'initialiser le gestionnaire de documents.");
+  }
 }
 
 function initDocsDraft() {
@@ -416,14 +424,17 @@ function renderDocuments() {
 
       return `
         <div class="doc-category ${cat.overflow ? "overflow" : ""} ${idx === 0 ? "expanded" : ""}">
-          <button type="button" class="doc-category-head" data-doc-toggle>
-            <div><strong>${escapeHtml(cat.name)}</strong></div>
-            <div class="doc-category-meta">
-              <span class="pill">source active: ${escapeHtml(cat.active_source)}</span>
-              <span class="pill">${(cat.files || []).length} fichier(s)</span>
-              ${overflowPill}
-            </div>
-          </button>
+          <div class="doc-category-head-wrap">
+            <button type="button" class="doc-category-head" data-doc-toggle>
+              <div><strong>${escapeHtml(cat.name)}</strong></div>
+              <div class="doc-category-meta">
+                <span class="pill">source active: ${escapeHtml(cat.active_source)}</span>
+                <span class="pill">${(cat.files || []).length} fichier(s)</span>
+                ${overflowPill}
+              </div>
+            </button>
+            <button type="button" class="doc-cat-delete" data-delete-whole-category="${escapeHtml(cat.name)}" title="Supprimer toute cette categorie sur le disque">🗑️</button>
+          </div>
           <div class="doc-files">
             ${files || '<div class="detail-empty">Aucun fichier actif dans cette categorie.</div>'}
           </div>
@@ -435,6 +446,31 @@ function renderDocuments() {
   documentsCategories.querySelectorAll("[data-doc-toggle]").forEach((btn) => {
     btn.addEventListener("click", () => {
       btn.closest(".doc-category")?.classList.toggle("expanded");
+    });
+  });
+
+  documentsCategories.querySelectorAll("[data-delete-whole-category]").forEach((btn) => {
+    btn.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      const cat = btn.dataset.deleteWholeCategory || "";
+      if (!cat) return;
+      const ok = confirm(
+        `Supprimer toute la categorie « ${cat} » sur le serveur ?\n` +
+          "Tous les fichiers de ce dossier seront effaces (action immediate, pas seulement le brouillon).",
+      );
+      if (!ok) return;
+      showDocError("");
+      try {
+        await apiFetch("/admin/documents/delete-category", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ category: cat }),
+        });
+        await loadDocumentsOverview();
+      } catch (error) {
+        showDocError(error.message || "Echec suppression categorie");
+      }
     });
   });
 
@@ -487,6 +523,12 @@ async function loadDocumentsOverview() {
 
 async function handleUploadDocument() {
   showDocError("");
+  try {
+    await ensureDocsReadyForEdits();
+  } catch (error) {
+    showDocError(error.message || "Chargez la vue Documents (ou reconnectez-vous).");
+    return;
+  }
   const category = getCorpusCategory();
   const list = Array.from(docFileInput?.files || []);
   if (!list.length) {
@@ -517,9 +559,15 @@ async function handleUploadDocument() {
   renderDocuments();
 }
 
-function handleFolderSelection() {
+async function handleFolderSelection() {
   const files = Array.from(docFolderInput?.files || []);
   if (!files.length) return;
+  try {
+    await ensureDocsReadyForEdits();
+  } catch (error) {
+    showDocError(error.message || "Chargez la vue Documents.");
+    return;
+  }
   const corpus = getCorpusCategory();
   const { assignments, errors } = assignFolderFilesToCategories(files, corpus);
   for (const item of assignments) {
@@ -940,7 +988,9 @@ if (docAddFolderButton) {
   docAddFolderButton.addEventListener("click", () => docFolderInput?.click());
 }
 if (docFolderInput) {
-  docFolderInput.addEventListener("change", handleFolderSelection);
+  docFolderInput.addEventListener("change", () => {
+    handleFolderSelection().catch((error) => showDocError(error.message));
+  });
 }
 if (docSaveButton) {
   docSaveButton.addEventListener("click", () => {
@@ -1010,7 +1060,7 @@ function handleLoadError(error) {
 loadSession()
   .then(() => {
     if (state.session?.role === "admin") {
-      return Promise.all([loadInteractions(), loadEvalStatus(), loadDocumentsOverview()]);
+      return Promise.allSettled([loadInteractions(), loadEvalStatus(), loadDocumentsOverview()]);
     }
     return null;
   })
