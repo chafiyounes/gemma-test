@@ -61,6 +61,7 @@ curl -sS -c /tmp/gemma_cj.txt -X POST http://127.0.0.1:8000/auth/login \
   -d @/tmp/gemma_login.json | head -c 300
 echo ""
 
+# Sample questions must match topics in category `procedures` only (no generic support KB).
 CHAT1='{"message":"Comment modifier les coordonnées du client pendant une livraison ? Donne les étapes principales.","category":"procedures","agentic_rag":true,"conversation_history":[]}'
 echo "--- Chat FR (agentic) ---"
 curl -sS -b /tmp/gemma_cj.txt -X POST http://127.0.0.1:8000/chat \
@@ -77,8 +78,9 @@ print('rag_mode=', (meta.get('rag') or {}).get('mode'))
 print('tool_rounds=', (meta.get('rag') or {}).get('tool_rounds'))
 "
 
-CHAT2='{"message":"كيفاش نتواصل مع الدعم إذا كان عندي مشكل فالكولي؟","category":"procedures","agentic_rag":true,"conversation_history":[]}'
-echo "--- Chat darija-style (agentic) ---"
+# Same intent as CHAT1 (coordonnées / numéro client, colis en livraison) — Darija, procedures corpus.
+CHAT2='{"message":"كيفاش نبدل الرقم ديال الزبون إلا كان الكولي فالليفريزون؟","category":"procedures","agentic_rag":true,"conversation_history":[]}'
+echo "--- Chat darija (agentic, procedures topic) ---"
 curl -sS -b /tmp/gemma_cj.txt -X POST http://127.0.0.1:8000/chat \
   -H 'Content-Type: application/json' \
   -d "$CHAT2" | python3 -c "
@@ -87,6 +89,10 @@ d=json.load(sys.stdin)
 r=d.get('response','')
 print('response_len=', len(r))
 print(r[:900])
+print('...')
+meta=d.get('metadata') or {}
+print('rag_mode=', (meta.get('rag') or {}).get('mode'))
+print('tool_rounds=', (meta.get('rag') or {}).get('tool_rounds'))
 "
 
 echo "VERIFY_DONE pod_ec=$POD_EC"
