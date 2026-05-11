@@ -26,6 +26,64 @@ def _sanitize_segment(value: str, *, field_name: str) -> str:
     return cleaned
 
 
+def _reject_unsafe_basename(name: str) -> str:
+    """Basename only; reject path components that could escape the corpus folder."""
+    raw = (name or "").strip()
+    if not raw:
+        raise DocumentAdminError("filename is required")
+    if ".." in raw or "/" in raw or "\\" in raw:
+        raise DocumentAdminError("Invalid filename")
+    return raw
+
+
+def _resolve_file_under_dir(dir_path: Path, filename: str, *, hint: str = "") -> Path:
+    """Resolve a file under dir_path to an existing Path.
+
+    Overview lists real ``p.name`` values from disk; ``_sanitize_segment`` can
+    diverge (e.g. accents → underscores). Deletes/moves must match on-disk names.
+    """
+    raw = _reject_unsafe_basename(filename)
+    if not dir_path.is_dir():
+        raise DocumentAdminError(f"File not found{': ' + hint if hint else ''}")
+    base = dir_path.resolve()
+
+    p = (dir_path / raw).resolve()
+    if p.is_file() and p.parent.resolve() == base:
+        return p
+
+    try:
+        safe = _sanitize_segment(raw, field_name="filename")
+    except DocumentAdminError:
+        safe = ""
+
+    if safe and safe != raw:
+        p2 = (dir_path / safe).resolve()
+        if p2.is_file() and p2.parent.resolve() == base:
+            return p2
+
+    matches: List[Path] = []
+    for c in dir_path.iterdir():
+        if not c.is_file():
+            continue
+        if c.parent.resolve() != base:
+            continue
+        if c.name == raw or (safe and c.name == safe):
+            matches.append(c)
+            continue
+        try:
+            if safe and _sanitize_segment(c.name, field_name="filename") == safe:
+                matches.append(c)
+        except DocumentAdminError:
+            continue
+
+    uniq = sorted({m.resolve() for m in matches}, key=lambda x: str(x))
+    if len(uniq) == 1:
+        return uniq[0]
+    if not uniq:
+        raise DocumentAdminError(f"File not found for delete: {hint}" if hint else "File not found")
+    raise DocumentAdminError(f"Ambiguous filename: {filename!r}")
+
+
 def _categories() -> List[str]:
     if not DOCS_DIR.is_dir():
         return []
@@ -85,32 +143,18 @@ def _list_files(category: str, source: str) -> List[dict]:
     return files
 
 
-def _budget() -> Dict[str, int]:
-    reserve = max(0, int(settings.RAG_CHAT_HISTORY_RESERVE_CHARS))
-    inject_cap = max(0, int(settings.RAG_INJECT_MAX_CHARS))
-    category_limit = max(1, inject_cap - reserve)
-    return {
-        "inject_cap_chars": inject_cap,
-        "history_reserve_chars": reserve,
-        "category_limit_chars": category_limit,
-    }
-
-
 def get_overview() -> dict:
-    budget = _budget()
+    """List corpus folders and files. Category size is informational only (no admin cap)."""
     categories = []
     for cat in _categories():
         source = _active_source(cat)
         files = _list_files(cat, source)
         total_chars = sum(f["chars"] for f in files)
-        overflow = total_chars > budget["category_limit_chars"]
         categories.append(
             {
                 "name": cat,
                 "active_source": source,
                 "total_chars": total_chars,
-                "remaining_chars": budget["category_limit_chars"] - total_chars,
-                "overflow": overflow,
                 "file_count": len(files),
                 "files": files,
             }
@@ -119,41 +163,19 @@ def get_overview() -> dict:
         settings.RAG_DEFAULT_CATEGORY, field_name="RAG_DEFAULT_CATEGORY"
     )
     return {
-        "budget": budget,
         "categories": categories,
         "corpus": {
             "default_category": default_cat,
             "single_corpus": True,
-            "hint": "Uploads sans categorie vont dans default_category (alignez RAG_DEFAULT_CATEGORY dans .env avec le filtre /chat).",
+            "hint": "Les dossiers (categories) servent d'étiquettes pour le modele; les fichiers ne sont plus bloques par un plafond de caracteres dans l'admin.",
         },
     }
-
-
-def _category_overflow(category: str) -> Tuple[bool, int]:
-    overview = get_overview()
-    limit = overview["budget"]["category_limit_chars"]
-    for cat in overview["categories"]:
-        if cat["name"] == category:
-            return cat["total_chars"] > limit, cat["total_chars"]
-    return False, 0
-
-
-def _assert_no_overflow(category: str) -> None:
-    overflow, total = _category_overflow(category)
-    if overflow:
-        limit = _budget()["category_limit_chars"]
-        raise DocumentAdminError(
-            f"Category '{category}' exceeds context budget ({total} > {limit} chars). "
-            "Move/delete files before saving."
-        )
 
 
 def upload_document(
     category: Optional[str],
     filename: str,
     data: bytes,
-    *,
-    enforce_overflow: bool = True,
 ) -> dict:
     cat = resolve_upload_category(category)
     safe_name = _sanitize_segment(filename, field_name="filename")
@@ -187,8 +209,6 @@ def upload_document(
         else:
             raise DocumentAdminError("Only .docx and .txt are supported")
 
-        if enforce_overflow:
-            _assert_no_overflow(cat)
         return {"category": cat, "filename": f"{stem}{ext}"}
     except Exception:
         for p in reversed(created):
@@ -201,41 +221,34 @@ def move_document(
     target_category: str,
     source_kind: str,
     filename: str,
-    *,
-    enforce_overflow: bool = True,
 ) -> dict:
     src_cat = ensure_category(source_category)
     dst_cat = ensure_category(target_category)
     if src_cat == dst_cat:
         raise DocumentAdminError("Source and target categories are the same")
     kind = _sanitize_segment(source_kind, field_name="source").lower()
-    safe_name = _sanitize_segment(filename, field_name="filename")
 
     moved_pairs: List[Tuple[Path, Path]] = []
     try:
         if kind == "txt":
-            src = DOCS_TXT_DIR / src_cat / safe_name
+            src = _resolve_file_under_dir(DOCS_TXT_DIR / src_cat, filename, hint=filename)
             dst_dir = DOCS_TXT_DIR / dst_cat
             dst_dir.mkdir(parents=True, exist_ok=True)
-            dst = dst_dir / safe_name
-            if not src.exists():
-                raise DocumentAdminError("Source file not found")
+            dst = dst_dir / src.name
             if dst.exists():
                 raise DocumentAdminError("Target file already exists")
             shutil.move(str(src), str(dst))
             moved_pairs.append((dst, src))
         elif kind == "docx":
-            src = DOCS_DIR / src_cat / safe_name
+            src = _resolve_file_under_dir(DOCS_DIR / src_cat, filename, hint=filename)
             dst_dir = DOCS_DIR / dst_cat
             dst_dir.mkdir(parents=True, exist_ok=True)
-            dst = dst_dir / safe_name
-            if not src.exists():
-                raise DocumentAdminError("Source file not found")
+            dst = dst_dir / src.name
             if dst.exists():
                 raise DocumentAdminError("Target file already exists")
             shutil.move(str(src), str(dst))
             moved_pairs.append((dst, src))
-            src_md = DOCS_MD_DIR / src_cat / f"{Path(safe_name).stem}.md"
+            src_md = DOCS_MD_DIR / src_cat / f"{src.stem}.md"
             if src_md.exists():
                 dst_md_dir = DOCS_MD_DIR / dst_cat
                 dst_md_dir.mkdir(parents=True, exist_ok=True)
@@ -244,12 +257,29 @@ def move_document(
                     raise DocumentAdminError(f"Target md export already exists: {dst_md.name}")
                 shutil.move(str(src_md), str(dst_md))
                 moved_pairs.append((dst_md, src_md))
+        elif kind == "md":
+            src = _resolve_file_under_dir(DOCS_MD_DIR / src_cat, filename, hint=filename)
+            dst_dir = DOCS_MD_DIR / dst_cat
+            dst_dir.mkdir(parents=True, exist_ok=True)
+            dst = dst_dir / src.name
+            if dst.exists():
+                raise DocumentAdminError("Target file already exists")
+            shutil.move(str(src), str(dst))
+            moved_pairs.append((dst, src))
+            stem = src.stem
+            src_docx = DOCS_DIR / src_cat / f"{stem}.docx"
+            if src_docx.exists():
+                dst_docx_dir = DOCS_DIR / dst_cat
+                dst_docx_dir.mkdir(parents=True, exist_ok=True)
+                dst_docx = dst_docx_dir / src_docx.name
+                if dst_docx.exists():
+                    raise DocumentAdminError(f"Target docx already exists: {dst_docx.name}")
+                shutil.move(str(src_docx), str(dst_docx))
+                moved_pairs.append((dst_docx, src_docx))
         else:
             raise DocumentAdminError("Unsupported source kind")
 
-        if enforce_overflow:
-            _assert_no_overflow(dst_cat)
-        return {"from": src_cat, "to": dst_cat, "filename": safe_name, "source": kind}
+        return {"from": src_cat, "to": dst_cat, "filename": moved_pairs[0][1].name, "source": kind}
     except Exception:
         for dst, src in reversed(moved_pairs):
             if dst.exists() and not src.exists():
@@ -288,42 +318,58 @@ def delete_document_category(category: str) -> dict:
 def delete_document(category: str, source_kind: str, filename: str) -> dict:
     cat = ensure_category(category)
     kind = _sanitize_segment(source_kind, field_name="source").lower()
-    safe_name = _sanitize_segment(filename, field_name="filename")
 
     if kind == "txt":
-        path = DOCS_TXT_DIR / cat / safe_name
-        if not path.exists():
-            raise DocumentAdminError("File not found")
+        path = _resolve_file_under_dir(DOCS_TXT_DIR / cat, filename, hint=filename)
         path.unlink()
     elif kind == "docx":
-        path = DOCS_DIR / cat / safe_name
-        if not path.exists():
-            raise DocumentAdminError("File not found")
+        path = _resolve_file_under_dir(DOCS_DIR / cat, filename, hint=filename)
         path.unlink()
-        md_path = DOCS_MD_DIR / cat / f"{Path(safe_name).stem}.md"
+        md_path = DOCS_MD_DIR / cat / f"{path.stem}.md"
         md_path.unlink(missing_ok=True)
+    elif kind == "md":
+        path = _resolve_file_under_dir(DOCS_MD_DIR / cat, filename, hint=filename)
+        path.unlink()
+        docx_path = DOCS_DIR / cat / f"{path.stem}.docx"
+        docx_path.unlink(missing_ok=True)
     else:
         raise DocumentAdminError("Unsupported source kind")
 
-    return {"deleted": True, "category": cat, "filename": safe_name, "source": kind}
+    return {"deleted": True, "category": cat, "filename": path.name, "source": kind}
 
 
-def _restore_deleted(file_bytes: bytes, category: str, source_kind: str, filename: str, md_bytes: Optional[bytes]) -> None:
+def _restore_deleted(
+    file_bytes: bytes,
+    category: str,
+    source_kind: str,
+    filename: str,
+    md_bytes: Optional[bytes],
+    *,
+    docx_bytes: Optional[bytes] = None,
+) -> None:
     cat = ensure_category(category)
     kind = _sanitize_segment(source_kind, field_name="source").lower()
-    safe_name = _sanitize_segment(filename, field_name="filename")
+    base_name = _reject_unsafe_basename(filename)
     if kind == "txt":
-        path = DOCS_TXT_DIR / cat / safe_name
+        path = DOCS_TXT_DIR / cat / base_name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(file_bytes)
     elif kind == "docx":
-        path = DOCS_DIR / cat / safe_name
+        path = DOCS_DIR / cat / base_name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(file_bytes)
         if md_bytes is not None:
-            md = DOCS_MD_DIR / cat / f"{Path(safe_name).stem}.md"
+            md = DOCS_MD_DIR / cat / f"{path.stem}.md"
             md.parent.mkdir(parents=True, exist_ok=True)
             md.write_bytes(md_bytes)
+    elif kind == "md":
+        md = DOCS_MD_DIR / cat / base_name
+        md.parent.mkdir(parents=True, exist_ok=True)
+        md.write_bytes(file_bytes)
+        if docx_bytes is not None:
+            docx = DOCS_DIR / cat / f"{md.stem}.docx"
+            docx.parent.mkdir(parents=True, exist_ok=True)
+            docx.write_bytes(docx_bytes)
 
 
 def apply_plan(
@@ -338,40 +384,53 @@ def apply_plan(
         for op in deletes:
             cat = ensure_category(op.get("category", ""))
             kind = _sanitize_segment(op.get("source_kind", ""), field_name="source").lower()
-            filename = _sanitize_segment(op.get("filename", ""), field_name="filename")
+            filename_input = (op.get("filename") or "").strip()
 
             if kind == "txt":
-                path = DOCS_TXT_DIR / cat / filename
-                if not path.exists():
-                    raise DocumentAdminError(f"File not found for delete: {filename}")
+                path = _resolve_file_under_dir(DOCS_TXT_DIR / cat, filename_input, hint=filename_input)
                 file_bytes = path.read_bytes()
-                delete_document(cat, kind, filename)
+                delete_document(cat, kind, path.name)
                 undo_stack.append(
                     {
                         "type": "restore_delete",
                         "category": cat,
                         "source_kind": kind,
-                        "filename": filename,
+                        "filename": path.name,
                         "file_bytes": file_bytes,
                         "md_bytes": None,
                     }
                 )
             elif kind == "docx":
-                path = DOCS_DIR / cat / filename
-                if not path.exists():
-                    raise DocumentAdminError(f"File not found for delete: {filename}")
+                path = _resolve_file_under_dir(DOCS_DIR / cat, filename_input, hint=filename_input)
                 file_bytes = path.read_bytes()
-                md_path = DOCS_MD_DIR / cat / f"{Path(filename).stem}.md"
+                md_path = DOCS_MD_DIR / cat / f"{path.stem}.md"
                 md_bytes = md_path.read_bytes() if md_path.exists() else None
-                delete_document(cat, kind, filename)
+                delete_document(cat, kind, path.name)
                 undo_stack.append(
                     {
                         "type": "restore_delete",
                         "category": cat,
                         "source_kind": kind,
-                        "filename": filename,
+                        "filename": path.name,
                         "file_bytes": file_bytes,
                         "md_bytes": md_bytes,
+                    }
+                )
+            elif kind == "md":
+                path = _resolve_file_under_dir(DOCS_MD_DIR / cat, filename_input, hint=filename_input)
+                file_bytes = path.read_bytes()
+                docx_path = DOCS_DIR / cat / f"{path.stem}.docx"
+                docx_bytes = docx_path.read_bytes() if docx_path.exists() else None
+                delete_document(cat, kind, path.name)
+                undo_stack.append(
+                    {
+                        "type": "restore_delete",
+                        "category": cat,
+                        "source_kind": kind,
+                        "filename": path.name,
+                        "file_bytes": file_bytes,
+                        "md_bytes": None,
+                        "docx_bytes": docx_bytes,
                     }
                 )
             else:
@@ -381,15 +440,15 @@ def apply_plan(
             src = ensure_category(op.get("source_category", ""))
             dst = ensure_category(op.get("target_category", ""))
             kind = _sanitize_segment(op.get("source_kind", ""), field_name="source").lower()
-            filename = _sanitize_segment(op.get("filename", ""), field_name="filename")
-            move_document(src, dst, kind, filename, enforce_overflow=False)
+            filename_input = (op.get("filename") or "").strip()
+            moved = move_document(src, dst, kind, filename_input)
             undo_stack.append(
                 {
                     "type": "reverse_move",
                     "source_category": dst,
                     "target_category": src,
                     "source_kind": kind,
-                    "filename": filename,
+                    "filename": moved["filename"],
                 }
             )
 
@@ -399,7 +458,7 @@ def apply_plan(
             data = op.get("data", b"")
             if not isinstance(data, (bytes, bytearray)) or not data:
                 raise DocumentAdminError(f"Upload payload missing for {filename}")
-            out = upload_document(cat, filename, bytes(data), enforce_overflow=False)
+            out = upload_document(cat, filename, bytes(data))
             undo_stack.append(
                 {
                     "type": "delete_upload",
@@ -409,13 +468,7 @@ def apply_plan(
                 }
             )
 
-        overview = get_overview()
-        limit = overview["budget"]["category_limit_chars"]
-        offenders = [c for c in overview["categories"] if c["overflow"]]
-        if offenders:
-            detail = ", ".join(f"{c['name']} ({c['total_chars']}/{limit})" for c in offenders)
-            raise DocumentAdminError(f"Context budget exceeded after save: {detail}")
-        return overview
+        return get_overview()
     except Exception:
         for step in reversed(undo_stack):
             try:
@@ -426,6 +479,7 @@ def apply_plan(
                         source_kind=step["source_kind"],
                         filename=step["filename"],
                         md_bytes=step.get("md_bytes"),
+                        docx_bytes=step.get("docx_bytes"),
                     )
                 elif step["type"] == "reverse_move":
                     move_document(
@@ -433,7 +487,6 @@ def apply_plan(
                         step["target_category"],
                         step["source_kind"],
                         step["filename"],
-                        enforce_overflow=False,
                     )
                 elif step["type"] == "delete_upload":
                     kind = step["source_kind"]

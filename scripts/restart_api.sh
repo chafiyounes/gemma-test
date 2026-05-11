@@ -23,6 +23,13 @@ if tmux list-windows -t "$SESSION" -F '#{window_name}' 2>/dev/null | grep -qx 'a
   tmux kill-window -t "$SESSION:api"
 fi
 
+# Safety: kill any detached API process that may still hold port 8000.
+# This prevents "address already in use" on restart and stale code serving requests.
+pkill -f "uvicorn api.main:app" 2>/dev/null || true
+pkill -f "python3 -m api.main" 2>/dev/null || true
+pkill -f "python -m api.main" 2>/dev/null || true
+sleep 1
+
 tmux new-window -t "$SESSION" -n api
 tmux send-keys -t "$SESSION:api" "cd $PROJ && bash scripts/start_api.sh 2>&1 | tee $LOG_DIR/api.log" Enter
 echo "API window restarted (vLLM pane untouched)."

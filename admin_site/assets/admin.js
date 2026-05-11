@@ -1,3 +1,6 @@
+/** Document admin JSON + multipart API (also under /admin/documents/* for compatibility). */
+const DOCS_API_BASE = "/api/admin/documents";
+
 const state = {
   session: null,
   items: [],
@@ -316,7 +319,7 @@ function updatePendingSummary() {
   docPendingSummary.textContent =
     total === 0
       ? "Aucun changement en attente."
-      : `Brouillon: ${up} ajout(s), ${mv} deplacement(s), ${del} suppression(s). Les calculs de budget se font a la sauvegarde.`;
+      : `Brouillon: ${up} ajout(s), ${mv} deplacement(s), ${del} suppression(s).`;
   if (docSaveButton) docSaveButton.disabled = total === 0;
   if (docDiscardButton) docDiscardButton.disabled = total === 0;
 }
@@ -386,14 +389,11 @@ function renderDocuments() {
   const draft = state.docsDraft;
   if (!data || !draft || !documentsCategories) return;
 
-  const budget = data.budget || {};
-  const limit = budget.category_limit_chars ?? 0;
-  const reserve = budget.history_reserve_chars ?? 0;
-  const inject = budget.inject_cap_chars ?? 0;
   if (documentsBudget) {
     const corp = data.corpus?.default_category || "";
-    const corpBit = corp ? ` · corpus defaut: ${corp}` : "";
-    documentsBudget.textContent = `Budget categorie: ${limit} chars (reserve chat: ${reserve}, cap inject: ${inject})${corpBit}`;
+    const corpBit = corp ? ` · corpus par defaut: ${corp}` : "";
+    documentsBudget.textContent =
+      `Categories = dossiers sur le disque (etiquettes pour le modele / RAG). Aucun plafond de caracteres impose ici.${corpBit}`;
   }
 
   const categories = draft.categories || [];
@@ -410,10 +410,8 @@ function renderDocuments() {
   documentsCategories.innerHTML = categories
     .map((cat, idx) => {
       const live = (state.docsOverview.categories || []).find((x) => x.name === cat.name);
-      const overflowPill = live
-        ? live.overflow
-          ? `<span class="pill bad">live overflow (${live.total_chars} / ${limit})</span>`
-          : `<span class="pill good">live ${live.total_chars} / ${limit}</span>`
+      const sizePill = live
+        ? `<span class="pill">${live.total_chars} chars (corpus)</span>`
         : `<span class="pill">nouvelle categorie</span>`;
       const files = (cat.files || [])
         .map((file) => `
@@ -430,14 +428,14 @@ function renderDocuments() {
         .join("");
 
       return `
-        <div class="doc-category ${cat.overflow ? "overflow" : ""} ${idx === 0 ? "expanded" : ""}">
+        <div class="doc-category ${idx === 0 ? "expanded" : ""}">
           <div class="doc-category-head-wrap">
             <button type="button" class="doc-category-head" data-doc-toggle>
               <div><strong>${escapeHtml(cat.name)}</strong></div>
               <div class="doc-category-meta">
                 <span class="pill">source active: ${escapeHtml(cat.active_source)}</span>
                 <span class="pill">${(cat.files || []).length} fichier(s)</span>
-                ${overflowPill}
+                ${sizePill}
               </div>
             </button>
             <button type="button" class="doc-cat-delete" data-delete-whole-category="${escapeHtml(cat.name)}" title="Supprimer toute cette categorie sur le disque">🗑️</button>
@@ -469,7 +467,7 @@ function renderDocuments() {
       if (!ok) return;
       showDocError("");
       try {
-        await apiFetch("/admin/documents/delete-category", {
+        await apiFetch(`${DOCS_API_BASE}/delete-category`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ category: cat }),
@@ -518,7 +516,7 @@ function renderDocuments() {
 }
 
 async function loadDocumentsOverview() {
-  const response = await apiFetch("/admin/documents/overview");
+  const response = await apiFetch(`${DOCS_API_BASE}/overview`);
   state.docsOverview = await response.json();
   const def = state.docsOverview?.corpus?.default_category;
   if (docCategoryInput && def && !(docCategoryInput.value || "").trim()) {
@@ -607,7 +605,7 @@ async function saveDraftChanges() {
   }
   if (docSaveButton) docSaveButton.disabled = true;
   try {
-    await apiFetch("/admin/documents/apply-plan", { method: "POST", body });
+    await apiFetch(`${DOCS_API_BASE}/apply-plan`, { method: "POST", body });
     await loadDocumentsOverview();
     showDocError("");
   } catch (error) {
