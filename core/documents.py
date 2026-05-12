@@ -25,9 +25,9 @@ import re
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
-logger = logging.getLogger(__name__)
+from app_config.settings import settings
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "data" / "documents"
@@ -36,6 +36,8 @@ DOCS_TXT_DIR = REPO_ROOT / "data" / "documents_txt"
 
 from core.sop_text_clean import clean_sop_markdown, collapse_whitespace  # noqa: E402
 from core.docx_to_md import convert_docx_to_markdown  # noqa: E402
+
+logger = logging.getLogger(__name__)
 
 _TOKEN_RE = re.compile(r"[A-Za-zÀ-ÿ0-9\u0600-\u06FF]+", re.UNICODE)
 
@@ -115,6 +117,10 @@ _LOGISTICS_FR_HINTS: tuple[tuple[str, str], ...] = (
     ("coordonnees", "contact téléphone adresse client modification livraison"),
     ("déjà", "colis déjà statut livraison en cours tournée livreur"),
     ("deja", "colis statut livraison en cours tournée"),
+    ("email", "courriel e-mail adresse messagerie modification procédure vendeur document pièce fournir"),
+    ("e-mail", "email courriel modification adresse vendeur document"),
+    ("courriel", "email e-mail modification vendeur document pièce"),
+    ("messagerie", "email courriel e-mail modification compte"),
 )
 
 
@@ -139,6 +145,173 @@ def expand_query_for_retrieval_fr_darija(query: str) -> str:
     if not extra:
         return query
     return f"{query}\n{' '.join(extra)}"
+
+
+def _best_window_for_query(
+    text: str,
+    query: str,
+    max_chars: int,
+    *,
+    expand_fr_darija_hints: bool = False,
+) -> str:
+    """When *text* is longer than *max_chars*, pick a slice that overlaps query terms / step numbers.
+
+    Avoids always taking the document head, which hides later steps (e.g. §4.1).
+    """
+    if not text:
+        return ""
+    suffix = "\n…(tronqué)"
+    top_note = "…(début du document omis)\n"
+    if max_chars <= 120:
+        return text[:max_chars] + ("…" if len(text) > max_chars else "")
+
+    # Budget for inner slice after optional top note + suffix
+    inner0 = max(120, max_chars - len(suffix))
+    if len(text) <= inner0:
+        return text
+
+    q_use = (
+        expand_query_for_retrieval_fr_darija(query)
+        if expand_fr_darija_hints
+        else (query or "")
+    )
+    q_tokens = [t for t in _tokenize(q_use) if len(t) >= 2]
+    text_lower = text.lower()
+    positions: List[int] = []
+    step_positions: set[int] = set()
+
+    for tok in set(q_tokens):
+        pos = 0
+        tlen = len(tok)
+        while pos < len(text_lower):
+            idx = text_lower.find(tok, pos)
+            if idx == -1:
+                break
+            positions.append(idx)
+            pos = idx + max(1, tlen)
+
+    for m in re.finditer(r"\b\d+(?:\.\d+)+\b", query or ""):
+        needle = m.group(0)
+        pos = 0
+        while True:
+            idx = text.find(needle, pos)
+            if idx == -1:
+                break
+            positions.append(idx)
+            step_positions.add(idx)
+            pos = idx + max(1, len(needle))
+
+    for m in re.finditer(
+        r"(?m)^[ \t]*(?:#{1,3}\s*)?(?:\d+(?:\.\d+)*)\s*(?:[.)-]|\s{1,3})",
+        text[:300000],
+    ):
+        positions.append(m.start())
+
+    positions = sorted(set(positions))
+    upper0 = max(0, len(text) - inner0)
+    step = max(400, inner0 // 5)
+
+    def window_score(start: int, inner: int) -> float:
+        frag = text[start : start + inner].lower()
+        sc = 0.0
+        for tok in set(q_tokens):
+            c = frag.count(tok)
+            if not c:
+                continue
+            sc += c * (2.5 if len(tok) >= 5 else 1.8 if len(tok) >= 4 else 1.0)
+        return sc
+
+    best_start = 0
+    best_score = -1.0
+    if positions:
+        for center in positions:
+            if center in step_positions:
+                margin = min(420, max(180, inner0 // 3))
+                s = max(0, min(center - margin, upper0))
+            else:
+                s = max(0, min(max(0, center - inner0 // 3), upper0))
+            sc = window_score(s, inner0)
+            if sc > best_score:
+                best_score = sc
+                best_start = s
+
+    for s in range(0, upper0 + 1, step):
+        sc = window_score(s, inner0)
+        if sc > best_score:
+            best_score = sc
+            best_start = s
+
+    if best_score <= 0.0 and upper0 > 0:
+        best_start = min(upper0 // 3, upper0)
+
+    use_prefix = best_start > 0
+    inner = max(
+        120,
+        max_chars - len(suffix) - (len(top_note) if use_prefix else 0),
+    )
+    upper = max(0, len(text) - inner)
+    best_start = min(best_start, upper)
+
+    chunk = text[best_start : best_start + inner]
+    if use_prefix:
+        nl = chunk.find("\n")
+        if 0 <= nl < 72:
+            chunk = chunk[nl + 1 :]
+    truncated_end = best_start + inner < len(text)
+    if len(chunk) > inner:
+        chunk = chunk[:inner]
+    if truncated_end:
+        cut = chunk.rsplit("\n", 1)[0]
+        if cut:
+            chunk = cut
+    prefix = top_note if use_prefix else ""
+    return prefix + chunk + (suffix if truncated_end else "")
+
+
+def _greedy_inject_document_blocks(
+    entries: List[tuple[str, str]],
+    *,
+    query: str,
+    max_chars: int,
+    expand_fr_darija_hints: bool,
+) -> List[str]:
+    """Prefer **full** top-ranked bodies; allow **at most one** query-aligned partial, then stop.
+
+    Avoids allocating a thin slice to every file in the corpus (unreadable “Post-it” context).
+    After the partial, still includes further files **only** if they fit entirely.
+    """
+    out: List[str] = []
+    budget = max_chars
+    used_partial = False
+    q = (query or "").strip()
+    min_partial = max(400, int(settings.RAG_MIN_CHARS_FOR_PARTIAL))
+
+    for header, body in entries:
+        overhead = len(header) + 1
+        if budget <= overhead + 80:
+            break
+        max_body = budget - overhead
+        if len(body) <= max_body:
+            block = header + body + "\n"
+            out.append(block)
+            budget -= len(block)
+            continue
+        if used_partial:
+            break
+        if max_body < min_partial:
+            break
+        excerpt = _best_window_for_query(
+            body,
+            q,
+            max_body,
+            expand_fr_darija_hints=expand_fr_darija_hints,
+        )
+        block = header + excerpt + "\n"
+        out.append(block)
+        budget -= len(block)
+        used_partial = True
+
+    return out
 
 
 def _collapse_ws(text: str) -> str:
@@ -197,6 +370,30 @@ def _read_docx(path: Path) -> str:
             return ""
 
 
+def _read_pdf(path: Path) -> str:
+    """Extract plain text from PDF (for ``data/documents/<cat>/pdf/*.pdf``)."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        logger.warning(
+            "pypdf is not installed; skipping PDF %s (pip install pypdf)",
+            path.name,
+        )
+        return ""
+    try:
+        reader = PdfReader(str(path))
+        parts: List[str] = []
+        for page in reader.pages:
+            t = page.extract_text() or ""
+            if t.strip():
+                parts.append(t)
+        raw = "\n\n".join(parts)
+        return clean_sop_markdown(raw) if raw.strip() else ""
+    except Exception as exc:
+        logger.warning("Could not read PDF %s: %s", path.name, exc)
+        return ""
+
+
 @dataclass
 class Doc:
     name: str
@@ -240,33 +437,78 @@ class DocStore:
             cat_name = sub.name
             md_cat = self.docs_md_dir / cat_name
             txt_cat = self.docs_txt_dir / cat_name
-            if md_cat.is_dir() and any(md_cat.glob("*.md")):
-                files = sorted(md_cat.glob("*.md"))
-                reader = _read_md
-                source = "documents_md"
-            elif txt_cat.is_dir() and any(txt_cat.glob("*.txt")):
-                files = sorted(txt_cat.glob("*.txt"))
-                reader = _read_txt
-                source = "documents_txt"
-            else:
-                files = sorted(sub.glob("*.docx"))
-                reader = _read_docx
-                source = "docx"
             docs: List[Doc] = []
             df: Counter = Counter()
             total_len = 0
-            for p in files:
-                text = reader(p)
-                if not text.strip():
-                    continue
-                toks = _tokenize(text)
-                if not toks:
-                    continue
-                tf = Counter(toks)
-                docs.append(Doc(name=p.stem, category=cat_name, text=text, tokens=toks, tf=tf))
-                for term in tf:
-                    df[term] += 1
-                total_len += len(toks)
+            source = ""
+
+            if md_cat.is_dir() and any(md_cat.glob("*.md")):
+                source = "documents_md"
+                for p in sorted(md_cat.glob("*.md")):
+                    text = _read_md(p)
+                    if not text.strip():
+                        continue
+                    toks = _tokenize(text)
+                    if not toks:
+                        continue
+                    tf = Counter(toks)
+                    docs.append(
+                        Doc(name=p.stem, category=cat_name, text=text, tokens=toks, tf=tf)
+                    )
+                    for term in tf:
+                        df[term] += 1
+                    total_len += len(toks)
+            elif txt_cat.is_dir() and any(txt_cat.glob("*.txt")):
+                source = "documents_txt"
+                for p in sorted(txt_cat.glob("*.txt")):
+                    text = _read_txt(p)
+                    if not text.strip():
+                        continue
+                    toks = _tokenize(text)
+                    if not toks:
+                        continue
+                    tf = Counter(toks)
+                    docs.append(
+                        Doc(name=p.stem, category=cat_name, text=text, tokens=toks, tf=tf)
+                    )
+                    for term in tf:
+                        df[term] += 1
+                    total_len += len(toks)
+            else:
+                pdf_dir = sub / "pdf"
+                file_jobs: List[tuple[Path, Any]] = []
+                for p in sorted(sub.glob("*.docx")):
+                    file_jobs.append((p, _read_docx))
+                if pdf_dir.is_dir():
+                    for p in sorted(pdf_dir.glob("*.pdf")):
+                        file_jobs.append((p, _read_pdf))
+                file_jobs.sort(key=lambda x: x[0].as_posix().lower())
+                has_pdf = any(j[0].suffix.lower() == ".pdf" for j in file_jobs)
+                if has_pdf and any(j[0].suffix.lower() == ".docx" for j in file_jobs):
+                    source = "docx+pdf"
+                elif has_pdf:
+                    source = "pdf"
+                else:
+                    source = "docx"
+                for p, reader_fn in file_jobs:
+                    try:
+                        rel_stem = p.relative_to(sub).with_suffix("")
+                        doc_name = rel_stem.as_posix()
+                    except ValueError:
+                        doc_name = p.stem
+                    text = reader_fn(p)
+                    if not text.strip():
+                        continue
+                    toks = _tokenize(text)
+                    if not toks:
+                        continue
+                    tf = Counter(toks)
+                    docs.append(
+                        Doc(name=doc_name, category=cat_name, text=text, tokens=toks, tf=tf)
+                    )
+                    for term in tf:
+                        df[term] += 1
+                    total_len += len(toks)
             if docs:
                 self.indexes[cat_name] = CategoryIndex(
                     name=cat_name,
@@ -324,6 +566,15 @@ class DocStore:
         if not idx:
             return 0
         return sum(len(d.text) for d in idx.docs)
+
+    def use_full_category_inject(self, category: str) -> bool:
+        """True → concatenate category docs (small corpus); False → BM25 top-k first."""
+        idx = self.indexes.get(category)
+        if not idx or not idx.docs:
+            return False
+        corpus = sum(len(d.text) for d in idx.docs)
+        n = len(idx.docs)
+        return corpus <= settings.RAG_FULL_CATEGORY_MAX_CHARS and n <= settings.RAG_FULL_CATEGORY_MAX_FILES
 
     def get_document_by_stem(self, category: str, stem: str) -> Optional[str]:
         """Return full document text for *stem* (filename without extension) or None."""
@@ -415,17 +666,42 @@ class DocStore:
         )
         if not top:
             return ""
-        parts: List[str] = []
-        budget = max_chars
+        entries: List[tuple[str, str]] = []
         for d in top:
             body = condense_sop_plaintext(d.text) if condense else d.text.strip()
-            block = f"### Document : {d.name}  (catégorie : {d.category})\n{body}\n"
-            if len(block) > budget:
-                block = block[:budget].rsplit("\n", 1)[0] + "\n…(tronqué)"
-                parts.append(block)
+            header = f"### Document : {d.name}  (catégorie : {d.category})\n"
+            entries.append((header, body))
+        if settings.RAG_GREEDY_FULL_DOCS:
+            blocks = _greedy_inject_document_blocks(
+                entries,
+                query=query,
+                max_chars=max_chars,
+                expand_fr_darija_hints=expand_fr_darija_hints,
+            )
+            return "\n".join(blocks)
+        parts: List[str] = []
+        budget = max_chars
+        for header, body in entries:
+            overhead = len(header) + 1
+            if budget <= overhead + 80:
                 break
-            parts.append(block)
-            budget -= len(block)
+            max_body = budget - overhead
+            if len(body) <= max_body:
+                block = header + body + "\n"
+                parts.append(block)
+                budget -= len(block)
+            else:
+                excerpt = _best_window_for_query(
+                    body,
+                    query,
+                    max_body,
+                    expand_fr_darija_hints=expand_fr_darija_hints,
+                )
+                block = header + excerpt + "\n"
+                parts.append(block)
+                budget -= len(block)
+            if budget <= 0:
+                break
         return "\n".join(parts)
 
     def build_all_docs_context(
@@ -437,12 +713,11 @@ class DocStore:
         expand_for_retrieval: bool = False,
         condense: bool = False,
     ) -> str:
-        """Concatenate **all** documents in a category up to *max_chars*.
+        """Concatenate documents in a category up to *max_chars*.
 
-        Every document in the category appears at least once (header + body slice).
-        When the total condensed corpus exceeds *max_chars*, body text is split
-        **proportionally** across documents so none are dropped entirely.
-        Prefer ``condense=True`` (plain-text tightening) to fit more content.
+        Documents are ordered by BM25 vs *query* when provided. If the total
+        exceeds *max_chars*, budget is **front-loaded** to top hits (not split
+        proportional to length) so at least one procedure stays readable.
         """
         if not self.indexes:
             return ""
@@ -485,12 +760,35 @@ class DocStore:
                     used += len(block)
                 continue
 
-            ratios = [len(b) / total_body for _, b, _ in entries]
-            raw_alloc = [int(budget_bodies * r) for r in ratios]
-            alloc = raw_alloc
-            diff = budget_bodies - sum(alloc)
-            if diff != 0 and alloc:
-                alloc[-1] = max(0, alloc[-1] + diff)
+            if settings.RAG_GREEDY_FULL_DOCS:
+                blocks = _greedy_inject_document_blocks(
+                    [(h, b) for h, b, _ in entries],
+                    query=query or "",
+                    max_chars=max_chars,
+                    expand_fr_darija_hints=expand_for_retrieval,
+                )
+                for b in blocks:
+                    parts.append(b)
+                    used += len(b)
+                continue
+
+            if query and query.strip():
+                # Relevance order already applied in *docs*; give top hits most budget so
+                # one procedure is readable instead of slicing every file equally thin.
+                exp = 1.25
+                raw_w = [1.0 / ((i + 1) ** exp) for i in range(n)]
+                sw = sum(raw_w)
+                alloc = [int(budget_bodies * (w / sw)) for w in raw_w]
+                drift = budget_bodies - sum(alloc)
+                if drift != 0 and alloc:
+                    alloc[0] += drift
+            else:
+                ratios = [len(b) / total_body for _, b, _ in entries]
+                raw_alloc = [int(budget_bodies * r) for r in ratios]
+                alloc = raw_alloc
+                diff = budget_bodies - sum(alloc)
+                if diff != 0 and alloc:
+                    alloc[-1] = max(0, alloc[-1] + diff)
 
             for i, (header, body, _name) in enumerate(entries):
                 cap = alloc[i] if i < len(alloc) else 0
@@ -498,9 +796,18 @@ class DocStore:
                     chunk = body
                     suffix = "\n"
                 else:
-                    chunk = body[:cap].rsplit("\n", 1)[0] if cap > 80 else body[:cap]
-                    chunk = chunk or body[:cap]
-                    suffix = "\n…(tronqué — budget contexte atteint)\n"
+                    if query and query.strip() and cap > 120:
+                        chunk = _best_window_for_query(
+                            body,
+                            query,
+                            cap,
+                            expand_fr_darija_hints=expand_for_retrieval,
+                        )
+                        suffix = "\n"
+                    else:
+                        chunk = body[:cap].rsplit("\n", 1)[0] if cap > 80 else body[:cap]
+                        chunk = chunk or body[:cap]
+                        suffix = "\n…(tronqué — budget contexte atteint)\n"
                 block = header + chunk + suffix
                 parts.append(block)
                 used += len(block)
