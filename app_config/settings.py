@@ -22,19 +22,23 @@ class Settings(BaseSettings):
     VLLM_TIMEOUT: float = 240.0
 
     # ── RAG (BM25 vs inject-all for small categories) ─────────────────────
-    # When raw corpus size is below RAG_FULL_CATEGORY_MAX_CHARS, concatenate
-    # every document in that category up to RAG_INJECT_MAX_CHARS; else BM25.
+    # "Inject all" only when the corpus is small *and* file count is low; otherwise
+    # BM25 top-k runs first (avoids slicing every document into useless snippets).
     # Optional French synonym hints on the query apply only for French/Darija
-    # retrieval (English queries stay English-only). Large folders self-select BM25.
-    RAG_FULL_CATEGORY_MAX_CHARS: int = 999_999
+    # retrieval (English queries stay English-only).
+    RAG_FULL_CATEGORY_MAX_CHARS: int = 72_000
+    RAG_FULL_CATEGORY_MAX_FILES: int = 10
     # Hard cap per inject pass — keep headroom inside vLLM --max-model-len (often
     # 8192–12288) for instructions + chat template + completion (see start_vllm.sh).
     RAG_INJECT_MAX_CHARS: int = 60_000
     # Reserve part of the prompt budget for conversation history so long chats keep coherence.
-    # Admin document manager blocks category writes that exceed:
-    #   RAG_INJECT_MAX_CHARS - RAG_CHAT_HISTORY_RESERVE_CHARS
     RAG_CHAT_HISTORY_RESERVE_CHARS: int = 12_000
-    RAG_BM25_K: int = 8
+    RAG_BM25_K: int = 12
+    # When the corpus exceeds the inject budget: prefer **complete** top-ranked files
+    # and at most **one** partial (query-aligned), instead of thin slices of many files.
+    RAG_GREEDY_FULL_DOCS: bool = True
+    # Skip emitting a partial unless at least this many chars fit (avoids useless scraps).
+    RAG_MIN_CHARS_FOR_PARTIAL: int = 1200
     # Tighten whitespace/newlines in injected bodies so more SOP text fits the budget
     # Prefer ``data/documents_md`` (export_sop_to_md); ``documents_txt`` remains supported.
     RAG_CONDENSE_DOCUMENTS: bool = True
@@ -54,6 +58,21 @@ class Settings(BaseSettings):
     # When enabled, POST /chat with "agentic_rag": true uses map + tools instead
     # of injecting DOCUMENTS DE RÉFÉRENCE. Requires vLLM tool calling + map JSON.
     AGENTIC_RAG_ENABLED: bool = False
+    # If True, phase 1 routes with tools only (English router prompt); phase 2 answers
+    # with normal SYSTEM_PROMPT + DOCUMENTS DE RÉFÉRENCE (full retrieved bodies).
+    # If False, legacy single-loop (routing + answer in one tool-chat).
+    AGENTIC_RAG_TWO_PHASE: bool = True
+    # Retrieval router: unique document IDs to load before the answer phase (cap across rounds).
+    AGENTIC_RAG_ROUTER_MAX_TOTAL_IDS: int = 10
+    # Max ids per `request_documents` tool call (Gemma sees 1–N per round in the router prompt).
+    AGENTIC_RAG_ROUTER_MAX_IDS_PER_ROUND: int = 5
+    # Router tool-call rounds (retry when the first batch is plausible but wrong).
+    AGENTIC_RAG_ROUTER_MAX_ROUNDS: int = 3
+    # Prompt guidance only — aim for about this many documents when the catalog is large.
+    AGENTIC_RAG_ROUTER_TARGET_DOCS: int = 5
+    # If True, treat agentic as on when the client omits agentic_rag (None).
+    # Non-admin users still need AGENTIC_RAG_ALLOW_NON_ADMIN or they get classic RAG.
+    AGENTIC_RAG_DEFAULT_ON_CHAT: bool = False
     # If False, only admin sessions may set agentic_rag on /chat.
     AGENTIC_RAG_ALLOW_NON_ADMIN: bool = False
     AGENTIC_RAG_MAP_DIR: str = "data/agentic_map"

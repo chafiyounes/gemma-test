@@ -18,7 +18,16 @@ from core.chat_policy import (
     retrieval_anchor_query,
     unsupported_latin_language_message,
 )
-from core.agentic_rag import build_document_catalog, make_agentic_system_prompt, run_agentic_tool_loop
+from core.agentic_rag import (
+    AGENTIC_NOT_FOUND,
+    build_document_catalog,
+    format_retrieved_documents_for_prompt,
+    make_agentic_system_prompt,
+    make_router_system_prompt,
+    run_agentic_answer_phase,
+    run_agentic_router_phase,
+    run_agentic_tool_loop,
+)
 from core.documents import get_store
 
 logger = logging.getLogger(__name__)
@@ -239,7 +248,7 @@ class GemmaModel:
                 rq = retrieval_anchor_query(message, hist)
                 if corpus <= 0:
                     rag_meta["note"] = "category_empty_or_missing"
-                elif 0 < corpus <= settings.RAG_FULL_CATEGORY_MAX_CHARS:
+                elif store.use_full_category_inject(category):
                     expand_hints = bucket in ("fr", "darija", "en")
                     ctx = store.build_all_docs_context(
                         category=category,
@@ -458,7 +467,10 @@ class GemmaModel:
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> LLMGenerateResult:
-        """Tool-loop retrieval (map search + fetch by id). No DOCUMENTS DE RÉFÉRENCE inject."""
+        """Map router (English tool prompt) + full-document fetch, then normal SYSTEM_PROMPT + DOCUMENTS DE RÉFÉRENCE.
+
+        Legacy single-loop mode when settings.AGENTIC_RAG_TWO_PHASE is False.
+        """
         rag_meta: Dict[str, Any] = {"mode": "agentic_rag", "category": category}
 
         if not self.available or not self._client:
@@ -502,13 +514,17 @@ class GemmaModel:
             )
 
         agentic_prompt = make_agentic_system_prompt(catalog)
+        router_prompt = make_router_system_prompt(catalog)
         messages: list[dict] = [{"role": "system", "content": agentic_prompt}]
+        messages_router: list[dict] = [{"role": "system", "content": router_prompt}]
         for turn in hist:
             role = turn.get("role", "user")
             content = turn.get("content", "")
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
+                messages_router.append({"role": role, "content": content})
         messages.append({"role": "user", "content": message})
+        messages_router.append({"role": "user", "content": message})
 
         mt = max_tokens or settings.MAX_NEW_TOKENS
         temp = (
@@ -518,6 +534,82 @@ class GemmaModel:
         )
 
         try:
+            if settings.AGENTIC_RAG_TWO_PHASE:
+                max_ids_round = max(
+                    1,
+                    min(
+                        settings.AGENTIC_RAG_ROUTER_MAX_IDS_PER_ROUND,
+                        settings.AGENTIC_RAG_ROUTER_MAX_TOTAL_IDS,
+                    ),
+                )
+                retrieved, router_meta = await run_agentic_router_phase(
+                    client=self._client,
+                    model_name=self._model_name,
+                    base_messages=messages_router,
+                    category=category,
+                    max_tokens=min(mt, 768),
+                    temperature=temp,
+                    top_p=settings.TOP_P,
+                    max_rounds=settings.AGENTIC_RAG_ROUTER_MAX_ROUNDS,
+                    max_ids_per_round=max_ids_round,
+                )
+                rag_meta.update(router_meta)
+                rag_meta["fetch_count"] = int(rag_meta.get("documents_in_prompt") or 0)
+                if not retrieved:
+                    rag_meta["note"] = "agentic_router_no_documents"
+                    return LLMGenerateResult(
+                        text=AGENTIC_NOT_FOUND,
+                        rag=rag_meta,
+                    )
+                rq = retrieval_anchor_query(message, hist)
+                expand_hints = bucket in ("fr", "darija", "en")
+                ctx = format_retrieved_documents_for_prompt(
+                    category=category,
+                    id_to_text=retrieved,
+                    ordered_ids=list(retrieved.keys()),
+                    max_chars=settings.RAG_INJECT_MAX_CHARS,
+                    condense=settings.RAG_CONDENSE_DOCUMENTS,
+                    anchor_query=rq,
+                    expand_fr_darija_hints=expand_hints,
+                )
+                cat_hint = f" (catégorie : {category})" if category else ""
+                sys_with_docs = (
+                    SYSTEM_PROMPT.strip()
+                    + f"\n\n--- DOCUMENTS DE RÉFÉRENCE{cat_hint} ---\n"
+                    + ctx
+                    + "\n--- FIN DES DOCUMENTS ---"
+                )
+                answer_messages: list[dict] = [{"role": "system", "content": sys_with_docs}]
+                for turn in hist:
+                    role = turn.get("role", "user")
+                    content = turn.get("content", "")
+                    if role in ("user", "assistant") and content:
+                        answer_messages.append({"role": role, "content": content})
+                answer_messages.append({"role": "user", "content": message})
+                text, ans_meta = await run_agentic_answer_phase(
+                    client=self._client,
+                    model_name=self._model_name,
+                    messages=answer_messages,
+                    max_tokens=mt,
+                    temperature=settings.TEMPERATURE,
+                    top_p=settings.TOP_P,
+                )
+                rag_meta.update(ans_meta)
+                rag_meta["mode"] = "agentic_rag_two_phase"
+                rag_meta["fetch_count"] = int(rag_meta.get("documents_in_prompt") or 0)
+                ctx_len = int(rag_meta.get("context_chars") or 0)
+                return LLMGenerateResult(
+                    text=normalize_not_found_response(message, text, rag_context_chars=ctx_len),
+                    rag=rag_meta,
+                )
+
+            max_ids_round = max(
+                1,
+                min(
+                    settings.AGENTIC_RAG_ROUTER_MAX_IDS_PER_ROUND,
+                    settings.AGENTIC_RAG_ROUTER_MAX_TOTAL_IDS,
+                ),
+            )
             text, tool_meta = await run_agentic_tool_loop(
                 client=self._client,
                 model_name=self._model_name,
@@ -526,8 +618,11 @@ class GemmaModel:
                 max_tokens=mt,
                 temperature=temp,
                 top_p=settings.TOP_P,
+                max_rounds=settings.AGENTIC_RAG_ROUTER_MAX_ROUNDS,
+                max_ids_per_round=max_ids_round,
             )
             rag_meta.update(tool_meta)
+            rag_meta["fetch_count"] = int(rag_meta.get("documents_in_prompt") or 0)
             ctx_len = int(rag_meta.get("context_chars") or 0)
             return LLMGenerateResult(
                 text=normalize_not_found_response(message, text, rag_context_chars=ctx_len),

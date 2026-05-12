@@ -224,14 +224,18 @@ def main() -> int:
         else:
             rag = (data.get("metadata") or {}).get("rag") or {}
             tr = rag.get("tool_rounds", "?")
-            fc = rag.get("fetch_count", "?")
+            fc = rag.get("fetch_count")
+            if fc is None:
+                fc = rag.get("documents_in_prompt", "?")
             lat = data.get("_latency_ms", "?")
             resp_len = len((data.get("response") or ""))
-            if rag.get("mode") != "agentic_rag":
+            mode = rag.get("mode")
+            mode_ok = mode in ("agentic_rag", "agentic_rag_two_phase")
+            if not mode_ok:
                 meta_dbg = json.dumps(data.get("metadata"), ensure_ascii=False, indent=2)[:2500]
                 _fail(
                     "api_agentic_e2e",
-                    f"metadata.rag.mode={rag.get('mode')!r} "
+                    f"metadata.rag.mode={mode!r} "
                     f"(AGENTIC_RAG_ENABLED + vLLM tools?). metadata snippet:\n{meta_dbg}",
                 )
                 failed += 1
@@ -241,10 +245,10 @@ def main() -> int:
                     f"tool_rounds={rag.get('tool_rounds')!r} (no tool_calls — check vLLM Gemma 4 flags)",
                 )
                 failed += 1
-            elif int(rag.get("fetch_count") or 0) < 1:
+            elif int(fc or 0) < 1:
                 _fail(
                     "api_agentic_e2e",
-                    f"fetch_count={rag.get('fetch_count')!r} (expected fetch_procedure after search_map)",
+                    f"fetch_count/documents_in_prompt={fc!r} (expected routed document fetch)",
                 )
                 failed += 1
             else:
@@ -268,7 +272,7 @@ def main() -> int:
             failed += 1
         else:
             rag2 = (data2.get("metadata") or {}).get("rag") or {}
-            if rag2.get("mode") != "agentic_rag":
+            if rag2.get("mode") not in ("agentic_rag", "agentic_rag_two_phase"):
                 _fail(
                     "api_agentic_darija",
                     f"metadata.rag.mode={rag2.get('mode')!r} (not a true agentic run)",
