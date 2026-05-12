@@ -536,7 +536,7 @@ async def run_agentic_answer_phase(
     top_p: float,
 ) -> Tuple[str, Dict[str, Any]]:
     """Single chat completion without tools (normal RAG answer turn)."""
-    meta: Dict[str, Any] = {"mode": "agentic_rag_answer", "tool_rounds": 0}
+    meta: Dict[str, Any] = {"mode": "agentic_rag_answer"}
     payload = {
         "model": model_name,
         "messages": messages,
