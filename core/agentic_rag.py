@@ -456,7 +456,11 @@ async def run_agentic_router_phase(
             "temperature": temperature,
             "top_p": top_p,
             "tools": [REQUEST_DOCUMENTS_TOOL],
-            "tool_choice": "auto",
+            "tool_choice": (
+                {"type": "function", "function": {"name": "request_documents"}}
+                if round_i == 0
+                else "auto"
+            ),
         }
         resp = await _post_chat_completions_with_retries(client, payload)
         data = resp.json()
