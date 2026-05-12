@@ -1,11 +1,11 @@
 """Upload repo files to the RunPod workspace over SFTP (paramiko).
 
-RunPod's gateway often rejects non-PTY `scp`/one-shot `ssh cmd`; this uses the
-same host/key as `pod_cmd.py`.
+The RunPod SSH gateway (ssh.runpod.io) often **closes the SFTP subsystem**; prefer
+**git pull** on the pod after `git push` from your machine.
 
-Usage (from repo root):
+If direct SSH to the GPU instance (non-gateway) is available, SFTP may work:
 
-  python scripts/push_to_runpod.py core/llm.py app_config/settings.py
+  python scripts/push_to_runpod.py core/mypath.py
 
 Remote root default: /workspace/gemma-test
 """
