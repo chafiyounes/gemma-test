@@ -586,6 +586,7 @@ class GemmaModel:
                     if role in ("user", "assistant") and content:
                         answer_messages.append({"role": role, "content": content})
                 answer_messages.append({"role": "user", "content": message})
+                router_tool_rounds = rag_meta.get("tool_rounds")
                 text, ans_meta = await run_agentic_answer_phase(
                     client=self._client,
                     model_name=self._model_name,
@@ -595,6 +596,8 @@ class GemmaModel:
                     top_p=settings.TOP_P,
                 )
                 rag_meta.update(ans_meta)
+                if router_tool_rounds is not None:
+                    rag_meta["tool_rounds"] = router_tool_rounds
                 rag_meta["mode"] = "agentic_rag_two_phase"
                 rag_meta["fetch_count"] = int(rag_meta.get("documents_in_prompt") or 0)
                 ctx_len = int(rag_meta.get("context_chars") or 0)
