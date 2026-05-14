@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.schemas import (
     AdminCreateUserRequest,
@@ -114,9 +114,9 @@ class DeleteDocumentCategoryRequest(BaseModel):
 
 
 class ApplyDocumentsPlanRequest(BaseModel):
-    uploads: list[dict] = []
-    moves: list[dict] = []
-    deletes: list[dict] = []
+    uploads: list[dict] = Field(default_factory=list)
+    moves: list[dict] = Field(default_factory=list)
+    deletes: list[dict] = Field(default_factory=list)
 
 
 # ── Rate limiter ──────────────────────────────────────────────────────────────
@@ -330,7 +330,11 @@ async def validation_exc_handler(request: Request, exc: RequestValidationError):
 @app.exception_handler(Exception)
 async def global_exc_handler(request: Request, exc: Exception):
     logger.error("Unhandled exception: %s", exc, exc_info=True)
-    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+    if settings.API_EXPOSE_ERROR_DETAIL:
+        detail = f"Internal server error: {type(exc).__name__}: {exc}"
+    else:
+        detail = "Internal server error"
+    return JSONResponse(status_code=500, content={"detail": detail})
 
 
 # ── Dependency helpers ────────────────────────────────────────────────────────

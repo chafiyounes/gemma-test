@@ -127,6 +127,8 @@ class Settings(BaseSettings):
     # ── API ───────────────────────────────────────────────────────────────
     API_PORT: int = 8000
     LOG_LEVEL: str = "INFO"
+    # If True, JSON 500 responses include exception type + message (diagnostics on the pod only).
+    API_EXPOSE_ERROR_DETAIL: bool = False
     FRONTEND_ALLOWED_ORIGINS: str = (
         "http://localhost:5173,http://127.0.0.1:5173,"
         "http://localhost:9000,http://127.0.0.1:9000,"
