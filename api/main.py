@@ -1031,13 +1031,26 @@ async def admin_documents_apply_plan(
             moves=plan.moves,
             deletes=plan.deletes,
         )
-        reload_document_store()
-        return {"ok": True, "overview": overview}
     except DocumentAdminError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
         logger.error("Apply plan failed: %s", exc, exc_info=True)
-        raise HTTPException(status_code=500, detail="Failed to apply plan")
+        raise HTTPException(status_code=500, detail=f"Failed to apply plan: {exc}") from exc
+
+    warnings: list[str] = []
+    try:
+        reload_document_store()
+    except Exception as exc:
+        logger.error("RAG reload after apply failed: %s", exc, exc_info=True)
+        warnings.append(
+            f"Fichiers enregistrés, mais l’index RAG n’a pas été rafraîchi ({exc}). "
+            "Redémarrez l’API ou réessayez plus tard."
+        )
+
+    payload: dict = {"ok": True, "overview": overview}
+    if warnings:
+        payload["warnings"] = warnings
+    return payload
 
 
 # ── Static serving ────────────────────────────────────────────────────────────

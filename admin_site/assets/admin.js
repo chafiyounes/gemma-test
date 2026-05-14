@@ -50,7 +50,9 @@ const docDiscardButton = document.getElementById("doc-discard-button");
 const docRefreshButton = document.getElementById("doc-refresh-button");
 const docPendingSummary = document.getElementById("doc-pending-summary");
 const docError = document.getElementById("doc-error");
+const docReplaceInput = document.getElementById("doc-replace-input");
 let activeToggleConfirmationCleanup = null;
+let docReplaceTarget = null;
 
 function roleRank(role) {
   const r = String(role || "").toLowerCase();
@@ -394,14 +396,22 @@ function _setDirty(flag = true) {
 
 function updatePendingSummary() {
   if (!docPendingSummary || !state.docsDraft) return;
-  const up = state.docsDraft.uploads.length;
+  const rep = state.docsDraft.uploads.filter((u) => u.replaceOf).length;
+  const add = state.docsDraft.uploads.length - rep;
   const mv = state.docsDraft.moves.length;
-  const del = state.docsDraft.deletes.length;
-  const total = up + mv + del;
-  docPendingSummary.textContent =
-    total === 0
-      ? "Aucun changement en attente. Les modifications ci-dessous sont déjà sur le disque jusqu’à ce que vous enregistriez."
-      : `Brouillon : ${up} ajout · ${mv} déplacement · ${del} suppression — cliquez « Enregistrer sur le disque » pour appliquer.`;
+  const delOnly = Math.max(0, state.docsDraft.deletes.length - rep);
+  const total = state.docsDraft.uploads.length + state.docsDraft.moves.length + state.docsDraft.deletes.length;
+  if (total === 0) {
+    docPendingSummary.textContent =
+      "Aucun changement en attente. Les modifications ci-dessous sont déjà sur le disque jusqu’à ce que vous enregistriez.";
+  } else {
+    const parts = [];
+    if (add) parts.push(`${add} ajout`);
+    if (rep) parts.push(`${rep} remplacement`);
+    if (mv) parts.push(`${mv} déplacement`);
+    if (delOnly) parts.push(`${delOnly} suppression`);
+    docPendingSummary.textContent = `Brouillon : ${parts.join(" · ")} — cliquez « Enregistrer sur le disque » pour appliquer.`;
+  }
   docPendingSummary.classList.toggle("doc-draft-status--dirty", total > 0);
   if (docSaveButton) docSaveButton.disabled = total === 0;
   if (docDiscardButton) docDiscardButton.disabled = total === 0;
@@ -451,6 +461,39 @@ function draftAddUpload(file, category) {
     pendingOp: "upload",
   });
   state.docsDraft.uploads.push({ category, filename: file.name, file });
+  _setDirty(true);
+}
+
+function draftReplaceFile(category, filename, sourceKind, file) {
+  if (!state.docsDraft) return;
+  const lower = file.name.toLowerCase();
+  if (!lower.endsWith(".docx") && !lower.endsWith(".txt")) {
+    showDocError("Remplacement : choisir un fichier .docx ou .txt.");
+    return;
+  }
+  const cat = state.docsDraft.categories.find((c) => c.name === category);
+  if (!cat) return;
+  const idx = cat.files.findIndex((f) => f.name === filename && f.source === sourceKind);
+  if (idx < 0) return;
+  cat.files.splice(idx, 1);
+  state.docsDraft.deletes.push({ category, source_kind: sourceKind, filename });
+  const stem = filename.includes(".") ? filename.slice(0, filename.lastIndexOf(".")) : filename;
+  const ext = lower.endsWith(".txt") ? ".txt" : ".docx";
+  const targetName = stem + ext;
+  const source = ext === ".txt" ? "txt" : "docx";
+  cat.files.push({
+    name: targetName,
+    source,
+    chars: "?",
+    isPending: true,
+    pendingOp: "replace",
+  });
+  state.docsDraft.uploads.push({
+    category,
+    filename: targetName,
+    file,
+    replaceOf: filename,
+  });
   _setDirty(true);
 }
 
@@ -512,11 +555,11 @@ function renderDocuments() {
               </span>
             </div>
             <div class="doc-file-toolbar">
-              <select class="doc-move-select" aria-label="Catégorie cible pour le déplacement" data-move-select data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">
-                <option value="">Déplacer vers…</option>
+              <select class="doc-move-select" aria-label="Déplacer vers une catégorie" data-move-select data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">
+                <option value="">Vers…</option>
                 ${categoryOptions}
               </select>
-              <button type="button" class="doc-file-btn doc-file-btn-accent" data-move-button data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">Déplacer</button>
+              <button type="button" class="doc-file-btn doc-file-btn-warn" data-replace-button data-category="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}" title="Écraser ce fichier (même nom de base)">Remplacer</button>
               <button type="button" class="doc-file-btn doc-file-btn-danger" data-delete-button data-category="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">Retirer</button>
             </div>
           </div>`;
@@ -581,24 +624,35 @@ function renderDocuments() {
     });
   });
 
-  documentsCategories.querySelectorAll("[data-move-button]").forEach((btn) => {
-    btn.addEventListener("click", async () => {
-      const from = btn.dataset.from;
-      const filename = btn.dataset.name;
-      const source = btn.dataset.source;
-      const select = btn.closest(".doc-file")?.querySelector("select[data-move-select]");
-      const target = select?.value || "";
-      if (!target) {
-        showDocError("Choisissez d'abord une categorie cible.");
-        return;
-      }
+  documentsCategories.querySelectorAll("select[data-move-select]").forEach((select) => {
+    select.addEventListener("change", () => {
+      const target = select.value || "";
+      if (!target) return;
+      const from = select.dataset.from;
+      const filename = select.dataset.name;
+      const source = select.dataset.source;
       if (target === from) {
         showDocError("La categorie cible doit etre differente.");
+        select.value = "";
         return;
       }
       showDocError("");
       draftMoveFile(from, filename, source, target);
       renderDocuments();
+    });
+  });
+
+  documentsCategories.querySelectorAll("[data-replace-button]").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      if (!docReplaceInput) return;
+      docReplaceTarget = {
+        category: btn.dataset.category || "",
+        filename: btn.dataset.name || "",
+        sourceKind: btn.dataset.source || "",
+      };
+      docReplaceInput.click();
     });
   });
 
@@ -673,13 +727,18 @@ async function saveDraftChanges() {
   }
   if (docSaveButton) docSaveButton.disabled = true;
   try {
-    await apiFetch(`${DOCS_API_BASE}/apply-plan`, { method: "POST", body });
+    const response = await apiFetch(`${DOCS_API_BASE}/apply-plan`, { method: "POST", body });
+    const data = await response.json().catch(() => ({}));
+    if (Array.isArray(data.warnings) && data.warnings.length) {
+      showDocError(`Attention : ${data.warnings.join(" ")}`);
+    } else {
+      showDocError("");
+    }
     await loadDocumentsOverview();
-    showDocError("");
   } catch (error) {
     showDocError(error.message || "Echec de sauvegarde");
   } finally {
-    if (docSaveButton) docSaveButton.disabled = false;
+    updatePendingSummary();
   }
 }
 
@@ -1103,6 +1162,22 @@ if (docAddFolderButton) {
 if (docFolderInput) {
   docFolderInput.addEventListener("change", () => {
     handleFolderSelection().catch((error) => showDocError(error.message));
+  });
+}
+if (docReplaceInput) {
+  docReplaceInput.addEventListener("change", () => {
+    const f = docReplaceInput.files && docReplaceInput.files[0];
+    const t = docReplaceTarget;
+    docReplaceTarget = null;
+    docReplaceInput.value = "";
+    if (!f || !t || !t.category) return;
+    ensureDocsReadyForEdits()
+      .then(() => {
+        showDocError("");
+        draftReplaceFile(t.category, t.filename, t.sourceKind, f);
+        renderDocuments();
+      })
+      .catch((error) => showDocError(error.message || "Chargez la vue Documents."));
   });
 }
 if (docSaveButton) {
