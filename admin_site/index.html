@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Darija Chatbot Admin</title>
-    <link rel="stylesheet" href="/admin-static/admin.css?v=20260514a" />
+    <link rel="stylesheet" href="/admin-static/admin.css?v=20260514c" />
   </head>
   <body>
     <div class="admin-shell">
@@ -99,30 +99,106 @@
           </div>
 
           <div id="documents-view" class="hidden">
-            <section class="panel documents-panel doc-explorer-shell">
-              <div class="panel-header">
-                <h2>Documents manager</h2>
-                <span id="documents-budget"></span>
+            <section
+              class="panel documents-panel doc-explorer-shell doc-platform"
+              aria-label="Gestion des documents RAG"
+            >
+              <header class="doc-platform-head">
+                <div class="doc-platform-titles">
+                  <h2 class="doc-platform-h2">Documents RAG</h2>
+                  <p id="documents-budget" class="doc-platform-lead"></p>
+                </div>
+                <details class="doc-help-panel">
+                  <summary class="doc-help-summary">Guide rapide · corpus et brouillon</summary>
+                  <div class="doc-help-body detail-text">
+                    <ul class="doc-help-list">
+                      <li>
+                        Un <strong>corpus</strong> = un dossier sur le disque (nom de catégorie). Le chat et l’agentic utilisent les mêmes noms.
+                      </li>
+                      <li>
+                        Champ <strong>Corpus cible</strong> vide → fichiers vers <code>RAG_DEFAULT_CATEGORY</code> (souvent <code>procedures</code>) dans <code>.env</code>.
+                      </li>
+                      <li>
+                        Les changements restent en <strong>brouillon</strong> jusqu’à <strong>Enregistrer sur le disque</strong>.
+                      </li>
+                      <li>
+                        Gros lots : une seule requête ; le proxy peut limiter la taille totale.
+                      </li>
+                    </ul>
+                  </div>
+                </details>
+              </header>
+
+              <div class="doc-staging">
+                <div class="doc-field">
+                  <label class="doc-field-label" for="doc-category-input">Corpus cible</label>
+                  <input
+                    id="doc-category-input"
+                    class="doc-field-input"
+                    type="text"
+                    placeholder="ex. procedures (vide = défaut .env)"
+                    title="Vide = RAG_DEFAULT_CATEGORY"
+                    autocomplete="off"
+                  />
+                  <span class="doc-field-hint">Laisser vide pour utiliser le corpus par défaut du serveur.</span>
+                </div>
+
+                <div
+                  id="doc-dropzone"
+                  class="doc-dropzone"
+                  tabindex="0"
+                  role="button"
+                  aria-label="Déposer ou sélectionner des fichiers .docx ou .txt"
+                >
+                  <div class="doc-dropzone-icon" aria-hidden="true">
+                    <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25">
+                      <path d="M12 16V4m0 0 4 4M12 4 8 8" stroke-linecap="round" stroke-linejoin="round" />
+                      <path d="M4 14v2a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3v-2" stroke-linecap="round" />
+                    </svg>
+                  </div>
+                  <div class="doc-dropzone-text">
+                    <span class="doc-dropzone-title">Déposer des fichiers ici</span>
+                    <span class="doc-dropzone-sub">ou cliquer — <code>.docx</code> ou <code>.txt</code></span>
+                  </div>
+                </div>
+
+                <div class="doc-toolbar-actions">
+                  <input
+                    id="doc-file-input"
+                    type="file"
+                    accept=".docx,.txt,.DOCX,.TXT,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                    multiple
+                    class="sr-only"
+                    aria-label="Sélectionner des fichiers"
+                  />
+                  <input id="doc-folder-input" type="file" webkitdirectory directory multiple class="sr-only" />
+                  <button id="doc-upload-button" type="button" class="toolbar-button secondary">
+                    Parcourir les fichiers…
+                  </button>
+                  <button id="doc-add-folder-button" type="button" class="toolbar-button secondary">
+                    Importer un dossier
+                  </button>
+                  <span class="doc-toolbar-spacer" aria-hidden="true"></span>
+                  <button
+                    id="doc-save-button"
+                    type="button"
+                    class="toolbar-button doc-btn-save"
+                    title="Appliquer le brouillon sur le disque"
+                  >
+                    Enregistrer sur le disque
+                  </button>
+                  <button id="doc-discard-button" type="button" class="toolbar-button secondary" title="Annuler le brouillon">
+                    Annuler le brouillon
+                  </button>
+                  <button id="doc-refresh-button" type="button" class="toolbar-button secondary">
+                    Recharger
+                  </button>
+                </div>
+
+                <div id="doc-pending-summary" class="doc-draft-status" role="status"></div>
+                <div id="doc-error" class="doc-flash-error hidden" role="alert"></div>
               </div>
-              <div id="doc-workflow-help" class="doc-workflow-help detail-text">
-                <strong>Workflow (un seul corpus RAG recommandé)</strong> — Laissez le champ corpus vide pour envoyer tous les fichiers vers le dossier par défaut
-                (<code>RAG_DEFAULT_CATEGORY</code> dans <code>.env</code>, souvent <code>procedures</code>). Le chat et l’agentic utilisent ce même nom de catégorie.
-                Pour n’avoir qu’un seul index : mettez tout dans ce corpus et supprimez les anciennes catégories avec 🗑️ à côté du titre (ou déplacez les fichiers puis supprimez le dossier vide).
-                <strong>Ajouter fichiers</strong> : choisissez un ou plusieurs .docx/.txt puis cliquez le bouton (le brouillon s’affiche ci‑dessous) → <strong>💾</strong> pour enregistrer sur le disque.
-                Pas de découpage « par lots » côté serveur : le navigateur envoie la sélection d’un coup ; les très gros dossiers peuvent être lents ou plafonnés par le proxy.
-              </div>
-              <div class="documents-actions">
-                <input id="doc-category-input" type="text" placeholder="Corpus (vide = défaut .env)" title="Vide = RAG_DEFAULT_CATEGORY" />
-                <input id="doc-file-input" type="file" accept=".docx,.txt,.DOCX,.TXT,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain" multiple />
-                <input id="doc-folder-input" type="file" webkitdirectory directory multiple class="hidden" />
-                <button id="doc-upload-button" type="button" class="toolbar-button">Ajouter fichiers</button>
-                <button id="doc-add-folder-button" type="button" class="toolbar-button secondary">Dossier → corpus</button>
-                <button id="doc-save-button" type="button" class="toolbar-button" title="Sauvegarder les changements">💾</button>
-                <button id="doc-discard-button" type="button" class="toolbar-button secondary" title="Annuler le brouillon">↩️</button>
-                <button id="doc-refresh-button" type="button" class="toolbar-button secondary">Rafraichir</button>
-              </div>
-              <div id="doc-pending-summary" class="detail-text">Aucun changement en attente.</div>
-              <div id="doc-error" class="login-error hidden"></div>
+
               <div id="documents-categories" class="documents-categories"></div>
             </section>
           </div>
@@ -131,6 +207,6 @@
       </main>
     </div>
 
-    <script src="/admin-static/admin.js?v=20260514a" defer></script>
+    <script src="/admin-static/admin.js?v=20260514c" defer></script>
   </body>
   </html>

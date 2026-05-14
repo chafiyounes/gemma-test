@@ -219,6 +219,13 @@ function setAdminView(view) {
   if (documentsView) documentsView.classList.toggle("hidden", state.adminView !== "documents");
   if (viewInteractionsButton) viewInteractionsButton.classList.toggle("active", state.adminView === "interactions");
   if (viewDocumentsButton) viewDocumentsButton.classList.toggle("active", state.adminView === "documents");
+  const toolbarSub = document.querySelector(".toolbar-subtitle");
+  if (toolbarSub) {
+    toolbarSub.textContent =
+      state.adminView === "documents"
+        ? "Corpus RAG, import et enregistrement sur le disque."
+        : "Filtrer les interactions et consulter le détail.";
+  }
 }
 
 async function handleLogin(event) {
@@ -292,6 +299,54 @@ function getCorpusCategory() {
   return fromServer || "procedures";
 }
 
+function docFileKindLabel(filename) {
+  const n = (filename || "").toLowerCase();
+  if (n.endsWith(".docx")) return "DOCX";
+  if (n.endsWith(".txt")) return "TXT";
+  return "FILE";
+}
+
+async function addFilesToDraftFromFileList(fileList) {
+  showDocError("");
+  try {
+    await ensureDocsReadyForEdits();
+  } catch (error) {
+    showDocError(error.message || "Chargez la vue Documents (ou reconnectez-vous).");
+    return;
+  }
+  const category = getCorpusCategory();
+  const list = Array.from(fileList || []);
+  if (!list.length) {
+    return;
+  }
+  let added = 0;
+  let skipped = 0;
+  for (const file of list) {
+    const lower = file.name.toLowerCase();
+    if (!lower.endsWith(".docx") && !lower.endsWith(".txt")) {
+      skipped += 1;
+      continue;
+    }
+    draftAddUpload(file, category);
+    added += 1;
+  }
+  if (!added) {
+    showDocError("Aucun fichier .docx ou .txt dans la sélection.");
+    return;
+  }
+  if (skipped > 0) {
+    showDocError(`${added} fichier(s) ajouté(s) au brouillon. ${skipped} ignoré(s) (extension).`);
+  } else {
+    showDocError("");
+  }
+  renderDocuments();
+}
+
+async function processDocFileInputSelection() {
+  await addFilesToDraftFromFileList(docFileInput?.files);
+  if (docFileInput) docFileInput.value = "";
+}
+
 /** Draft is null until overview loads; adding files before that was a no-op. */
 async function ensureDocsReadyForEdits() {
   if (!state.docsOverview || !state.docsDraft) {
@@ -345,8 +400,9 @@ function updatePendingSummary() {
   const total = up + mv + del;
   docPendingSummary.textContent =
     total === 0
-      ? "Aucun changement en attente."
-      : `Brouillon: ${up} ajout(s), ${mv} deplacement(s), ${del} suppression(s).`;
+      ? "Aucun changement en attente. Les modifications ci-dessous sont déjà sur le disque jusqu’à ce que vous enregistriez."
+      : `Brouillon : ${up} ajout · ${mv} déplacement · ${del} suppression — cliquez « Enregistrer sur le disque » pour appliquer.`;
+  docPendingSummary.classList.toggle("doc-draft-status--dirty", total > 0);
   if (docSaveButton) docSaveButton.disabled = total === 0;
   if (docDiscardButton) docDiscardButton.disabled = total === 0;
 }
@@ -416,16 +472,17 @@ function renderDocuments() {
   const draft = state.docsDraft;
   if (!data || !draft || !documentsCategories) return;
 
+  const categories = draft.categories || [];
+
   if (documentsBudget) {
     const corp = data.corpus?.default_category || "";
-    const corpBit = corp ? ` · corpus par defaut: ${corp}` : "";
-    documentsBudget.textContent =
-      `Categories = dossiers sur le disque (etiquettes pour le modele / RAG). Aucun plafond de caracteres impose ici.${corpBit}`;
+    const corpBit = corp ? `Corpus par défaut serveur : ${corp}` : "Corpus par défaut : voir .env";
+    documentsBudget.textContent = `${categories.length} catégorie(s). ${corpBit}.`;
   }
 
-  const categories = draft.categories || [];
   if (!categories.length) {
-    documentsCategories.innerHTML = '<div class="detail-empty">Aucune categorie detectee. Creez-en une en uploadant un fichier.</div>';
+    documentsCategories.innerHTML =
+      '<div class="doc-platform-empty"><p class="doc-platform-empty-title">Aucun corpus pour l’instant</p><p class="doc-platform-empty-hint">Importez un premier fichier <code>.docx</code> ou <code>.txt</code> pour créer une catégorie, ou saisissez un nom de corpus puis déposez des fichiers.</p></div>';
     updatePendingSummary();
     return;
   }
@@ -441,34 +498,49 @@ function renderDocuments() {
         ? `<span class="pill">${live.total_chars} chars (corpus)</span>`
         : `<span class="pill">nouvelle categorie</span>`;
       const files = (cat.files || [])
-        .map((file) => `
+        .map((file) => {
+          const kind = docFileKindLabel(file.name);
+          return `
           <div class="doc-file ${file.isPending ? "pending" : ""}">
-            <div class="doc-file-name">${escapeHtml(file.name)} <span class="pill">${file.source}</span> <span class="pill">${file.chars} chars</span> ${file.pendingOp ? `<span class="pill conv-pill">${file.pendingOp}</span>` : ""}</div>
-            <select class="doc-move-select" title="Choisir la catégorie cible" data-move-select data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">
-              <option value="">✂️ Vers...</option>
-              ${categoryOptions}
-            </select>
-            <button type="button" title="Appliquer le déplacement sélectionné" data-move-button data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">✂️</button>
-            <button type="button" class="delete" title="Supprimer du brouillon" data-delete-button data-category="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">🗑️</button>
-          </div>
-        `)
+            <span class="doc-file-kind" title="Type">${kind}</span>
+            <div class="doc-file-info">
+              <span class="doc-file-title">${escapeHtml(file.name)}</span>
+              <span class="doc-file-meta">
+                <span class="pill">${escapeHtml(file.source)}</span>
+                <span class="pill">${file.chars} car.</span>
+                ${file.pendingOp ? `<span class="pill conv-pill">${escapeHtml(file.pendingOp)}</span>` : ""}
+              </span>
+            </div>
+            <div class="doc-file-toolbar">
+              <select class="doc-move-select" aria-label="Catégorie cible pour le déplacement" data-move-select data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">
+                <option value="">Déplacer vers…</option>
+                ${categoryOptions}
+              </select>
+              <button type="button" class="doc-file-btn doc-file-btn-accent" data-move-button data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">Déplacer</button>
+              <button type="button" class="doc-file-btn doc-file-btn-danger" data-delete-button data-category="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">Retirer</button>
+            </div>
+          </div>`;
+        })
         .join("");
 
       return `
         <div class="doc-category ${idx === 0 ? "expanded" : ""}">
           <div class="doc-category-head-wrap">
-            <button type="button" class="doc-category-head" data-doc-toggle>
-              <div><strong>${escapeHtml(cat.name)}</strong></div>
-              <div class="doc-category-meta">
-                <span class="pill">source active: ${escapeHtml(cat.active_source)}</span>
-                <span class="pill">${(cat.files || []).length} fichier(s)</span>
-                ${sizePill}
+            <button type="button" class="doc-category-head" data-doc-toggle aria-expanded="${idx === 0}">
+              <span class="doc-category-chevron" aria-hidden="true"></span>
+              <div class="doc-category-head-text">
+                <span class="doc-category-name">${escapeHtml(cat.name)}</span>
+                <div class="doc-category-meta">
+                  <span class="pill">source : ${escapeHtml(cat.active_source)}</span>
+                  <span class="pill">${(cat.files || []).length} fichier(s)</span>
+                  ${sizePill}
+                </div>
               </div>
             </button>
-            <button type="button" class="doc-cat-delete" data-delete-whole-category="${escapeHtml(cat.name)}" title="Supprimer toute cette categorie sur le disque">🗑️</button>
+            <button type="button" class="doc-cat-delete" data-delete-whole-category="${escapeHtml(cat.name)}" title="Supprimer toute cette catégorie sur le disque">Suppr. dossier</button>
           </div>
           <div class="doc-files">
-            ${files || '<div class="detail-empty">Aucun fichier actif dans cette categorie.</div>'}
+            ${files || '<div class="doc-files-empty">Aucun fichier dans ce corpus.</div>'}
           </div>
         </div>
       `;
@@ -477,7 +549,10 @@ function renderDocuments() {
 
   documentsCategories.querySelectorAll("[data-doc-toggle]").forEach((btn) => {
     btn.addEventListener("click", () => {
-      btn.closest(".doc-category")?.classList.toggle("expanded");
+      const row = btn.closest(".doc-category");
+      row?.classList.toggle("expanded");
+      const on = row?.classList.contains("expanded");
+      btn.setAttribute("aria-expanded", on ? "true" : "false");
     });
   });
 
@@ -553,44 +628,10 @@ async function loadDocumentsOverview() {
   renderDocuments();
 }
 
-async function handleUploadDocument() {
-  showDocError("");
-  try {
-    await ensureDocsReadyForEdits();
-  } catch (error) {
-    showDocError(error.message || "Chargez la vue Documents (ou reconnectez-vous).");
-    return;
-  }
-  const category = getCorpusCategory();
-  const list = Array.from(docFileInput?.files || []);
-  if (!list.length) {
-    showDocError("Choisissez un ou plusieurs fichiers .docx ou .txt.");
-    return;
-  }
-  let added = 0;
-  let skipped = 0;
-  for (const file of list) {
-    const lower = file.name.toLowerCase();
-    if (!lower.endsWith(".docx") && !lower.endsWith(".txt")) {
-      skipped += 1;
-      continue;
-    }
-    draftAddUpload(file, category);
-    added += 1;
-  }
-  if (!added) {
-    showDocError("Aucun fichier .docx ou .txt valide dans la selection.");
-    return;
-  }
-  if (skipped > 0) {
-    showDocError(`${added} fichier(s) ajoute(s) au brouillon. ${skipped} fichier(s) ignores (extensions non autorisees).`);
-  } else {
-    showDocError("");
-  }
-  if (docFileInput) docFileInput.value = "";
-  renderDocuments();
-}
 
+async function handleUploadDocument() {
+  if (docFileInput) docFileInput.click();
+}
 async function handleFolderSelection() {
   const files = Array.from(docFolderInput?.files || []);
   if (!files.length) return;
@@ -993,6 +1034,46 @@ async function handleEvalToggle() {
     }
   });
 }
+
+function wireDocDropzone() {
+  const dz = document.getElementById("doc-dropzone");
+  if (!dz || !docFileInput) return;
+  let depth = 0;
+  dz.addEventListener("dragenter", (e) => {
+    e.preventDefault();
+    depth += 1;
+    dz.classList.add("doc-dropzone-active");
+  });
+  dz.addEventListener("dragleave", (e) => {
+    e.preventDefault();
+    depth = Math.max(0, depth - 1);
+    if (depth === 0) dz.classList.remove("doc-dropzone-active");
+  });
+  dz.addEventListener("dragover", (e) => e.preventDefault());
+  dz.addEventListener("drop", (e) => {
+    e.preventDefault();
+    depth = 0;
+    dz.classList.remove("doc-dropzone-active");
+    const files = e.dataTransfer?.files;
+    if (files && files.length) {
+      addFilesToDraftFromFileList(files).catch((err) => showDocError(err.message));
+    }
+  });
+  dz.addEventListener("click", () => docFileInput.click());
+  dz.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      docFileInput.click();
+    }
+  });
+}
+
+if (docFileInput) {
+  docFileInput.addEventListener("change", () => {
+    processDocFileInputSelection().catch((e) => showDocError(e.message));
+  });
+}
+wireDocDropzone();
 
 if (loginForm) loginForm.addEventListener("submit", handleLogin);
 if (logoutButton) logoutButton.addEventListener("click", handleLogout);
