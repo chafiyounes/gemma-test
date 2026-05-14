@@ -5,9 +5,10 @@ PROJ="/workspace/gemma-test"
 cd "$PROJ"
 
 USER_PW=$(awk -F= '/^USER_SITE_PASSWORD=/{print $2; exit}' "$PROJ/.env")
+USER_NAME=$(awk -F= '/^AUTH_BOOTSTRAP_USER_USERNAME=/{print $2; exit}' "$PROJ/.env"); USER_NAME=${USER_NAME:-user}
 
 curl -sS -c /tmp/cj.txt -X POST http://localhost:8000/auth/login \
-     -H "content-type: application/json" --data "{\"password\":\"$USER_PW\"}" >/dev/null
+     -H "content-type: application/json" --data "{\"username\":\"$USER_NAME\",\"password\":\"$USER_PW\"}" >/dev/null
 
 CATS=$(curl -sS --max-time 5 http://localhost:8000/categories | \
     python3 -c "import sys,json; print(','.join(c['name'] for c in json.load(sys.stdin).get('categories', [])))")

@@ -23,8 +23,9 @@ tail -25 /workspace/gemma-test/logs/vllm_gemma4.log 2>&1 | grep -vE 'Loading wei
 echo
 echo "── api auth + /chat (NO category, no RAG) ──"
 USER_PW=$(awk -F= '/^USER_SITE_PASSWORD=/{print $2; exit}' "$PROJ/.env")
+USER_NAME=$(awk -F= '/^AUTH_BOOTSTRAP_USER_USERNAME=/{print $2; exit}' "$PROJ/.env"); USER_NAME=${USER_NAME:-user}
 curl -sS -c /tmp/cj.txt -X POST http://localhost:8000/auth/login \
-     -H "content-type: application/json" --data "{\"password\":\"$USER_PW\"}" > /tmp/login.out
+     -H "content-type: application/json" --data "{\"username\":\"$USER_NAME\",\"password\":\"$USER_PW\"}" > /tmp/login.out
 echo "login: $(head -c 200 /tmp/login.out)"
 
 cat > /tmp/chat.json <<'EOF'

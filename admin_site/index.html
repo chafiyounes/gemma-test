@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Darija Chatbot Admin</title>
-    <link rel="stylesheet" href="/admin-static/admin.css?v=20260508d" />
+    <link rel="stylesheet" href="/admin-static/admin.css?v=20260514a" />
   </head>
   <body>
     <div class="admin-shell">
@@ -16,7 +16,9 @@
         </div>
 
         <form id="login-form" class="admin-login-card">
-          <label for="admin-password">Mot de passe admin</label>
+          <label for="admin-username">Identifiant admin</label>
+          <input id="admin-username" type="text" autocomplete="username" placeholder="ex. admin" />
+          <label for="admin-password">Mot de passe</label>
           <input id="admin-password" type="password" autocomplete="current-password" placeholder="Mot de passe" />
           <button type="submit">Se connecter</button>
           <div id="login-error" class="login-error hidden"></div>
@@ -34,12 +36,12 @@
           <div class="pre-auth-card">
             <h2 class="pre-auth-title">Console admin</h2>
             <p class="pre-auth-lead">
-              Connectez-vous avec le mot de passe <strong>administrateur</strong> dans la colonne de gauche
-              pour afficher les interactions, le détail RAG et le feedback.
+              Connectez-vous avec un compte <strong>gestionnaire</strong> ou <strong>administrateur</strong> (identifiant et mot de passe)
+              dans la colonne de gauche. Les <strong>utilisateurs</strong> du chat n’ont pas accès à cette console.
             </p>
             <p id="pre-auth-user-hint" class="pre-auth-warning hidden">
-              Vous êtes connecté en tant qu’<strong>utilisateur</strong>. Déconnectez-vous du chat ou ouvrez cette page en navigation privée,
-              puis saisissez le <strong>mot de passe administrateur</strong> à gauche (le même compte ne suffit pas).
+              Vous êtes connecté en tant qu’<strong>utilisateur</strong> du chat : cette console est refusée (403).
+              Déconnectez-vous du chat ou ouvrez cette page en navigation privée, puis connectez-vous à gauche avec un compte gestionnaire ou administrateur.
             </p>
           </div>
         </div>
@@ -97,7 +99,7 @@
           </div>
 
           <div id="documents-view" class="hidden">
-            <section class="panel documents-panel">
+            <section class="panel documents-panel doc-explorer-shell">
               <div class="panel-header">
                 <h2>Documents manager</h2>
                 <span id="documents-budget"></span>
@@ -129,6 +131,6 @@
       </main>
     </div>
 
-    <script src="/admin-static/admin.js?v=20260511f" defer></script>
+    <script src="/admin-static/admin.js?v=20260514a" defer></script>
   </body>
   </html>

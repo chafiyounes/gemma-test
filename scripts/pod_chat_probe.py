@@ -13,11 +13,16 @@ def main() -> None:
     ap.add_argument("message")
     ap.add_argument("--category", default="procedures")
     ap.add_argument("--base-url", default="http://localhost:8000")
+    ap.add_argument("--username", default="user")
     ap.add_argument("--password", default="user1234")
     args = ap.parse_args()
 
     s = requests.Session()
-    r = s.post(f"{args.base_url}/auth/login", json={"password": args.password}, timeout=20)
+    r = s.post(
+        f"{args.base_url}/auth/login",
+        json={"username": args.username, "password": args.password},
+        timeout=20,
+    )
     print("login", r.status_code)
     if not r.ok:
         print(r.text[:400])

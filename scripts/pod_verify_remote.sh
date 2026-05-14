@@ -44,6 +44,9 @@ echo ""
 
 ADMIN_PASSWORD=$(grep -E '^ADMIN_SITE_PASSWORD=' .env | head -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'")
 export ADMIN_PASSWORD
+ADMIN_USER=$(grep -E '^AUTH_BOOTSTRAP_ADMIN_USERNAME=' .env | head -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'")
+ADMIN_USER=${ADMIN_USER:-admin}
+export ADMIN_USER
 USER_PASSWORD=$(grep -E '^USER_SITE_PASSWORD=' .env | head -1 | cut -d= -f2- | tr -d '\r' | tr -d '"' | tr -d "'")
 export USER_PASSWORD
 
@@ -55,7 +58,7 @@ set -e
 
 echo "=== sample chats (admin, agentic) ==="
 rm -f /tmp/gemma_cj.txt /tmp/gemma_login.json
-python3 -c "import json,os; open('/tmp/gemma_login.json','w').write(json.dumps({'password':os.environ.get('ADMIN_PASSWORD','')}))"
+python3 -c "import json,os; open('/tmp/gemma_login.json','w').write(json.dumps({'username':os.environ.get('ADMIN_USER','admin'),'password':os.environ.get('ADMIN_PASSWORD','')}))"
 curl -sS -c /tmp/gemma_cj.txt -X POST http://127.0.0.1:8000/auth/login \
   -H 'Content-Type: application/json' \
   -d @/tmp/gemma_login.json | head -c 300

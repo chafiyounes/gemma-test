@@ -155,6 +155,7 @@ def run_http(base: str, plan: dict, uploads: list[dict]) -> None:
     if not pw:
         print("Set ADMIN_SITE_PASSWORD for --http", file=sys.stderr)
         sys.exit(2)
+    admin_user = os.environ.get("AUTH_BOOTSTRAP_ADMIN_USERNAME", "admin").strip() or "admin"
 
     jar = []
 
@@ -165,7 +166,7 @@ def run_http(base: str, plan: dict, uploads: list[dict]) -> None:
 
     login = urllib.request.Request(
         f"{base.rstrip('/')}/auth/login",
-        data=json.dumps({"password": pw}).encode(),
+        data=json.dumps({"username": admin_user, "password": pw}).encode(),
         headers={"Content-Type": "application/json"},
         method="POST",
     )
