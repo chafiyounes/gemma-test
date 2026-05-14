@@ -63,7 +63,7 @@ export default function App() {
   };
 
   if (loadingSession) {
-    return <AuthScreen onLogin={async () => {}} loading error="" />;
+    return <div className="session-boot">Chargement...</div>;
   }
 
   if (!session?.authenticated) {

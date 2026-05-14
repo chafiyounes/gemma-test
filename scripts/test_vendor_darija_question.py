@@ -3,7 +3,7 @@
 
 Requires a running API + vLLM (e.g. on the pod). Auth with user password.
 
-  API_URL=http://localhost:8000 USER_PASSWORD=yourpass python scripts/test_vendor_darija_question.py
+  API_URL=http://localhost:8000 USER_PASSWORD=yourpass [USER_USERNAME=user] python scripts/test_vendor_darija_question.py
 
 Exit 0 always; inspect stdout. Fails loudly on HTTP errors.
 """
@@ -28,12 +28,13 @@ QUESTION = (
 def main() -> None:
     api = os.environ.get("API_URL", "http://localhost:8000").rstrip("/")
     password = os.environ.get("USER_PASSWORD", "")
+    username = (os.environ.get("USER_USERNAME", "") or "").strip() or "user"
     if not password:
         print("Set USER_PASSWORD in the environment (user site password).")
         sys.exit(1)
 
     with httpx.Client(timeout=httpx.Timeout(300.0)) as client:
-        r = client.post(f"{api}/auth/login", json={"password": password})
+        r = client.post(f"{api}/auth/login", json={"username": username, "password": password})
         r.raise_for_status()
         cookies = r.cookies
         r2 = client.post(

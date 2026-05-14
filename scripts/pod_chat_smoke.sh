@@ -8,10 +8,11 @@ PROJ="/workspace/gemma-test"
 cd "$PROJ"
 
 USER_PW=$(awk -F= '/^USER_SITE_PASSWORD=/{print $2; exit}' "$PROJ/.env")
+USER_NAME=$(awk -F= '/^AUTH_BOOTSTRAP_USER_USERNAME=/{print $2; exit}' "$PROJ/.env"); USER_NAME=${USER_NAME:-user}
 
 echo "── 1. login ──"
 curl -sS -c /tmp/cj.txt -X POST http://localhost:8000/auth/login \
-     -H "content-type: application/json" --data "{\"password\":\"$USER_PW\"}" | head -c 300
+     -H "content-type: application/json" --data "{\"username\":\"$USER_NAME\",\"password\":\"$USER_PW\"}" | head -c 300
 echo
 
 echo "── 2. categories ──"

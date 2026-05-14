@@ -68,3 +68,12 @@ button {
 input, textarea {
   font-family: inherit;
 }
+
+.session-boot {
+  min-height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--text-secondary);
+  font-size: 1rem;
+  letter-spacing: 0.02em;
+}
