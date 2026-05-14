@@ -1,10 +1,37 @@
 import asyncio
+import base64
 import hashlib
 import json
+import secrets
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
+
+from app_config.settings import settings
+from core.security import AuthManager
+
+
+def _hash_password(password: str) -> str:
+    salt = secrets.token_bytes(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, 310_000)
+    return "pbkdf2$310000$" + base64.b64encode(salt).decode("ascii") + "$" + base64.b64encode(dk).decode("ascii")
+
+
+def _verify_password(password: str, stored: str) -> bool:
+    if not stored or "$" not in stored:
+        return False
+    parts = stored.split("$")
+    if len(parts) != 4 or parts[0] != "pbkdf2":
+        return False
+    try:
+        iters = int(parts[1])
+        salt = base64.b64decode(parts[2].encode("ascii"))
+        want = base64.b64decode(parts[3].encode("ascii"))
+    except Exception:
+        return False
+    got = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), salt, iters)
+    return secrets.compare_digest(got, want)
 
 
 class InteractionStore:
@@ -15,7 +42,7 @@ class InteractionStore:
 
     @staticmethod
     def liked_answer_cache_key(message: str, category: Optional[str], model: str) -> str:
-        """Stable key: normalized message + RAG category + model name."""
+        """Stable key: normalized message + RAG category (may be merged list) + model name."""
         norm = " ".join((message or "").split())
         cat = (category or "").strip()
         mod = (model or "").strip()
@@ -52,6 +79,27 @@ class InteractionStore:
         with self._connect() as conn:
             conn.executescript(
                 """
+                CREATE TABLE IF NOT EXISTS users (
+                    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username       TEXT NOT NULL UNIQUE,
+                    password_hash  TEXT NOT NULL,
+                    role           TEXT NOT NULL,
+                    created_at     TEXT NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS chat_threads (
+                    id          TEXT PRIMARY KEY,
+                    user_id     INTEGER NOT NULL,
+                    title       TEXT NOT NULL DEFAULT 'New chat',
+                    visible     INTEGER NOT NULL DEFAULT 1,
+                    created_at  TEXT NOT NULL,
+                    updated_at  TEXT NOT NULL,
+                    FOREIGN KEY(user_id) REFERENCES users(id) ON DELETE CASCADE
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_chat_threads_user_visible
+                    ON chat_threads(user_id, visible, updated_at DESC);
+
                 CREATE TABLE IF NOT EXISTS interactions (
                     id          TEXT PRIMARY KEY,
                     created_at  TEXT NOT NULL,
@@ -61,7 +109,8 @@ class InteractionStore:
                     model       TEXT,
                     message     TEXT NOT NULL,
                     response    TEXT NOT NULL,
-                    metadata_json TEXT
+                    metadata_json TEXT,
+                    account_id  INTEGER
                 );
 
                 CREATE TABLE IF NOT EXISTS feedback (
@@ -93,6 +142,281 @@ class InteractionStore:
                 );
                 """
             )
+            self._migrate_legacy_columns(conn)
+            self._migrate_users_role_schema(conn)
+            self._bootstrap_users(conn)
+            self._seed_named_staff(conn)
+
+    def _migrate_legacy_columns(self, conn: sqlite3.Connection) -> None:
+        info = {row[1] for row in conn.execute("PRAGMA table_info(interactions)")}
+        if "account_id" not in info:
+            try:
+                conn.execute("ALTER TABLE interactions ADD COLUMN account_id INTEGER")
+            except sqlite3.OperationalError:
+                pass
+        try:
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_interactions_account_session "
+                "ON interactions(account_id, session_id, created_at)"
+            )
+        except sqlite3.OperationalError:
+            pass
+        conn.commit()
+
+    def _migrate_users_role_schema(self, conn: sqlite3.Connection) -> None:
+        """Allow user / manager / administrator: rebuild table if legacy CHECK constraints exist."""
+        row = conn.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='users'"
+        ).fetchone()
+        if not row or not row[0]:
+            return
+        ddl = (row[0] or "").lower()
+        if "check" not in ddl:
+            conn.execute(
+                "UPDATE users SET role = 'administrator' WHERE lower(role) = 'admin'"
+            )
+            conn.commit()
+            return
+        conn.executescript(
+            """
+            PRAGMA foreign_keys = OFF;
+            CREATE TABLE users__new (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                username       TEXT NOT NULL UNIQUE,
+                password_hash  TEXT NOT NULL,
+                role           TEXT NOT NULL,
+                created_at     TEXT NOT NULL
+            );
+            INSERT INTO users__new (id, username, password_hash, role, created_at)
+            SELECT id, username, password_hash,
+                   CASE role
+                     WHEN 'admin' THEN 'administrator'
+                     ELSE role
+                   END,
+                   created_at
+            FROM users;
+            DROP TABLE users;
+            ALTER TABLE users__new RENAME TO users;
+            PRAGMA foreign_keys = ON;
+            """
+        )
+        conn.commit()
+
+    def _seed_named_staff(self, conn: sqlite3.Connection) -> None:
+        """Upsert younes / nouhaila (or other env-driven seeds) when passwords are set."""
+        specs = [
+            ("younes", settings.SEED_STAFF_YOUNES_PASSWORD, "administrator"),
+            ("nouhaila", settings.SEED_STAFF_NOUHAILA_PASSWORD, "manager"),
+        ]
+        changed = False
+        now = self._utc_now()
+        for uname, raw_pw, role in specs:
+            pw = (raw_pw or "").strip()
+            if not pw:
+                continue
+            if role not in ("user", "manager", "administrator"):
+                continue
+            uname = (uname or "").strip()
+            if not uname:
+                continue
+            h = _hash_password(pw)
+            row = conn.execute(
+                "SELECT id FROM users WHERE username = ? COLLATE NOCASE",
+                (uname,),
+            ).fetchone()
+            if row:
+                continue
+            conn.execute(
+                "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+                (uname, h, role, now),
+            )
+            changed = True
+        if changed:
+            conn.commit()
+
+    def _bootstrap_users(self, conn: sqlite3.Connection) -> None:
+        row = conn.execute("SELECT COUNT(*) FROM users").fetchone()
+        if row and int(row[0]) > 0:
+            return
+        now = self._utc_now()
+        admin_name = (settings.AUTH_BOOTSTRAP_ADMIN_USERNAME or "admin").strip()
+        user_name = (settings.AUTH_BOOTSTRAP_USER_USERNAME or "user").strip()
+        conn.execute(
+            "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+            (admin_name, _hash_password(settings.ADMIN_SITE_PASSWORD), "administrator", now),
+        )
+        conn.execute(
+            "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+            (user_name, _hash_password(settings.USER_SITE_PASSWORD), "user", now),
+        )
+        conn.commit()
+
+    def verify_login(self, username: str, password: str) -> Optional[Dict[str, Any]]:
+        u = (username or "").strip()
+        if not u or not password:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, username, password_hash, role FROM users WHERE username = ? COLLATE NOCASE",
+                (u,),
+            ).fetchone()
+        if row is None:
+            return None
+        uid, name, phash, role = int(row[0]), str(row[1]), str(row[2]), str(row[3])
+        if not _verify_password(password, phash):
+            return None
+        norm = AuthManager.normalize_role(role)
+        return {"uid": uid, "username": name, "role": norm}
+
+    def create_user(self, username: str, password: str, role: str) -> Dict[str, Any]:
+        r = AuthManager.normalize_role(role)
+        if r not in ("user", "manager", "administrator"):
+            raise ValueError("role must be user, manager, or administrator")
+        u = (username or "").strip()
+        if len(u) < 2:
+            raise ValueError("username too short")
+        now = self._utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
+                (u, _hash_password(password), r, now),
+            )
+            uid = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
+        return {"uid": uid, "username": u, "role": r}
+
+    async def list_chat_threads(self, account_id: int) -> List[Dict[str, Any]]:
+        return await asyncio.to_thread(self._list_chat_threads, account_id)
+
+    def _list_chat_threads(self, account_id: int) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, title, created_at, updated_at
+                FROM chat_threads
+                WHERE user_id = ? AND visible = 1
+                ORDER BY updated_at DESC
+                LIMIT 200
+                """,
+                (account_id,),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    async def hide_chat_thread(self, thread_id: str, account_id: int) -> None:
+        await asyncio.to_thread(self._hide_chat_thread, thread_id, account_id)
+
+    def _hide_chat_thread(self, thread_id: str, account_id: int) -> None:
+        tid = (thread_id or "").strip()
+        if not tid:
+            return
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE chat_threads SET visible = 0 WHERE id = ? AND user_id = ?",
+                (tid, account_id),
+            )
+
+    async def hide_all_chat_threads(self, account_id: int) -> None:
+        await asyncio.to_thread(self._hide_all_chat_threads, account_id)
+
+    def _hide_all_chat_threads(self, account_id: int) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE chat_threads SET visible = 0 WHERE user_id = ? AND visible = 1",
+                (account_id,),
+            )
+
+    async def list_thread_messages(self, thread_id: str, account_id: int) -> List[Dict[str, Any]]:
+        return await asyncio.to_thread(self._list_thread_messages, thread_id, account_id)
+
+    def _list_thread_messages(self, thread_id: str, account_id: int) -> List[Dict[str, Any]]:
+        tid = (thread_id or "").strip()
+        if not tid:
+            return []
+        with self._connect() as conn:
+            exists = conn.execute(
+                "SELECT 1 FROM chat_threads WHERE id = ? AND user_id = ? AND visible = 1",
+                (tid, account_id),
+            ).fetchone()
+            if not exists:
+                return []
+            rows = conn.execute(
+                """
+                SELECT
+                    i.id, i.created_at, i.message, i.response, i.metadata_json,
+                    f.value AS feedback_value, f.reason AS feedback_reason, f.comment AS feedback_comment
+                FROM interactions i
+                LEFT JOIN feedback f ON f.interaction_id = i.id
+                WHERE i.session_id = ? AND IFNULL(i.account_id, -1) = ?
+                ORDER BY i.created_at ASC
+                """,
+                (tid, account_id),
+            ).fetchall()
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            d = dict(row)
+            meta_raw = d.pop("metadata_json", None)
+            try:
+                meta = json.loads(meta_raw) if meta_raw else {}
+            except Exception:
+                meta = {}
+            fv = d.pop("feedback_value", None)
+            fr = d.pop("feedback_reason", None)
+            fc = d.pop("feedback_comment", None)
+            feedback = None
+            if fv:
+                feedback = {"value": fv, "reason": fr, "comment": fc}
+            assistant_payload = {
+                    "role": "assistant",
+                    "content": d["response"],
+                    "interactionId": d["id"],
+                    "feedback": feedback,
+                    "metadata": meta,
+                    "created_at": d["created_at"],
+                }
+            out.append(
+                {
+                    "role": "user",
+                    "content": d["message"],
+                    "interaction_id": None,
+                }
+            )
+            out.append(
+                assistant_payload
+            )
+        return out
+
+    def _upsert_chat_thread(self, conn: sqlite3.Connection, thread_id: str, account_id: int, title: str) -> None:
+        tid = (thread_id or "").strip()
+        if not tid:
+            return
+        now = self._utc_now()
+        title_clean = (title or "New chat").strip() or "New chat"
+        if len(title_clean) > 200:
+            title_clean = title_clean[:197] + "..."
+        row = conn.execute(
+            "SELECT title FROM chat_threads WHERE id = ? AND user_id = ?",
+            (tid, account_id),
+        ).fetchone()
+        if row is None:
+            conn.execute(
+                """
+                INSERT INTO chat_threads (id, user_id, title, visible, created_at, updated_at)
+                VALUES (?, ?, ?, 1, ?, ?)
+                """,
+                (tid, account_id, title_clean, now, now),
+            )
+            return
+        prev_title = (row[0] or "").strip()
+        new_title = title_clean
+        if prev_title and prev_title not in ("New chat", "Nouvelle conversation") and title_clean in ("New chat", "Nouvelle conversation"):
+            new_title = prev_title
+        conn.execute(
+            """
+            UPDATE chat_threads
+            SET title = ?, updated_at = ?
+            WHERE id = ? AND user_id = ?
+            """,
+            (new_title, now, tid, account_id),
+        )
 
     @staticmethod
     def _utc_now() -> str:
@@ -115,15 +439,24 @@ class InteractionStore:
         payload.setdefault("created_at", self._utc_now())
         metadata = {
             k: v for k, v in payload.items()
-            if k not in {"id", "created_at", "user_id", "session_id",
-                         "client_ip", "model", "message", "response"}
+            if k not in {
+                "id", "created_at", "user_id", "session_id",
+                "client_ip", "model", "message", "response", "account_id",
+            }
         }
+        acct = payload.get("account_id")
+        sid_raw = payload.get("session_id")
         with self._connect() as conn:
+            if acct is not None and sid_raw:
+                title_hint = (payload.get("message") or "").strip().replace("\n", " ")
+                if len(title_hint) > 120:
+                    title_hint = title_hint[:117] + "..."
+                self._upsert_chat_thread(conn, str(sid_raw), int(acct), title_hint or "New chat")
             conn.execute(
                 """
                 INSERT INTO interactions
-                    (id, created_at, user_id, session_id, client_ip, model, message, response, metadata_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    (id, created_at, user_id, session_id, client_ip, model, message, response, metadata_json, account_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     payload["id"],
@@ -135,8 +468,10 @@ class InteractionStore:
                     payload["message"],
                     payload["response"],
                     self._to_json(metadata or None),
+                    int(acct) if acct is not None else None,
                 ),
             )
+            conn.commit()
         return payload
 
     async def save_feedback(self, interaction_id: str, value: str, reason: Optional[str], comment: Optional[str]) -> None:

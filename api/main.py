@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import sqlite3
 import time
 import uuid
 from collections import defaultdict, deque
@@ -16,6 +17,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from api.schemas import (
+    AdminCreateUserRequest,
     AuthLoginRequest,
     AuthSessionResponse,
     CategoriesResponse,
@@ -37,7 +39,7 @@ from core.documents_admin import (
     move_document,
     upload_document,
 )
-from core.documents import get_store as get_doc_store, reload_document_store
+from core.documents import DOCS_MD_DIR, get_store as get_doc_store, reload_document_store
 from core.pipeline import GemmaPipeline
 from core.persistence import InteractionStore
 from core.security import AuthManager
@@ -186,7 +188,7 @@ def _reconstruct_rag_for_admin(message: str, category: Optional[str]) -> dict:
         expand_hints = bucket in ("fr", "darija", "en")
 
         ctx = ""
-        if 0 < corpus <= settings.RAG_FULL_CATEGORY_MAX_CHARS:
+        if corpus > 0 and store_docs.use_full_category_inject(category):
             ctx = store_docs.build_all_docs_context(
                 category=category,
                 max_chars=settings.RAG_INJECT_MAX_CHARS,
@@ -240,8 +242,6 @@ async def lifespan(app: FastAPI):
     # Auth manager
     auth = AuthManager(
         secret_key=settings.SESSION_SECRET_KEY,
-        user_password=settings.USER_SITE_PASSWORD,
-        admin_password=settings.ADMIN_SITE_PASSWORD,
         cookie_name=settings.AUTH_COOKIE_NAME,
         session_ttl_seconds=settings.AUTH_SESSION_TTL_SECONDS,
     )
@@ -311,6 +311,10 @@ if _web_dist:
     app.mount("/assets", StaticFiles(directory=str(_web_dist / "assets")), name="web-assets")
     logger.info("Web dist mounted from %s", _web_dist)
 
+if DOCS_MD_DIR.is_dir():
+    app.mount("/api/rag-media", StaticFiles(directory=str(DOCS_MD_DIR)), name="rag-media")
+    logger.info("RAG markdown / image static files mounted from %s", DOCS_MD_DIR)
+
 
 # ── Exception handlers ────────────────────────────────────────────────────────
 
@@ -364,13 +368,23 @@ async def _require_user(
     return session
 
 
-async def _require_admin(
+async def _require_administrator(
     request: Request,
     manager: AuthManager = Depends(_get_auth),
 ) -> dict:
     session = _read_session(request, manager)
-    if session is None or not manager.role_satisfies(session["role"], "admin"):
-        raise HTTPException(403, "Admin access required")
+    if session is None or not manager.role_satisfies(session["role"], "administrator"):
+        raise HTTPException(403, "Administrator access required")
+    return session
+
+
+async def _require_docs_manager(
+    request: Request,
+    manager: AuthManager = Depends(_get_auth),
+) -> dict:
+    session = _read_session(request, manager)
+    if session is None or not manager.role_satisfies(session["role"], "manager"):
+        raise HTTPException(403, "Manager or administrator access required")
     return session
 
 
@@ -403,13 +417,22 @@ async def login(
     body: AuthLoginRequest,
     response: Response,
     manager: AuthManager = Depends(_get_auth),
+    db: InteractionStore = Depends(_get_store),
 ):
-    role = manager.authenticate(body.password)
-    if role is None:
-        raise HTTPException(401, "Invalid password")
-    cookie_value, expires_at = manager.create_session_cookie(role)
+    row = db.verify_login(body.username, body.password)
+    if row is None:
+        raise HTTPException(401, "Invalid username or password")
+    cookie_value, expires_at = manager.create_session_cookie(
+        {"uid": row["uid"], "username": row["username"], "role": row["role"]}
+    )
     _set_cookie(response, manager, cookie_value)
-    return AuthSessionResponse(authenticated=True, role=role, expires_at=expires_at)
+    return AuthSessionResponse(
+        authenticated=True,
+        role=row["role"],
+        username=row["username"],
+        user_id=row["uid"],
+        expires_at=expires_at,
+    )
 
 
 @app.get("/auth/session", response_model=AuthSessionResponse)
@@ -423,8 +446,49 @@ async def get_session(
     return AuthSessionResponse(
         authenticated=True,
         role=session["role"],
+        username=session.get("username"),
+        user_id=int(session["uid"]) if session.get("uid") is not None else None,
         expires_at=session["exp"],
     )
+
+
+@app.get("/chat/threads")
+async def list_my_threads(
+    session: dict = Depends(_require_user),
+    db: InteractionStore = Depends(_get_store),
+):
+    uid = int(session["uid"])
+    return {"threads": await db.list_chat_threads(uid)}
+
+
+@app.get("/chat/threads/{thread_id}/messages")
+async def get_thread_messages(
+    thread_id: str,
+    session: dict = Depends(_require_user),
+    db: InteractionStore = Depends(_get_store),
+):
+    uid = int(session["uid"])
+    messages = await db.list_thread_messages(thread_id, uid)
+    return {"messages": messages}
+
+
+@app.post("/chat/threads/{thread_id}/hide", status_code=204)
+async def hide_thread(
+    thread_id: str,
+    session: dict = Depends(_require_user),
+    db: InteractionStore = Depends(_get_store),
+):
+    await db.hide_chat_thread(thread_id, int(session["uid"]))
+    return Response(status_code=204)
+
+
+@app.post("/chat/threads/hide-all", status_code=204)
+async def hide_all_threads(
+    session: dict = Depends(_require_user),
+    db: InteractionStore = Depends(_get_store),
+):
+    await db.hide_all_chat_threads(int(session["uid"]))
+    return Response(status_code=204)
 
 
 @app.post("/auth/logout", status_code=204)
@@ -490,6 +554,7 @@ async def chat(
     p: GemmaPipeline = Depends(_get_pipeline),
     db: InteractionStore = Depends(_get_store),
     session: dict = Depends(_require_user),
+    auth: AuthManager = Depends(_get_auth),
     _: None = Depends(_check_rate_limit),
 ):
     history = [{"role": t.role, "content": t.content} for t in body.conversation_history]
@@ -497,59 +562,79 @@ async def chat(
     category = _resolve_rag_category(body.category)
     interaction_id = str(uuid.uuid4())
     client_ip = request.client.host if request.client else "unknown"
+    account_id = int(session["uid"])
+    user_label = str(session["username"])
+    doc_store = get_doc_store()
+    rag_cat_key = ",".join(doc_store.rag_categories_for_primary(category or "")) or (category or "")
 
-    if body.agentic_rag:
+    want_agentic = False
+    agentic_explicit = body.agentic_rag is True
+    if body.agentic_rag is True:
+        want_agentic = True
+    elif body.agentic_rag is False:
+        want_agentic = False
+    else:
+        want_agentic = bool(
+            settings.AGENTIC_RAG_ENABLED and settings.AGENTIC_RAG_DEFAULT_ON_CHAT
+        )
+
+    if want_agentic:
         if not settings.AGENTIC_RAG_ENABLED:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Agentic RAG is disabled (set AGENTIC_RAG_ENABLED=true).",
             )
-        if session["role"] != "admin" and not settings.AGENTIC_RAG_ALLOW_NON_ADMIN:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Agentic RAG is restricted to admin sessions.",
+        if not auth.role_satisfies(session["role"], "administrator") and not settings.AGENTIC_RAG_ALLOW_NON_ADMIN:
+            if agentic_explicit:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Agentic RAG is restricted to administrator sessions.",
+                )
+            want_agentic = False
+        else:
+            result = await p.process_agentic(
+                message=body.message,
+                history=history,
+                category=category,
             )
-        result = await p.process_agentic(
-            message=body.message,
-            history=history,
-            category=category,
-        )
-        rag_client = _rag_for_client(result.rag_meta)
-        if not body.skip_persist:
-            await db.save_interaction(
-                {
-                    "id": interaction_id,
-                    "user_id": body.user_id,
-                    "session_id": body.session_id,
-                    "client_ip": client_ip,
-                    "model": result.model,
-                    "message": body.message,
-                    "response": result.response,
-                    "role": session["role"],
+            rag_client = _rag_for_client(result.rag_meta)
+            if not body.skip_persist:
+                await db.save_interaction(
+                    {
+                        "id": interaction_id,
+                        "user_id": user_label,
+                        "account_id": account_id,
+                        "session_id": body.session_id,
+                        "client_ip": client_ip,
+                        "model": result.model,
+                        "message": body.message,
+                        "response": result.response,
+                        "role": session["role"],
+                        "category_used": rag_cat_key,
+                        "rag": result.rag_meta,
+                    }
+                )
+            return ChatResponse(
+                response=result.response,
+                interaction_id=interaction_id,
+                model=result.model,
+                metadata={
+                    "session_role": session["role"],
+                    "rate_limit_remaining": rate_limiter.remaining(client_ip),
                     "category_used": category,
-                    "rag": result.rag_meta,
-                }
+                    "rag": rag_client,
+                },
             )
-        return ChatResponse(
-            response=result.response,
-            interaction_id=interaction_id,
-            model=result.model,
-            metadata={
-                "session_role": session["role"],
-                "rate_limit_remaining": rate_limiter.remaining(client_ip),
-                "category_used": category,
-                "rag": rag_client,
-            },
-        )
 
     use_liked_cache = settings.LIKED_ANSWER_CACHE_ENABLED and not body.system_prompt
     if use_liked_cache:
         cached = await db.get_cached_liked_answer(
-            body.message, category, p.model_name
+            body.message, rag_cat_key, p.model_name
         )
         if cached is not None:
             rag_meta = {
                 "category": category,
+                "categories_used": rag_cat_key.split(",") if rag_cat_key else [],
                 "liked_cache_hit": True,
                 "context_chars": 0,
                 "documents_in_prompt": 0,
@@ -558,14 +643,15 @@ async def chat(
                 await db.save_interaction(
                     {
                         "id": interaction_id,
-                        "user_id": body.user_id,
+                        "user_id": user_label,
+                        "account_id": account_id,
                         "session_id": body.session_id,
                         "client_ip": client_ip,
                         "model": p.model_name,
                         "message": body.message,
                         "response": cached,
                         "role": session["role"],
-                        "category_used": category,
+                        "category_used": rag_cat_key,
                         "rag": rag_meta,
                     }
                 )
@@ -584,7 +670,7 @@ async def chat(
     result = await p.process(
         message=body.message,
         history=history,
-        system_prompt=body.system_prompt if session["role"] == "admin" else None,
+        system_prompt=body.system_prompt if auth.role_satisfies(session["role"], "administrator") else None,
         category=category,
     )
     rag_client = _rag_for_client(result.rag_meta)
@@ -593,14 +679,15 @@ async def chat(
         await db.save_interaction(
             {
                 "id": interaction_id,
-                "user_id": body.user_id,
+                "user_id": user_label,
+                "account_id": account_id,
                 "session_id": body.session_id,
                 "client_ip": client_ip,
                 "model": result.model,
                 "message": body.message,
                 "response": result.response,
                 "role": session["role"],
-                "category_used": category,
+                "category_used": rag_cat_key,
                 "rag": result.rag_meta,
             }
         )
@@ -652,7 +739,7 @@ async def admin_interactions(
     feedback_value: Optional[str] = None,
     feedback_reason: Optional[str] = None,
     db: InteractionStore = Depends(_get_store),
-    _admin: dict = Depends(_require_admin),
+    _admin: dict = Depends(_require_administrator),
 ):
     total = await db.count_interactions(
         search=search,
@@ -673,7 +760,7 @@ async def admin_interactions(
 async def admin_interaction_detail(
     interaction_id: str,
     db: InteractionStore = Depends(_get_store),
-    _admin: dict = Depends(_require_admin),
+    _admin: dict = Depends(_require_administrator),
 ):
     item = await db.get_interaction(interaction_id)
     if item is None:
@@ -694,7 +781,7 @@ async def admin_interaction_detail(
 async def admin_conversation(
     session_id: str,
     db: InteractionStore = Depends(_get_store),
-    _admin: dict = Depends(_require_admin),
+    _admin: dict = Depends(_require_administrator),
 ):
     items = await db.list_interactions_for_session(session_id)
     return {"items": items, "count": len(items)}
@@ -750,7 +837,7 @@ def _git_pull_and_reindex_sync() -> dict:
 
 
 @app.post("/admin/git-refresh")
-async def admin_git_refresh(_admin: dict = Depends(_require_admin)):
+async def admin_git_refresh(_admin: dict = Depends(_require_administrator)):
     """``git fetch`` + ``reset --hard origin/<branch>``, puis rechargement du BM25."""
     if not settings.ADMIN_GIT_REFRESH_ENABLED:
         raise HTTPException(403, detail="ADMIN_GIT_REFRESH_ENABLED=false")
@@ -761,10 +848,25 @@ async def admin_git_refresh(_admin: dict = Depends(_require_admin)):
     return out
 
 
+@app.post("/api/admin/users")
+@app.post("/admin/users")
+async def admin_create_user(
+    body: AdminCreateUserRequest,
+    db: InteractionStore = Depends(_get_store),
+    _admin: dict = Depends(_require_administrator),
+):
+    try:
+        return await asyncio.to_thread(db.create_user, body.username, body.password, body.role)
+    except sqlite3.IntegrityError:
+        raise HTTPException(status_code=409, detail="Username already exists")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 # ── Stub endpoints (eval / Darija toggle / cache — kept for UI compatibility) ─
 
 @app.get("/admin/eval-status")
-async def admin_eval_status(_admin: dict = Depends(_require_admin)):
+async def admin_eval_status(_admin: dict = Depends(_require_administrator)):
     return {
         "available": True,
         "enabled": _eval_pipeline_enabled,
@@ -773,19 +875,19 @@ async def admin_eval_status(_admin: dict = Depends(_require_admin)):
 
 
 @app.post("/admin/eval-toggle")
-async def admin_eval_toggle(_admin: dict = Depends(_require_admin)):
+async def admin_eval_toggle(_admin: dict = Depends(_require_administrator)):
     global _eval_pipeline_enabled
     _eval_pipeline_enabled = not _eval_pipeline_enabled
     return {"available": True, "enabled": _eval_pipeline_enabled}
 
 
 @app.post("/admin/eval-run/{interaction_id}")
-async def admin_eval_run(interaction_id: str, _admin: dict = Depends(_require_admin)):
+async def admin_eval_run(interaction_id: str, _admin: dict = Depends(_require_administrator)):
     return {"status": "skipped", "reason": "No eval system in Gemma test harness"}
 
 
 @app.get("/admin/darija-status")
-async def admin_darija_status(_admin: dict = Depends(_require_admin)):
+async def admin_darija_status(_admin: dict = Depends(_require_administrator)):
     # Darija support is handled natively by the Gemma model — no separate toggle needed
     return {
         "available": False,
@@ -795,12 +897,12 @@ async def admin_darija_status(_admin: dict = Depends(_require_admin)):
 
 
 @app.post("/admin/darija-toggle")
-async def admin_darija_toggle(_admin: dict = Depends(_require_admin)):
+async def admin_darija_toggle(_admin: dict = Depends(_require_administrator)):
     return {"available": False, "enabled": False}
 
 
 @app.post("/admin/cache-flush")
-async def admin_cache_flush(_admin: dict = Depends(_require_admin)):
+async def admin_cache_flush(_admin: dict = Depends(_require_administrator)):
     deleted = await store.flush_liked_answer_cache() if store else 0
     return {
         "deleted": deleted,
@@ -810,7 +912,7 @@ async def admin_cache_flush(_admin: dict = Depends(_require_admin)):
 
 @app.get("/admin/documents/overview")
 @app.get("/api/admin/documents/overview")
-async def admin_documents_overview(_admin: dict = Depends(_require_admin)):
+async def admin_documents_overview(_admin: dict = Depends(_require_docs_manager)):
     return get_documents_overview()
 
 
@@ -819,7 +921,7 @@ async def admin_documents_overview(_admin: dict = Depends(_require_admin)):
 async def admin_documents_upload(
     file: UploadFile = File(...),
     category: Optional[str] = Form(None),
-    _admin: dict = Depends(_require_admin),
+    _admin: dict = Depends(_require_docs_manager),
 ):
     if not file.filename:
         raise HTTPException(400, "Filename is required")
@@ -841,7 +943,7 @@ async def admin_documents_upload(
 @app.post("/api/admin/documents/move")
 async def admin_documents_move(
     body: MoveDocumentRequest,
-    _admin: dict = Depends(_require_admin),
+    _admin: dict = Depends(_require_docs_manager),
 ):
     try:
         out = move_document(
@@ -863,7 +965,7 @@ async def admin_documents_move(
 @app.post("/api/admin/documents/delete")
 async def admin_documents_delete(
     body: DeleteDocumentRequest,
-    _admin: dict = Depends(_require_admin),
+    _admin: dict = Depends(_require_docs_manager),
 ):
     try:
         out = delete_document(
@@ -884,7 +986,7 @@ async def admin_documents_delete(
 @app.post("/api/admin/documents/delete-category")
 async def admin_documents_delete_category(
     body: DeleteDocumentCategoryRequest,
-    _admin: dict = Depends(_require_admin),
+    _admin: dict = Depends(_require_administrator),
 ):
     try:
         out = delete_document_category(body.category)
@@ -902,7 +1004,7 @@ async def admin_documents_delete_category(
 async def admin_documents_apply_plan(
     plan_json: str = Form(...),
     files: list[UploadFile] = File(default=[]),
-    _admin: dict = Depends(_require_admin),
+    _admin: dict = Depends(_require_docs_manager),
 ):
     try:
         plan_raw = json.loads(plan_json)
@@ -943,7 +1045,10 @@ async def admin_documents_apply_plan(
 
 @app.get("/admin")
 @app.get("/admin/")
-async def serve_admin():
+async def serve_admin(request: Request, manager: AuthManager = Depends(_get_auth)):
+    session = _read_session(request, manager)
+    if session is not None and not manager.role_satisfies(session["role"], "manager"):
+        raise HTTPException(403, "Accès à la console réservé aux gestionnaires et administrateurs.")
     admin_dir = _find_dir(ADMIN_SITE_CANDIDATES)
     if admin_dir:
         return FileResponse(str(admin_dir / "index.html"))

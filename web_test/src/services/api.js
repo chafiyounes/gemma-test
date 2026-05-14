@@ -33,6 +33,19 @@ export function setApiUrl(url) {
   localStorage.setItem(API_URL_STORAGE_KEY, url.replace(/\/+$/, ""));
 }
 
+/** Display labels for API auth roles (administrator | manager | user). */
+export function sessionRoleLabel(role) {
+  const r = String(role || "").toLowerCase();
+  if (r === "administrator" || r === "admin") return "Administrateur";
+  if (r === "manager") return "Gestionnaire";
+  return "Utilisateur";
+}
+
+export function isPrivilegedChatRole(role) {
+  const r = String(role || "").toLowerCase();
+  return r === "administrator" || r === "admin" || r === "manager";
+}
+
 export function getClientUserId() {
   const existing = localStorage.getItem(USER_ID_STORAGE_KEY);
   if (existing) {
@@ -51,11 +64,11 @@ export async function getSession() {
   return res.json();
 }
 
-export async function login(password) {
+export async function login({ username, password }) {
   const res = await apiFetch("/auth/login", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ password }),
+    body: JSON.stringify({ username, password }),
     signal: AbortSignal.timeout(15_000),
   });
   return res.json();
@@ -78,17 +91,20 @@ export async function checkHealth() {
   return res.json();
 }
 
-export async function sendChat({ message, userId, sessionId, history, category }) {
+export async function sendChat({ message, sessionId, history, category }) {
+  const payload = {
+    message,
+    session_id: sessionId,
+    conversation_history: history.slice(-20),
+    category: category || null,
+  };
+  if (import.meta.env.VITE_AGENTIC_RAG === "true") {
+    payload.agentic_rag = true;
+  }
   const res = await apiFetch("/chat", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message,
-      user_id: userId || "anonymous",
-      session_id: sessionId,
-      conversation_history: history.slice(-20),
-      category: category || null,
-    }),
+    body: JSON.stringify(payload),
     signal: AbortSignal.timeout(TIMEOUT_MS),
   });
   return res.json();
@@ -99,6 +115,32 @@ export async function fetchCategories() {
     signal: AbortSignal.timeout(10_000),
   });
   return res.json();
+}
+
+export async function fetchChatThreads() {
+  const res = await apiFetch("/chat/threads", { signal: AbortSignal.timeout(20_000) });
+  return res.json();
+}
+
+export async function fetchThreadMessages(threadId) {
+  const res = await apiFetch(`/chat/threads/${encodeURIComponent(threadId)}/messages`, {
+    signal: AbortSignal.timeout(60_000),
+  });
+  return res.json();
+}
+
+export async function hideThread(threadId) {
+  await apiFetch(`/chat/threads/${encodeURIComponent(threadId)}/hide`, {
+    method: "POST",
+    signal: AbortSignal.timeout(15_000),
+  });
+}
+
+export async function hideAllThreads() {
+  await apiFetch("/chat/threads/hide-all", {
+    method: "POST",
+    signal: AbortSignal.timeout(20_000),
+  });
 }
 
 export async function submitFeedback({ interactionId, value, reason, comment }) {

@@ -1,6 +1,12 @@
 import { useState, useRef, useEffect } from "react";
 import { useChat } from "../context/ChatContext";
-import { getClientUserId, sendChat, submitFeedback, fetchCategories } from "../services/api";
+import {
+  sendChat,
+  submitFeedback,
+  fetchCategories,
+  isPrivilegedChatRole,
+  sessionRoleLabel,
+} from "../services/api";
 import MessageBubble from "./MessageBubble";
 import TypingIndicator from "./TypingIndicator";
 import "./ChatArea.css";
@@ -83,7 +89,6 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
     try {
       const data = await sendChat({
         message: text,
-        userId: getClientUserId(),
         sessionId,
         history: [...historyAtSend, { role: "user", content: text }],
         category,
@@ -146,7 +151,12 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
             <path d="M3 12h18M3 6h18M3 18h18" />
           </svg>
         </button>
-        <div className="topbar-badge">Acces {session?.role === "admin" ? "admin" : "client"}</div>
+        <div className="topbar-badge">
+          Acces{" "}
+          {isPrivilegedChatRole(session?.role)
+            ? sessionRoleLabel(session?.role).toLowerCase()
+            : "client"}
+        </div>
       </header>
 
       {/* Messages */}

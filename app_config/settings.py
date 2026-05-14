@@ -51,10 +51,13 @@ class Settings(BaseSettings):
     # default /chat category when the client omits category. Admin bulk uploads use
     # this when the category field is left empty (single corpus + catalog lookup).
     RAG_DEFAULT_CATEGORY: str = "procedures"
+    # Comma-separated extra corpus names (must exist under data/documents/<name>/)
+    # merged into RAG retrieval together with the primary category from the chat UI.
+    RAG_EXTRA_CATEGORIES: str = "help_articles"
     # If True, omit SOP cover-sheet-style tables (titre / référence / …) from MD export.
     DOCX_MD_DROP_METADATA_TABLES: bool = False
 
-    # ── Agentic RAG (test / optional; see project/AGENTIC_RAG_TEST.md) ───────
+    # ── Agentic RAG (optional; see project/ARCHITECTURE.md § agentic) ───────
     # When enabled, POST /chat with "agentic_rag": true uses map + tools instead
     # of injecting DOCUMENTS DE RÉFÉRENCE. Requires vLLM tool calling + map JSON.
     AGENTIC_RAG_ENABLED: bool = False
@@ -112,6 +115,11 @@ class Settings(BaseSettings):
     USER_SITE_PASSWORD: str = "change-me-user"
     ADMIN_SITE_PASSWORD: str = "change-me-admin"
     SESSION_SECRET_KEY: str = "change-me-secret"
+    AUTH_BOOTSTRAP_ADMIN_USERNAME: str = "admin"
+    AUTH_BOOTSTRAP_USER_USERNAME: str = "user"
+    # One-time seed for named staff (SQLite row created only if username is missing).
+    SEED_STAFF_YOUNES_PASSWORD: str = ""
+    SEED_STAFF_NOUHAILA_PASSWORD: str = ""
 
     # ── API ───────────────────────────────────────────────────────────────
     API_PORT: int = 8000
