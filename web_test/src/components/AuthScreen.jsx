@@ -2,14 +2,15 @@ import { useState } from "react";
 import "./AuthScreen.css";
 
 export default function AuthScreen({ onLogin, loading, error }) {
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
 
   const handleSubmit = async (event) => {
     event.preventDefault();
-    if (!password.trim() || loading) {
+    if (!username.trim() || !password.trim() || loading) {
       return;
     }
-    await onLogin(password);
+    await onLogin({ username: username.trim(), password });
   };
 
   return (
@@ -20,10 +21,22 @@ export default function AuthScreen({ onLogin, loading, error }) {
         <div className="auth-kicker">Acces protege</div>
         <h1>Darija Chatbot</h1>
         <p className="auth-copy">
-          Entrez le mot de passe partage pour acceder a l&apos;assistant client.
+          Connectez-vous avec votre identifiant et mot de passe.
         </p>
 
         <form className="auth-form" onSubmit={handleSubmit}>
+          <label className="auth-label" htmlFor="site-username">
+            Identifiant
+          </label>
+          <input
+            id="site-username"
+            className="auth-input"
+            type="text"
+            autoComplete="username"
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="Nom d&apos;utilisateur"
+          />
           <label className="auth-label" htmlFor="site-password">
             Mot de passe
           </label>
@@ -39,7 +52,11 @@ export default function AuthScreen({ onLogin, loading, error }) {
 
           {error ? <div className="auth-error">{error}</div> : null}
 
-          <button className="auth-submit" type="submit" disabled={!password.trim() || loading}>
+          <button
+            className="auth-submit"
+            type="submit"
+            disabled={!username.trim() || !password.trim() || loading}
+          >
             {loading ? "Connexion..." : "Entrer"}
           </button>
         </form>
