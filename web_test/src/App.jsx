@@ -39,11 +39,11 @@ export default function App() {
     };
   }, []);
 
-  const handleLogin = async (password) => {
+  const handleLogin = async (credentials) => {
     setAuthBusy(true);
     setAuthError("");
     try {
-      const nextSession = await login(password);
+      const nextSession = await login(credentials);
       setSession(nextSession);
     } catch (error) {
       setAuthError(error.message || "Connexion impossible");
@@ -71,7 +71,7 @@ export default function App() {
   }
 
   return (
-    <ChatProvider>
+    <ChatProvider session={session}>
       <div className="app-layout">
         <Sidebar
           isOpen={sidebarOpen}
