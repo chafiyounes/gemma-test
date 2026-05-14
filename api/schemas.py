@@ -15,9 +15,9 @@ class ChatRequest(BaseModel):
     system_prompt: Optional[str] = Field(default=None, description="Override system prompt (admin only)")
     skip_persist: bool = Field(default=False)
     category: Optional[str] = Field(default=None, description="Document category to use for RAG context")
-    agentic_rag: bool = Field(
-        default=False,
-        description="Use agentic RAG (map + tools) instead of injecting reference documents; see AGENTIC_RAG_ENABLED",
+    agentic_rag: Optional[bool] = Field(
+        default=None,
+        description="Agentic RAG (map + tools). Omit or null to follow AGENTIC_RAG_DEFAULT_ON_CHAT when AGENTIC_RAG_ENABLED.",
     )
 
     @field_validator("message")
@@ -53,13 +53,32 @@ class FeedbackRequest(BaseModel):
 
 
 class AuthLoginRequest(BaseModel):
-    password: str
+    username: str = Field(..., min_length=1)
+    password: str = Field(..., min_length=1)
 
 
 class AuthSessionResponse(BaseModel):
     authenticated: bool
     role: Optional[str] = None
+    username: Optional[str] = None
+    user_id: Optional[int] = Field(default=None, description="Numeric account id (SQLite users.id)")
     expires_at: Optional[int] = None
+
+
+class AdminCreateUserRequest(BaseModel):
+    username: str = Field(..., min_length=2)
+    password: str = Field(..., min_length=4)
+    role: str = Field(default="user", description="'user', 'manager', or 'administrator'")
+
+    @field_validator("role")
+    @classmethod
+    def role_ok(cls, v: str) -> str:
+        key = (v or "").strip().lower()
+        if key == "admin":
+            key = "administrator"
+        if key not in ("user", "manager", "administrator"):
+            raise ValueError("role must be 'user', 'manager', or 'administrator'")
+        return key
 
 
 class HealthResponse(BaseModel):

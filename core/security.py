@@ -2,43 +2,41 @@ import base64
 import hashlib
 import hmac
 import json
-import secrets
 import time
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
+
+# Application roles (SQLite users.role). "admin" is a legacy alias for administrator.
+ROLE_ORDER = {"user": 1, "manager": 2, "administrator": 3}
+ROLE_ALIASES = {"admin": "administrator"}
 
 
 class AuthManager:
-    """Signed-cookie authentication — shared user/admin passwords."""
+    """Signed-session cookies (payload includes uid, username, role)."""
 
     def __init__(
         self,
         *,
         secret_key: str,
-        user_password: str,
-        admin_password: str,
         cookie_name: str,
         session_ttl_seconds: int,
     ):
         self._secret = secret_key.encode("utf-8")
-        self._user_pw = user_password
-        self._admin_pw = admin_password
         self.cookie_name = cookie_name
         self.session_ttl = session_ttl_seconds
 
-    # ── Password auth ──────────────────────────────────────────────────────
-
-    def authenticate(self, password: str) -> Optional[str]:
-        """Return 'admin', 'user', or None."""
-        if secrets.compare_digest(password, self._admin_pw):
-            return "admin"
-        if secrets.compare_digest(password, self._user_pw):
+    @staticmethod
+    def normalize_role(role: Optional[str]) -> str:
+        if not role:
             return "user"
-        return None
+        key = str(role).strip().lower()
+        return ROLE_ALIASES.get(key, key)
 
     @staticmethod
-    def role_satisfies(role: str, required: str) -> bool:
-        order = {"user": 1, "admin": 2}
-        return order.get(role, 0) >= order.get(required, 99)
+    def role_satisfies(role: str, minimum: str) -> bool:
+        """True if *role* is at least *minimum* in the hierarchy (user < manager < administrator)."""
+        r = AuthManager.normalize_role(role)
+        m = AuthManager.normalize_role(minimum)
+        return ROLE_ORDER.get(r, 0) >= ROLE_ORDER.get(m, 99)
 
     # ── Cookie mechanics ───────────────────────────────────────────────────
 
@@ -51,10 +49,23 @@ class AuthManager:
         padding = 4 - len(s) % 4
         return base64.urlsafe_b64decode(s + "=" * padding)
 
-    def create_session_cookie(self, role: str) -> tuple[str, int]:
+    def create_session_cookie(self, payload: Dict[str, Any]) -> tuple[str, int]:
+        """Payload keys: uid (int), username (str), role (str). Adds exp."""
         expires_at = int(time.time()) + self.session_ttl
-        payload = json.dumps({"role": role, "exp": expires_at}, separators=(",", ":")).encode()
-        payload_b64 = self._b64_encode(payload)
+        body = {**payload, "exp": expires_at}
+        for k in ("uid", "username", "role"):
+            if k not in body:
+                raise ValueError(f"session payload missing {k}")
+        payload_json = json.dumps(
+            {
+                "uid": int(body["uid"]),
+                "username": str(body["username"]),
+                "role": AuthManager.normalize_role(body.get("role")),
+                "exp": expires_at,
+            },
+            separators=(",", ":"),
+        ).encode()
+        payload_b64 = self._b64_encode(payload_json)
         sig = hmac.new(self._secret, payload_b64.encode(), hashlib.sha256).digest()
         return f"{payload_b64}.{self._b64_encode(sig)}", expires_at
 
@@ -70,6 +81,8 @@ class AuthManager:
             payload = json.loads(self._b64_decode(payload_b64))
             if payload.get("exp", 0) < int(time.time()):
                 return None
+            if "role" in payload:
+                payload["role"] = AuthManager.normalize_role(payload.get("role"))
             return payload
         except Exception:
             return None

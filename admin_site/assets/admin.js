@@ -16,6 +16,7 @@ const state = {
 };
 
 const loginForm = document.getElementById("login-form");
+const adminUsernameInput = document.getElementById("admin-username");
 const passwordInput = document.getElementById("admin-password");
 const loginError = document.getElementById("login-error");
 const sessionCard = document.getElementById("session-card");
@@ -50,6 +51,22 @@ const docRefreshButton = document.getElementById("doc-refresh-button");
 const docPendingSummary = document.getElementById("doc-pending-summary");
 const docError = document.getElementById("doc-error");
 let activeToggleConfirmationCleanup = null;
+
+function roleRank(role) {
+  const r = String(role || "").toLowerCase();
+  if (r === "administrator" || r === "admin") return 3;
+  if (r === "manager") return 2;
+  if (r === "user") return 1;
+  return 0;
+}
+
+function canUseStaffConsole(role) {
+  return roleRank(role) >= 2;
+}
+
+function isAdministratorRole(role) {
+  return roleRank(role) >= 3;
+}
 
 function setToggleLoading(button, loadingLabel, isLoading) {
   if (!button) return;
@@ -174,14 +191,19 @@ async function loadSession() {
 }
 
 function renderSession() {
-  const isAdmin = state.session?.role === "admin";
-  loginForm.classList.toggle("hidden", Boolean(isAdmin));
-  sessionCard.classList.toggle("hidden", !isAdmin);
-  if (preAuthPanel) preAuthPanel.classList.toggle("hidden", Boolean(isAdmin));
-  if (dashboardRoot) dashboardRoot.classList.toggle("hidden", !isAdmin);
-  if (isAdmin) {
-    sessionRole.textContent = "Administrateur";
-    setAdminView(state.adminView || "interactions");
+  const staff = canUseStaffConsole(state.session?.role);
+  loginForm.classList.toggle("hidden", Boolean(staff));
+  sessionCard.classList.toggle("hidden", !staff);
+  if (preAuthPanel) preAuthPanel.classList.toggle("hidden", Boolean(staff));
+  if (dashboardRoot) dashboardRoot.classList.toggle("hidden", !staff);
+  document.body.classList.toggle("admin-console-manager", Boolean(staff && !isAdministratorRole(state.session?.role)));
+  document.body.classList.toggle("admin-console-full", Boolean(staff && isAdministratorRole(state.session?.role)));
+  if (staff) {
+    sessionRole.textContent = isAdministratorRole(state.session.role) ? "Administrateur" : "Gestionnaire documents";
+    if (!isAdministratorRole(state.session.role)) {
+      state.adminView = "documents";
+    }
+    setAdminView(state.adminView || (isAdministratorRole(state.session.role) ? "interactions" : "documents"));
   }
   const userHint = document.getElementById("pre-auth-user-hint");
   if (userHint) {
@@ -191,7 +213,8 @@ function renderSession() {
 }
 
 function setAdminView(view) {
-  state.adminView = view === "documents" ? "documents" : "interactions";
+  const mgrOnly = canUseStaffConsole(state.session?.role) && !isAdministratorRole(state.session?.role);
+  state.adminView = mgrOnly ? "documents" : view === "documents" ? "documents" : "interactions";
   if (interactionsView) interactionsView.classList.toggle("hidden", state.adminView !== "interactions");
   if (documentsView) documentsView.classList.toggle("hidden", state.adminView !== "documents");
   if (viewInteractionsButton) viewInteractionsButton.classList.toggle("active", state.adminView === "interactions");
@@ -206,13 +229,17 @@ async function handleLogin(event) {
     const response = await apiFetch("/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: passwordInput.value }),
+      body: JSON.stringify({
+        username: (adminUsernameInput?.value || "").trim(),
+        password: passwordInput.value,
+      }),
     });
     const session = await response.json();
-    if (session.role !== "admin") {
+    if (!canUseStaffConsole(session.role)) {
       await handleLogout();
-      throw new Error("Le mot de passe admin est requis pour cette interface.");
+      throw new Error("Compte gestionnaire ou administrateur requis pour cette interface.");
     }
+    if (adminUsernameInput) adminUsernameInput.value = "";
     passwordInput.value = "";
     state.session = session;
     renderSession();
@@ -417,12 +444,12 @@ function renderDocuments() {
         .map((file) => `
           <div class="doc-file ${file.isPending ? "pending" : ""}">
             <div class="doc-file-name">${escapeHtml(file.name)} <span class="pill">${file.source}</span> <span class="pill">${file.chars} chars</span> ${file.pendingOp ? `<span class="pill conv-pill">${file.pendingOp}</span>` : ""}</div>
-            <select class="doc-move-select" data-move-select data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">
-              <option value="">Deplacer vers...</option>
+            <select class="doc-move-select" title="Choisir la catégorie cible" data-move-select data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">
+              <option value="">✂️ Vers...</option>
               ${categoryOptions}
             </select>
-            <button type="button" data-move-button data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">Deplacer</button>
-            <button type="button" class="delete" data-delete-button data-category="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">Supprimer</button>
+            <button type="button" title="Appliquer le déplacement sélectionné" data-move-button data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">✂️</button>
+            <button type="button" class="delete" title="Supprimer du brouillon" data-delete-button data-category="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">🗑️</button>
           </div>
         `)
         .join("");
@@ -1064,10 +1091,11 @@ function handleLoadError(error) {
 
 loadSession()
   .then(() => {
-    if (state.session?.role === "admin") {
+    if (!canUseStaffConsole(state.session?.role)) return null;
+    if (isAdministratorRole(state.session.role)) {
       return Promise.allSettled([loadInteractions(), loadEvalStatus(), loadDocumentsOverview()]);
     }
-    return null;
+    return loadDocumentsOverview();
   })
   .catch(() => {
     renderSession();
