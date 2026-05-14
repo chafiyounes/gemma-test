@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import shutil
 from pathlib import Path
@@ -8,6 +9,8 @@ from typing import Dict, List, Optional, Tuple
 from app_config.settings import settings
 from core.documents import DOCS_DIR, DOCS_MD_DIR, DOCS_TXT_DIR, _read_docx, _read_md, _read_txt
 from core.docx_to_md import convert_docx_to_markdown
+
+logger = logging.getLogger(__name__)
 
 _SAFE_RE = re.compile(r"[^A-Za-z0-9._\- ]+")
 
@@ -147,21 +150,28 @@ def get_overview() -> dict:
     """List corpus folders and files. Category size is informational only (no admin cap)."""
     categories = []
     for cat in _categories():
-        source = _active_source(cat)
-        files = _list_files(cat, source)
-        total_chars = sum(f["chars"] for f in files)
-        categories.append(
-            {
-                "name": cat,
-                "active_source": source,
-                "total_chars": total_chars,
-                "file_count": len(files),
-                "files": files,
-            }
-        )
-    default_cat = _sanitize_segment(
-        settings.RAG_DEFAULT_CATEGORY, field_name="RAG_DEFAULT_CATEGORY"
-    )
+        try:
+            source = _active_source(cat)
+            files = _list_files(cat, source)
+            total_chars = sum(f["chars"] for f in files)
+            categories.append(
+                {
+                    "name": cat,
+                    "active_source": source,
+                    "total_chars": total_chars,
+                    "file_count": len(files),
+                    "files": files,
+                }
+            )
+        except Exception:
+            logger.exception("documents_admin: skipped category %r in get_overview", cat)
+            continue
+    try:
+        raw_default = (settings.RAG_DEFAULT_CATEGORY or "").strip() or "procedures"
+        default_cat = _sanitize_segment(raw_default, field_name="RAG_DEFAULT_CATEGORY")
+    except DocumentAdminError:
+        logger.warning("RAG_DEFAULT_CATEGORY invalid %r; using procedures", settings.RAG_DEFAULT_CATEGORY)
+        default_cat = "procedures"
     return {
         "categories": categories,
         "corpus": {

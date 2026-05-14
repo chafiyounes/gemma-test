@@ -1,202 +1,199 @@
-# Gemma Test — Deployment Guide
+# Deployment — gemma-test (RunPod + local)
 
-**Prochain focus produit** (prompt, contexte RAG, admin) : [`PRIORITIES_AND_CONTEXT.md`](PRIORITIES_AND_CONTEXT.md).
-
-Full diagrams et détail RAG : [`ARCHITECTURE.md`](ARCHITECTURE.md).
-
-## Architecture (summary)
-
-| Service | Description | Port |
-|---------|-------------|------|
-| **vLLM** (preferred) | `scripts/start_vllm.sh` — OpenAI-compatible API | **8002** |
-| **serve_gemma4.py** | Legacy Transformers server (same port/shape) | **8002** |
-| **FastAPI** | Chat, auth, admin, built SPA | **8000** |
-| **Web frontend** | React / Vite → `dist/` served by FastAPI | via 8000 |
-
-On the pod, **vLLM** (see `scripts/install_vllm.sh`) is the supported path for Gemma 4; the Transformers script remains a fallback.
-
-**RAG:** If category corpus size ≤ `RAG_FULL_CATEGORY_MAX_CHARS`, the API injects **all** documents in that category (via `build_all_docs_context`); otherwise it uses **BM25** top-k. For small categories (e.g. current `procedures`), full inject is typical.
-
-SQLite: `data/interactions.db`. No Redis.
+**See also:** [`ARCHITECTURE.md`](ARCHITECTURE.md) (RAG, agentic, modules), [`ROADMAP.md`](ROADMAP.md) (product focus, future actions).
 
 ---
 
-## Current Pod
+## 1. What runs where
 
-SSH user: `l8lnmi6ofx0tpz-64411278@ssh.runpod.io`
-Key: `~/.ssh/id_ed25519`
+| Service | Port | Notes |
+|---------|------|--------|
+| **vLLM** | **8002** | `scripts/start_vllm.sh` (preferred) |
+| **FastAPI** | **8000** | Serves API + `web_test/dist` if built |
+| **Vite dev** | 5173 | Local only |
 
-> **Important**: RunPod's SSH gateway requires a PTY. Standard `ssh user@host "command"` does NOT work. Use the `scripts/pod_cmd.py` helper or connect interactively.
+**RAG data:** prefer `data/documents_md/`; corpus may live **only on the pod** (not in git). **SQLite:** `data/interactions.db`.
 
 ---
 
-## One-Click Deploy (from local machine)
+## 2. SSH: gateway vs direct (important)
+
+### RunPod gateway (`ssh.runpod.io`)
+
+- Many **non-interactive** patterns fail: `ssh user@ssh.runpod.io "command"` often errors (**PTY required**).
+- **`scp` / SFTP** through the gateway frequently fails (**subsystem / channel closed**).
+- **What works:** interactive SSH, or **Paramiko + PTY** from the repo:
+  - `python scripts/pod_cmd.py "cd /workspace/gemma-test && git pull origin main"`
+  - `python scripts/deploy_runner.py` (uses the gateway user/host **inside the script** — edit `HOST`/`USER` there if your pod identity changes).
+
+### Direct pod SSH (if RunPod exposes it)
+
+Example pattern that often works for **one-shot** commands (no PTY issues):
+
+```bash
+ssh -o BatchMode=yes -p <PORT> -i ~/.ssh/id_ed25519 root@<PUBLIC_IP> "cd /workspace/gemma-test && git pull origin main && bash scripts/restart_api.sh"
+```
+
+Ports and IPs **change** when the pod is recreated — update your notes/SSH config; do not treat historical IPs as permanent.
+
+**Windows key path:** `-i "$env:USERPROFILE\.ssh\id_ed25519"` (PowerShell).
+
+---
+
+## 3. Deploy / refresh code
+
+### One-click (from your laptop; gateway + PTY)
 
 ```powershell
-cd "C:\Users\pc gamer\OneDrive\Desktop\full project\gemma-test"
-python scripts/deploy_runner.py
+cd "...\gemma-test"
+python scripts/deploy_runner.py                    # full: deps + git + npm build + restart
+python scripts/deploy_runner.py --skip-deps        # faster: pull, build, restart API only (default)
+python scripts/deploy_runner.py --skip-deps --restart all   # tmux + start_all (reloads vLLM)
 ```
 
-This script connects via paramiko (PTY), and:
-1. Installs system deps (tmux, Node.js 20)
-2. Installs Python deps (`transformers`, `torch`, `bitsandbytes`, etc.)
-3. Pulls latest code from GitHub
-4. Builds the React frontend (`npm run build`)
-5. Starts all services via `bash start_all.sh gemma4`
+`deploy_runner` ends with **`git reset --hard FETCH_HEAD`** on `main` — destructive to local changes on the pod under that clone.
+
+### Minimal API redeploy (keep vLLM loaded)
+
+On the pod:
+
+```bash
+cd /workspace/gemma-test
+git pull origin main
+bash scripts/restart_api.sh    # requires existing tmux session `gemma-test` from start_all
+```
+
+Or admin: **`POST /admin/git-refresh`** (pull + frontend build + DocStore reload — see API).
+
+After **`pip` / dependency** changes, restart API (or full stack) as appropriate.
+
+### Frontend
+
+```bash
+cd /workspace/gemma-test/web_test && npm install && npm run build
+```
+
+Then restart API. Fail closed: `web_test/dist/index.html` must exist if the API serves the SPA.
+
+### Line endings (Windows clones)
+
+```bash
+sed -i 's/\r//' scripts/*.sh start_all.sh
+chmod +x scripts/*.sh start_all.sh
+```
 
 ---
 
-## Manual Deploy (step-by-step on pod)
-
-### 1. Connect interactively
-
-```bash
-ssh -i ~/.ssh/id_ed25519 l8lnmi6ofx0tpz-64411278@ssh.runpod.io
-```
-
-### 2. Install system dependencies (first time only)
-
-```bash
-export DEBIAN_FRONTEND=noninteractive
-apt-get update
-apt-get install -y tmux
-
-# Node.js 20 (for frontend build)
-curl -fsSL https://deb.nodesource.com/gpgkey/nodesource-repo.gpg.key | \
-  gpg --dearmor -o /etc/apt/keyrings/nodesource.gpg --batch --yes
-echo "deb [signed-by=/etc/apt/keyrings/nodesource.gpg] https://deb.nodesource.com/node_20.x nodistro main" \
-  | tee /etc/apt/sources.list.d/nodesource.list
-apt-get update && apt-get install nodejs -y
-```
-
-### 3. Pull code and install Python deps
+## 4. First-time / full stack on pod
 
 ```bash
 cd /workspace/gemma-test
 git pull origin main
 python3 -m pip install -r requirements.txt
-python3 -m pip install bitsandbytes accelerate
-```
-
-### 4. Build frontend
-
-```bash
+python3 -m pip install -r requirements-api.txt   # PDF RAG, etc.
 cd web_test && npm install && npm run build && cd ..
+bash start_all.sh gemma4      # tmux: vllm window + api window
 ```
 
-### 5. Fix line endings and start
-
-```bash
-sed -i 's/\r//' scripts/*.sh start_all.sh
-chmod +x scripts/*.sh start_all.sh
-bash start_all.sh gemma4
-```
-
-### 6. Monitor
-
-```bash
-tmux attach -t gemma-test          # see both windows
-# Ctrl+B then 0 → vLLM window
-# Ctrl+B then 1 → API window
-# Ctrl+B then D → detach
-```
+**`.env`** on pod: `VLLM_BASE_URL`, `VLLM_MODEL_NAME`, passwords, `SESSION_SECRET_KEY`, optional `AGENTIC_RAG_ENABLED=true`. See **`.env.example`**.
 
 ---
 
-## Access from Local Machine
-
-Open an SSH tunnel:
+## 5. Local access (tunnel)
 
 ```powershell
-ssh -i ~/.ssh/id_ed25519 -L 8000:localhost:8000 l8lnmi6ofx0tpz-64411278@ssh.runpod.io
+ssh -L 8000:localhost:8000 -L 8002:localhost:8002 <user>@<host>
+# API http://localhost:8000   vLLM http://localhost:8002
 ```
-
-Then:
-- **Chat UI**: http://localhost:8000 (login: `user1234`)
-- **Admin panel**: http://localhost:8000/admin (login: `admin1234`)
-- **API docs**: http://localhost:8000/docs
-- **Health**: http://localhost:8000/health
-
-For local frontend dev (hot-reload):
-```powershell
-cd web_test
-npm run dev    # http://localhost:5173
-```
-The Vite dev server proxies API calls to `localhost:8000` automatically (configured in `vite.config.js`).
 
 ---
 
-## Health Checks
+## 6. Health checks
 
 ```bash
-# From pod (or via pod_cmd.py):
-curl http://localhost:8002/health   # → {"status":"ok","model":"gemma4-26b-it"}
-curl http://localhost:8000/health   # → {"status":"ok","model_available":true,...}
-
-# Quick GPU check:
-nvidia-smi --query-gpu=index,name,memory.used,memory.total --format=csv,noheader
+curl -sS http://127.0.0.1:8000/health
+curl -sS http://127.0.0.1:8002/v1/models   # JSON = inference up
 ```
 
-Using the helper from local machine:
+From Windows via gateway:
+
 ```powershell
-python scripts/pod_cmd.py "curl -s http://localhost:8002/health" "curl -s http://localhost:8000/health"
+python scripts/pod_cmd.py "curl -s http://127.0.0.1:8000/health"
 ```
 
 ---
 
-## Model Switching
+## 7. Model keys (`start_vllm.sh`)
+
+| Key | Typical path under `/workspace/models/` |
+|-----|----------------------------------------|
+| `gemma4` | `gemma4-26b-it` (production MoE) |
+| `gemma` | `gemma-3-27b-it` |
+| `gemmaroc` | `GemMaroc-27b-it` |
+| `atlaschat` | `Atlas-Chat-27B` |
+
+`.env` **`VLLM_MODEL_NAME`** must match the **served** model id.
+
+---
+
+## 8. Agentic RAG on the pod
+
+1. `.env`: `AGENTIC_RAG_ENABLED=true` (and vLLM with Gemma 4 **tool** flags — see `ARCHITECTURE.md`).
+2. Restart API after `.env` changes.
+3. Integration test (set admin password from `.env`):
+
+   ```bash
+   export ADMIN_PASSWORD=$(grep ^ADMIN_SITE_PASSWORD= .env | cut -d= -f2-)
+   export USER_PASSWORD=$(grep ^USER_SITE_PASSWORD= .env | cut -d= -f2-)
+   python scripts/test_agentic_rag_pod.py
+   ```
+
+Optional map/e5 scripts are **not** required for the **catalog + request_documents** two-phase path.
+
+---
+
+## 9. Pitfalls we hit (checklist)
+
+| Issue | Cause / fix |
+|--------|-------------|
+| SSH **PTY** error | Use **`pod_cmd.py`**, **`deploy_runner.py`**, or **direct** root SSH with port |
+| **`scp`/SFTP** fails on gateway | Use **`git push` + `git pull`** on pod, or direct SSH if available |
+| API **ImportError** on agentic (`_best_window_for_query`) | **`core/documents.py` on branch must match** `core/agentic_rag.py` imports — pull latest `main` |
+| **`tool_rounds=0`** in metadata while tools ran | Fixed in app: answer phase must **not** overwrite router **`tool_rounds`**; use current `main` |
+| API down after **`restart_api.sh`** | Wait for tmux **api** pane to bind **8000**; read `logs/api.log` |
+| Blank SPA | `npm run build` in `web_test` |
+| vLLM OOM | Lower `VLLM_MAX_MODEL_LEN` / `VLLM_GPU_MEMORY_UTILIZATION` in `start_vllm.sh` |
+
+---
+
+## 10. Verifying “is it deployed?”
+
+On the pod:
 
 ```bash
-# On the pod:
-bash scripts/start_vllm.sh gemmaroc    # or: gemma, atlaschat, gemma4
-bash scripts/start_api.sh
+cd /workspace/gemma-test && git log -1 --oneline
+curl -sS http://127.0.0.1:8000/health
 ```
 
-| Command | Model |
-|---------|-------|
-| `bash scripts/start_vllm.sh gemma4` | `/workspace/models/gemma4-26b-it` |
-| `bash scripts/start_vllm.sh gemma` | `/workspace/models/gemma-3-27b-it` |
-| `bash scripts/start_vllm.sh gemmaroc` | `/workspace/models/GemMaroc-27b-it` |
-| `bash scripts/start_vllm.sh atlaschat` | `/workspace/models/Atlas-Chat-27B` |
+Compare commit to your **`origin/main`**.
 
 ---
 
-## Key Configuration
+## 11. Admin + corpus debugging
 
-### .env (on pod at `/workspace/gemma-test/.env`)
-
-```env
-VLLM_BASE_URL=http://localhost:8002
-VLLM_MODEL_NAME=gemma4-26b-it
-USER_SITE_PASSWORD=<strong-random-secret>
-ADMIN_SITE_PASSWORD=<strong-random-secret>
-SESSION_SECRET_KEY=<long-random-string>
-MAX_NEW_TOKENS=2048
-TEMPERATURE=0.7
-TOP_P=0.9
-```
-
-### Port Map
-
-| Port | Service | Notes |
-|------|---------|-------|
-| 8002 | vLLM (`start_vllm.sh`) or `serve_gemma4.py` | Inference (OpenAI-compatible API) |
-| 8000 | FastAPI | Chat API + serves built frontend SPA |
-| 5173 | Vite dev | Local dev only (proxies to 8000) |
+- **Admin UI:** `http://<host>:8000/admin` (admin cookie).
+- **Generic 500 / “Internal server error” on documents:** see [`ADMIN_INTERNAL_SERVER_ERROR.md`](ADMIN_INTERNAL_SERVER_ERROR.md) (logs, `API_EXPOSE_ERROR_DETAIL`, overview/RAG reload pitfalls).
+- **`metadata.rag`** on interactions: `context_chars`, `documents_in_prompt`, `fetch_count` (agentic), `tool_rounds`, `mode` (e.g. `agentic_rag_two_phase`).
+- **`scripts/rag_audit.py`** on the machine that holds **`data/documents*`**: disambiguates “missing from corpus” vs “retrieval/model issue”.
 
 ---
 
-## Troubleshooting
+## 12. Browser note
 
-| Problem | Fix |
-|---------|-----|
-| `npm: command not found` | Install Node.js 20 (see Step 2 above) |
-| `tmux: command not found` | `apt-get install -y tmux` |
-| `ModuleNotFoundError: No module named 'transformers'` | `python3 -m pip install transformers torch accelerate bitsandbytes` |
-| `Your SSH client doesn't support PTY` | Use `scripts/pod_cmd.py` or connect interactively (not `ssh user@host "cmd"`) |
-| `git pull` fails with merge conflict | `git stash && git pull origin main` or `git reset --hard origin/main` |
-| vLLM OOM | Reduce `MAX_MODEL_LEN` in `start_vllm.sh`, or check CUDA_VISIBLE_DEVICES |
-| API returns 503 | Model still loading — wait ~2-3 min after `start_all.sh` |
-| Web shows blank page | Run `npm run build` in `web_test/` then restart API |
-| Login fails | Check `USER_SITE_PASSWORD` / `ADMIN_SITE_PASSWORD` in `.env` |
-| Windows `\r\n` line endings break bash | `sed -i 's/\r//' scripts/*.sh start_all.sh` |
+Chat transcripts live in **`localStorage`**; refresh can replay old text — use **New chat** if you suspect stale UI state.
+
+---
+
+## 13. `push_to_runpod.py`
+
+Optional Paramiko upload script; **SFTP is often blocked** on `ssh.runpod.io`. Prefer **git** for deploy.

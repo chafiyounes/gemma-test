@@ -442,38 +442,35 @@ class DocStore:
             total_len = 0
             source = ""
 
+            def ingest(name: str, text: str) -> None:
+                nonlocal total_len
+                if not text.strip():
+                    return
+                toks = _tokenize(text)
+                if not toks:
+                    return
+                tf = Counter(toks)
+                docs.append(
+                    Doc(name=name, category=cat_name, text=text, tokens=toks, tf=tf)
+                )
+                for term in tf:
+                    df[term] += 1
+                total_len += len(toks)
+
             if md_cat.is_dir() and any(md_cat.glob("*.md")):
                 source = "documents_md"
                 for p in sorted(md_cat.glob("*.md")):
-                    text = _read_md(p)
-                    if not text.strip():
-                        continue
-                    toks = _tokenize(text)
-                    if not toks:
-                        continue
-                    tf = Counter(toks)
-                    docs.append(
-                        Doc(name=p.stem, category=cat_name, text=text, tokens=toks, tf=tf)
-                    )
-                    for term in tf:
-                        df[term] += 1
-                    total_len += len(toks)
+                    try:
+                        ingest(p.stem, _read_md(p))
+                    except Exception:
+                        logger.exception("DocStore: skip md %s", p.as_posix())
             elif txt_cat.is_dir() and any(txt_cat.glob("*.txt")):
                 source = "documents_txt"
                 for p in sorted(txt_cat.glob("*.txt")):
-                    text = _read_txt(p)
-                    if not text.strip():
-                        continue
-                    toks = _tokenize(text)
-                    if not toks:
-                        continue
-                    tf = Counter(toks)
-                    docs.append(
-                        Doc(name=p.stem, category=cat_name, text=text, tokens=toks, tf=tf)
-                    )
-                    for term in tf:
-                        df[term] += 1
-                    total_len += len(toks)
+                    try:
+                        ingest(p.stem, _read_txt(p))
+                    except Exception:
+                        logger.exception("DocStore: skip txt %s", p.as_posix())
             else:
                 pdf_dir = sub / "pdf"
                 file_jobs: List[tuple[Path, Any]] = []
@@ -492,23 +489,15 @@ class DocStore:
                     source = "docx"
                 for p, reader_fn in file_jobs:
                     try:
-                        rel_stem = p.relative_to(sub).with_suffix("")
-                        doc_name = rel_stem.as_posix()
-                    except ValueError:
-                        doc_name = p.stem
-                    text = reader_fn(p)
-                    if not text.strip():
-                        continue
-                    toks = _tokenize(text)
-                    if not toks:
-                        continue
-                    tf = Counter(toks)
-                    docs.append(
-                        Doc(name=doc_name, category=cat_name, text=text, tokens=toks, tf=tf)
-                    )
-                    for term in tf:
-                        df[term] += 1
-                    total_len += len(toks)
+                        try:
+                            rel_stem = p.relative_to(sub).with_suffix("")
+                            doc_name = rel_stem.as_posix()
+                        except ValueError:
+                            doc_name = p.stem
+                        text = reader_fn(p)
+                        ingest(doc_name, text)
+                    except Exception:
+                        logger.exception("DocStore: skip %s", p.as_posix())
             if docs:
                 self.indexes[cat_name] = CategoryIndex(
                     name=cat_name,
@@ -545,6 +534,38 @@ class DocStore:
             {"name": c.name, "doc_count": len(c.docs), "doc_names": [d.name for d in c.docs]}
             for c in self.indexes.values()
         ]
+
+    def rag_categories_for_primary(self, primary: str) -> List[str]:
+        """Primary chat category plus extras from RAG_EXTRA_CATEGORIES that exist on disk."""
+        p = (primary or "").strip()
+        if not p or p not in self.indexes:
+            return []
+        out: List[str] = [p]
+        raw = (settings.RAG_EXTRA_CATEGORIES or "").strip()
+        if not raw:
+            return out
+        for part in raw.split(","):
+            e = part.strip()
+            if not e or e in out:
+                continue
+            if e in self.indexes:
+                out.append(e)
+        return out
+
+    def category_corpus_chars_multi(self, categories: List[str]) -> int:
+        return sum(self.category_corpus_chars(c) for c in categories if c in self.indexes)
+
+    def use_full_category_inject_multi(self, categories: List[str]) -> bool:
+        if not categories:
+            return False
+        total_chars = self.category_corpus_chars_multi(categories)
+        total_files = sum(len(self.indexes[c].docs) for c in categories if c in self.indexes)
+        if total_files == 0:
+            return False
+        return (
+            total_chars <= settings.RAG_FULL_CATEGORY_MAX_CHARS
+            and total_files <= settings.RAG_FULL_CATEGORY_MAX_FILES
+        )
 
     def _bm25(self, q_tokens: List[str], doc: Doc, idx: CategoryIndex,
               k1: float = 1.5, b: float = 0.75) -> float:
@@ -586,19 +607,35 @@ class DocStore:
                 return d.text
         return None
 
+    def get_document_by_catalog_id(self, catalog_id: str, fallback_category: str) -> Optional[str]:
+        """Resolve agentic catalog id: ``category/stem`` or plain ``stem``."""
+        raw = (catalog_id or "").strip()
+        if not raw:
+            return None
+        if "/" in raw:
+            cat, stem = raw.split("/", 1)
+            cat, stem = cat.strip(), stem.strip()
+            if cat in self.indexes and stem:
+                return self.get_document_by_stem(cat, stem)
+            return None
+        return self.get_document_by_stem(fallback_category, raw)
+
     def retrieve(
         self,
         query: str,
         category: Optional[str] = None,
-        k: int = 5,
         *,
+        categories: Optional[List[str]] = None,
+        k: int = 5,
         expand_fr_darija_hints: bool = False,
     ) -> List[Doc]:
         if not self.indexes:
             return []
         if expand_fr_darija_hints:
             query = expand_query_for_retrieval_fr_darija(query)
-        if category and category in self.indexes:
+        if categories:
+            targets = [self.indexes[c] for c in categories if c in self.indexes]
+        elif category and category in self.indexes:
             targets = [self.indexes[category]]
         else:
             targets = list(self.indexes.values())
@@ -658,11 +695,16 @@ class DocStore:
         k: int = 5,
         max_chars: int = 14000,
         *,
+        categories: Optional[List[str]] = None,
         expand_fr_darija_hints: bool = False,
         condense: bool = False,
     ) -> str:
         top = self.retrieve(
-            query, category=category, k=k, expand_fr_darija_hints=expand_fr_darija_hints
+            query,
+            category=category,
+            categories=categories,
+            k=k,
+            expand_fr_darija_hints=expand_fr_darija_hints,
         )
         if not top:
             return ""
@@ -709,19 +751,17 @@ class DocStore:
         category: Optional[str] = None,
         max_chars: int = 15000,
         *,
+        categories: Optional[List[str]] = None,
         query: Optional[str] = None,
         expand_for_retrieval: bool = False,
         condense: bool = False,
     ) -> str:
-        """Concatenate documents in a category up to *max_chars*.
-
-        Documents are ordered by BM25 vs *query* when provided. If the total
-        exceeds *max_chars*, budget is **front-loaded** to top hits (not split
-        proportional to length) so at least one procedure stays readable.
-        """
+        """Concatenate documents in one or more categories up to *max_chars*."""
         if not self.indexes:
             return ""
-        if category and category in self.indexes:
+        if categories:
+            targets = [self.indexes[c] for c in categories if c in self.indexes]
+        elif category and category in self.indexes:
             targets = [self.indexes[category]]
         else:
             targets = list(self.indexes.values())
