@@ -225,6 +225,12 @@ class InteractionStore:
                 (uname,),
             ).fetchone()
             if row:
+                if settings.SEED_STAFF_SYNC_PASSWORDS:
+                    conn.execute(
+                        "UPDATE users SET password_hash = ?, role = ? WHERE id = ?",
+                        (h, role, int(row[0])),
+                    )
+                    changed = True
                 continue
             conn.execute(
                 "INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)",
