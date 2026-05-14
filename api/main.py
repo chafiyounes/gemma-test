@@ -421,7 +421,7 @@ async def login(
 ):
     row = db.verify_login(body.username, body.password)
     if row is None:
-        raise HTTPException(401, "Invalid username or password")
+        raise HTTPException(401, "Identifiant ou mot de passe incorrect.")
     cookie_value, expires_at = manager.create_session_cookie(
         {"uid": row["uid"], "username": row["username"], "role": row["role"]}
     )

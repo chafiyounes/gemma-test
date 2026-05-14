@@ -120,6 +120,9 @@ class Settings(BaseSettings):
     # One-time seed for named staff (SQLite row created only if username is missing).
     SEED_STAFF_YOUNES_PASSWORD: str = ""
     SEED_STAFF_NOUHAILA_PASSWORD: str = ""
+    # If True, non-empty SEED_STAFF_* passwords also UPDATE existing rows on startup
+    # (use once on a pod to fix a wrong password, then set back to false).
+    SEED_STAFF_SYNC_PASSWORDS: bool = False
 
     # ── API ───────────────────────────────────────────────────────────────
     API_PORT: int = 8000
