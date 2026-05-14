@@ -210,10 +210,14 @@ def upload_document(
             raise DocumentAdminError("Only .docx and .txt are supported")
 
         return {"category": cat, "filename": f"{stem}{ext}"}
-    except Exception:
+    except DocumentAdminError:
         for p in reversed(created):
             p.unlink(missing_ok=True)
         raise
+    except Exception as exc:
+        for p in reversed(created):
+            p.unlink(missing_ok=True)
+        raise DocumentAdminError(f"Impossible de traiter le fichier ({safe_name}): {exc}") from exc
 
 
 def move_document(

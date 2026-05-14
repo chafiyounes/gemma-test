@@ -172,6 +172,13 @@
                     aria-label="Sélectionner des fichiers"
                   />
                   <input id="doc-folder-input" type="file" webkitdirectory directory multiple class="sr-only" />
+                  <input
+                    id="doc-replace-input"
+                    type="file"
+                    accept=".docx,.txt,.DOCX,.TXT,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                    class="sr-only"
+                    aria-label="Remplacer un fichier du corpus"
+                  />
                   <button id="doc-upload-button" type="button" class="toolbar-button secondary">
                     Parcourir les fichiers…
                   </button>
@@ -179,14 +186,17 @@
                     Importer un dossier
                   </button>
                   <span class="doc-toolbar-spacer" aria-hidden="true"></span>
-                  <button
-                    id="doc-save-button"
-                    type="button"
-                    class="toolbar-button doc-btn-save"
-                    title="Appliquer le brouillon sur le disque"
-                  >
-                    Enregistrer sur le disque
-                  </button>
+                  <div class="doc-save-summary-group">
+                    <button
+                      id="doc-save-button"
+                      type="button"
+                      class="toolbar-button doc-btn-save"
+                      title="Appliquer le brouillon sur le disque"
+                    >
+                      Enregistrer sur le disque
+                    </button>
+                    <div id="doc-pending-summary" class="doc-draft-status" role="status"></div>
+                  </div>
                   <button id="doc-discard-button" type="button" class="toolbar-button secondary" title="Annuler le brouillon">
                     Annuler le brouillon
                   </button>
@@ -194,8 +204,6 @@
                     Recharger
                   </button>
                 </div>
-
-                <div id="doc-pending-summary" class="doc-draft-status" role="status"></div>
                 <div id="doc-error" class="doc-flash-error hidden" role="alert"></div>
               </div>
 
@@ -207,6 +215,6 @@
       </main>
     </div>
 
-    <script src="/admin-static/admin.js?v=20260514c" defer></script>
+    <script src="/admin-static/admin.js?v=20260514d" defer></script>
   </body>
   </html>
