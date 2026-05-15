@@ -43,7 +43,6 @@ const documentsCategories = document.getElementById("documents-categories");
 const docCategoryInput = document.getElementById("doc-category-input");
 const docFileInput = document.getElementById("doc-file-input");
 const docFolderInput = document.getElementById("doc-folder-input");
-const docUploadButton = document.getElementById("doc-upload-button");
 const docAddFolderButton = document.getElementById("doc-add-folder-button");
 const docSaveButton = document.getElementById("doc-save-button");
 const docDiscardButton = document.getElementById("doc-discard-button");
@@ -301,10 +300,23 @@ function getCorpusCategory() {
   return fromServer || "procedures";
 }
 
+function isAllowedCorpusUpload(name) {
+  const n = (name || "").toLowerCase();
+  return n.endsWith(".docx") || n.endsWith(".txt") || n.endsWith(".md");
+}
+
+function inferStagedSourceFromFilename(filename) {
+  const n = (filename || "").toLowerCase();
+  if (n.endsWith(".txt")) return "txt";
+  if (n.endsWith(".md")) return "md";
+  return "docx";
+}
+
 function docFileKindLabel(filename) {
   const n = (filename || "").toLowerCase();
   if (n.endsWith(".docx")) return "DOCX";
   if (n.endsWith(".txt")) return "TXT";
+  if (n.endsWith(".md")) return "MD";
   return "FILE";
 }
 
@@ -324,8 +336,7 @@ async function addFilesToDraftFromFileList(fileList) {
   let added = 0;
   let skipped = 0;
   for (const file of list) {
-    const lower = file.name.toLowerCase();
-    if (!lower.endsWith(".docx") && !lower.endsWith(".txt")) {
+    if (!isAllowedCorpusUpload(file.name)) {
       skipped += 1;
       continue;
     }
@@ -333,7 +344,7 @@ async function addFilesToDraftFromFileList(fileList) {
     added += 1;
   }
   if (!added) {
-    showDocError("Aucun fichier .docx ou .txt dans la sélection.");
+    showDocError("Aucun fichier .docx, .txt ou .md dans la sélection.");
     return;
   }
   if (skipped > 0) {
@@ -452,7 +463,7 @@ function draftAddUpload(file, category) {
   if (!state.docsDraft) return;
   const cat = ensureDraftCategory(category);
   if (!cat) return;
-  const source = file.name.toLowerCase().endsWith(".txt") ? "txt" : "docx";
+  const source = inferStagedSourceFromFilename(file.name);
   cat.files.push({
     name: file.name,
     source,
@@ -467,10 +478,6 @@ function draftAddUpload(file, category) {
 function draftReplaceFile(category, filename, sourceKind, file) {
   if (!state.docsDraft) return;
   const lower = file.name.toLowerCase();
-  if (!lower.endsWith(".docx") && !lower.endsWith(".txt")) {
-    showDocError("Remplacement : choisir un fichier .docx ou .txt.");
-    return;
-  }
   const cat = state.docsDraft.categories.find((c) => c.name === category);
   if (!cat) return;
   const idx = cat.files.findIndex((f) => f.name === filename && f.source === sourceKind);
@@ -478,9 +485,22 @@ function draftReplaceFile(category, filename, sourceKind, file) {
   cat.files.splice(idx, 1);
   state.docsDraft.deletes.push({ category, source_kind: sourceKind, filename });
   const stem = filename.includes(".") ? filename.slice(0, filename.lastIndexOf(".")) : filename;
-  const ext = lower.endsWith(".txt") ? ".txt" : ".docx";
+  let ext;
+  let source;
+  if (lower.endsWith(".txt")) {
+    ext = ".txt";
+    source = "txt";
+  } else if (lower.endsWith(".md")) {
+    ext = ".md";
+    source = "md";
+  } else if (lower.endsWith(".docx")) {
+    ext = ".docx";
+    source = "docx";
+  } else {
+    showDocError("Remplacement : choisir un fichier .docx, .txt ou .md.");
+    return;
+  }
   const targetName = stem + ext;
-  const source = ext === ".txt" ? "txt" : "docx";
   cat.files.push({
     name: targetName,
     source,
@@ -497,14 +517,13 @@ function draftReplaceFile(category, filename, sourceKind, file) {
   _setDirty(true);
 }
 
-/** All .docx/.txt from a folder tree go to one corpus (no subfolder→category split). */
+/** All .docx / .txt / .md from a folder tree go to one corpus (no subfolder→category split). */
 function assignFolderFilesToCategories(files, corpusCategory) {
   const assignments = [];
   const errors = [];
   const cat = (corpusCategory || "").trim() || "procedures";
   for (const file of files) {
-    const lower = file.name.toLowerCase();
-    if (!lower.endsWith(".docx") && !lower.endsWith(".txt")) continue;
+    if (!isAllowedCorpusUpload(file.name)) continue;
     assignments.push({ file, category: cat });
   }
   return { assignments, errors };
@@ -525,7 +544,7 @@ function renderDocuments() {
 
   if (!categories.length) {
     documentsCategories.innerHTML =
-      '<div class="doc-platform-empty"><p class="doc-platform-empty-title">Aucun corpus pour l’instant</p><p class="doc-platform-empty-hint">Importez un premier fichier <code>.docx</code> ou <code>.txt</code> pour créer une catégorie, ou saisissez un nom de corpus puis déposez des fichiers.</p></div>';
+      '<div class="doc-platform-empty"><p class="doc-platform-empty-title">Aucun corpus pour l’instant</p><p class="doc-platform-empty-hint">Importez un premier fichier <code>.docx</code>, <code>.md</code> ou <code>.txt</code> (zone ci-dessus ou dossier), puis enregistrez sur le disque.</p></div>';
     updatePendingSummary();
     return;
   }
@@ -683,9 +702,6 @@ async function loadDocumentsOverview() {
 }
 
 
-async function handleUploadDocument() {
-  if (docFileInput) docFileInput.click();
-}
 async function handleFolderSelection() {
   const files = Array.from(docFolderInput?.files || []);
   if (!files.length) return;
@@ -701,7 +717,7 @@ async function handleFolderSelection() {
     draftAddUpload(item.file, item.category);
   }
   if (!assignments.length) {
-    showDocError(errors[0] || "Aucun fichier .docx/.txt detecte dans ce dossier.");
+    showDocError(errors[0] || "Aucun fichier .docx, .txt ou .md dans ce dossier.");
   } else {
     showDocError(errors.length ? errors[0] : "");
     renderDocuments();
@@ -1149,11 +1165,6 @@ if (viewDocumentsButton) {
   viewDocumentsButton.addEventListener("click", () => {
     setAdminView("documents");
     loadDocumentsOverview().catch((error) => showDocError(error.message));
-  });
-}
-if (docUploadButton) {
-  docUploadButton.addEventListener("click", () => {
-    handleUploadDocument().catch((error) => showDocError(error.message));
   });
 }
 if (docAddFolderButton) {
