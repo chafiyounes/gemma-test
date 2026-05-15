@@ -1180,7 +1180,118 @@ body.admin-console-manager .doc-cat-delete {
   color: #fecaca;
 }
 
-.doc-platform-empty {
+.doc-flash-info {
+  padding: 0.65rem 0.85rem;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  background: rgba(96, 165, 250, 0.1);
+  border: 1px solid rgba(96, 165, 250, 0.35);
+  color: #bfdbfe;
+}
+
+.doc-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 2000;
+  background: rgba(0, 0, 0, 0.62);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.25rem;
+}
+
+.doc-modal {
+  width: min(100%, 32rem);
+  max-height: min(90vh, 34rem);
+  overflow: auto;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--panel);
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+  padding: 1.25rem 1.35rem;
+}
+
+.doc-modal-title {
+  margin: 0 0 0.65rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.doc-modal-intro {
+  margin: 0 0 0.75rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+
+.doc-modal-counter {
+  margin: 0 0 0.85rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: #fde68a;
+}
+
+.doc-conflict-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  max-height: 14rem;
+  overflow-y: auto;
+}
+
+.doc-conflict-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem 0.65rem;
+  padding: 0.5rem 0.6rem;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.doc-conflict-name {
+  font-weight: 600;
+  font-size: 0.88rem;
+  flex: 1 1 8rem;
+  min-width: 0;
+  word-break: break-word;
+}
+
+.doc-conflict-meta {
+  font-size: 0.74rem;
+  color: var(--muted);
+  flex: 1 1 6rem;
+}
+
+.doc-conflict-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
+.doc-modal-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: 0.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.doc-modal-btn-primary {
+  background: rgba(96, 165, 250, 0.25) !important;
+  border: 1px solid rgba(96, 165, 250, 0.45) !important;
+  color: #e0f2fe !important;
+}
+
+body.doc-modal-open {
+  overflow: hidden;
+}
   text-align: center;
   padding: 2.5rem 1.5rem;
   border-radius: 14px;
