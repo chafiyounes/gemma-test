@@ -448,13 +448,92 @@ function draftMoveFile(fromCategory, filename, sourceKind, targetCategory) {
   _setDirty(true);
 }
 
+/** Restore a row from the last loaded server overview (draft-only mirror). */
+function draftRowFromOverview(category, filename, sourceKind) {
+  const liveCat = state.docsOverview?.categories?.find((c) => c.name === category);
+  const f = liveCat?.files?.find((x) => x.name === filename && x.source === sourceKind);
+  if (f) {
+    return {
+      name: f.name,
+      source: f.source,
+      chars: f.chars,
+      isPending: false,
+      pendingOp: "",
+    };
+  }
+  return {
+    name: filename,
+    source: sourceKind,
+    chars: "?",
+    isPending: false,
+    pendingOp: "",
+  };
+}
+
 function draftDeleteFile(category, filename, sourceKind) {
   if (!state.docsDraft) return;
   const cat = state.docsDraft.categories.find((c) => c.name === category);
   if (!cat) return;
   const idx = cat.files.findIndex((f) => f.name === filename && f.source === sourceKind);
   if (idx < 0) return;
-  cat.files.splice(idx, 1);
+  const [row] = cat.files.splice(idx, 1);
+  const op = row.pendingOp || "";
+
+  if (op === "upload") {
+    const ui = state.docsDraft.uploads.findIndex((u) => u.category === category && u.filename === filename);
+    if (ui >= 0) state.docsDraft.uploads.splice(ui, 1);
+    _setDirty(true);
+    return;
+  }
+
+  if (op === "replace") {
+    const ui = state.docsDraft.uploads.findIndex(
+      (u) => u.category === category && u.filename === filename && u.replaceOf,
+    );
+    if (ui >= 0) {
+      const u = state.docsDraft.uploads[ui];
+      state.docsDraft.uploads.splice(ui, 1);
+      const delEntry = state.docsDraft.deletes.find((d) => d.category === category && d.filename === u.replaceOf);
+      if (delEntry) {
+        state.docsDraft.deletes = state.docsDraft.deletes.filter((d) => d !== delEntry);
+        cat.files.push(draftRowFromOverview(category, u.replaceOf, delEntry.source_kind));
+      } else {
+        const liveCat = state.docsOverview?.categories?.find((c) => c.name === category);
+        const cand = liveCat?.files?.find((x) => x.name === u.replaceOf);
+        cat.files.push(
+          cand
+            ? draftRowFromOverview(category, cand.name, cand.source)
+            : draftRowFromOverview(category, u.replaceOf, "docx"),
+        );
+      }
+    }
+    _setDirty(true);
+    return;
+  }
+
+  if (op === "move") {
+    const mi = state.docsDraft.moves.findIndex(
+      (m) =>
+        m.target_category === category && m.filename === filename && m.source_kind === sourceKind,
+    );
+    if (mi >= 0) {
+      const m = state.docsDraft.moves[mi];
+      state.docsDraft.moves.splice(mi, 1);
+      const fromCat = state.docsDraft.categories.find((c) => c.name === m.source_category);
+      if (fromCat) {
+        fromCat.files.push({
+          name: row.name,
+          source: row.source,
+          chars: row.chars,
+          isPending: false,
+          pendingOp: "",
+        });
+      }
+    }
+    _setDirty(true);
+    return;
+  }
+
   state.docsDraft.deletes.push({ category, source_kind: sourceKind, filename });
   _setDirty(true);
 }
@@ -680,7 +759,14 @@ function renderDocuments() {
       const category = btn.dataset.category;
       const filename = btn.dataset.name;
       const source = btn.dataset.source;
-      const ok = confirm(`Supprimer ${filename} de ${category} ?`);
+      const cat = state.docsDraft?.categories.find((c) => c.name === category);
+      const row = cat?.files?.find((f) => f.name === filename && f.source === source);
+      const op = row?.pendingOp;
+      const msg =
+        op === "upload" || op === "replace" || op === "move"
+          ? `Retirer ${filename} du brouillon ? (aucune suppression sur le disque pour l’instant.)`
+          : `Supprimer ${filename} de ${category} ? Il sera effacé sur le disque à l’enregistrement.`;
+      const ok = confirm(msg);
       if (!ok) return;
       showDocError("");
       draftDeleteFile(category, filename, source);
