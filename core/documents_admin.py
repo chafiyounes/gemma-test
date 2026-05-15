@@ -216,8 +216,16 @@ def upload_document(
                 md_path = md_dir / f"{stem}.md"
                 md_path.write_text(md_text, encoding="utf-8")
                 created.append(md_path)
+        elif ext == ".md":
+            md_dir = DOCS_MD_DIR / cat
+            md_dir.mkdir(parents=True, exist_ok=True)
+            dst = md_dir / f"{stem}.md"
+            if dst.exists():
+                raise DocumentAdminError(f"File already exists: {dst.name}")
+            dst.write_bytes(data)
+            created.append(dst)
         else:
-            raise DocumentAdminError("Only .docx and .txt are supported")
+            raise DocumentAdminError("Only .docx, .txt, and .md are supported")
 
         return {"category": cat, "filename": f"{stem}{ext}"}
     except DocumentAdminError:
@@ -503,9 +511,14 @@ def apply_plan(
                         step["filename"],
                     )
                 elif step["type"] == "delete_upload":
-                    kind = step["source_kind"]
-                    source_kind = "txt" if kind == "txt" else "docx"
-                    delete_document(step["category"], source_kind, step["filename"])
+                    kind = (step["source_kind"] or "").lower()
+                    if kind == "txt":
+                        sk = "txt"
+                    elif kind == "md":
+                        sk = "md"
+                    else:
+                        sk = "docx"
+                    delete_document(step["category"], sk, step["filename"])
             except Exception:
                 pass
         raise

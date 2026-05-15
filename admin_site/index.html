@@ -113,6 +113,15 @@
                   <div class="doc-help-body detail-text">
                     <ul class="doc-help-list">
                       <li>
+                        <strong>Ajouter des fichiers :</strong> cliquez sur la zone ci-dessous ou glissez-déposez. Pas de bouton « parcourir » séparé : le clic ouvre le même sélecteur.
+                      </li>
+                      <li>
+                        Formats : <code>.md</code> (copié tel quel, idéal pour liens publics via <code>/api/rag-media/&lt;catégorie&gt;/…</code>), <code>.txt</code>, <code>.docx</code> (le serveur génère aussi un <code>.md</code> à l’enregistrement si possible).
+                      </li>
+                      <li>
+                        <strong>Actualiser la liste</strong> recharge l’aperçu depuis le disque (utile après une modif externe ; n’applique pas le brouillon).
+                      </li>
+                      <li>
                         Un <strong>corpus</strong> = un dossier sur le disque (nom de catégorie). Le chat et l’agentic utilisent les mêmes noms.
                       </li>
                       <li>
@@ -148,7 +157,7 @@
                   class="doc-dropzone"
                   tabindex="0"
                   role="button"
-                  aria-label="Déposer ou sélectionner des fichiers .docx ou .txt"
+                  aria-label="Déposer ou sélectionner des fichiers .docx, .txt ou .md"
                 >
                   <div class="doc-dropzone-icon" aria-hidden="true">
                     <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.25">
@@ -157,8 +166,8 @@
                     </svg>
                   </div>
                   <div class="doc-dropzone-text">
-                    <span class="doc-dropzone-title">Déposer des fichiers ici</span>
-                    <span class="doc-dropzone-sub">ou cliquer — <code>.docx</code> ou <code>.txt</code></span>
+                    <span class="doc-dropzone-title">Glisser-déposer ou cliquer pour ajouter</span>
+                    <span class="doc-dropzone-sub"><code>.md</code> · <code>.docx</code> · <code>.txt</code> — enregistrement requis pour écrire sur le disque</span>
                   </div>
                 </div>
 
@@ -166,23 +175,25 @@
                   <input
                     id="doc-file-input"
                     type="file"
-                    accept=".docx,.txt,.DOCX,.TXT,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                    accept=".docx,.txt,.md,.DOCX,.TXT,.MD,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
                     multiple
                     class="sr-only"
-                    aria-label="Sélectionner des fichiers"
+                    aria-label="Sélectionner des fichiers (.md, .docx, .txt)"
                   />
                   <input id="doc-folder-input" type="file" webkitdirectory directory multiple class="sr-only" />
                   <input
                     id="doc-replace-input"
                     type="file"
-                    accept=".docx,.txt,.DOCX,.TXT,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain"
+                    accept=".docx,.txt,.md,.DOCX,.TXT,.MD,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown"
                     class="sr-only"
                     aria-label="Remplacer un fichier du corpus"
                   />
-                  <button id="doc-upload-button" type="button" class="toolbar-button secondary">
-                    Parcourir les fichiers…
-                  </button>
-                  <button id="doc-add-folder-button" type="button" class="toolbar-button secondary">
+                  <button
+                    id="doc-add-folder-button"
+                    type="button"
+                    class="toolbar-button secondary"
+                    title="Ajouter en masse tous les .md, .docx et .txt d’un dossier vers le corpus cible"
+                  >
                     Importer un dossier
                   </button>
                   <span class="doc-toolbar-spacer" aria-hidden="true"></span>
@@ -200,8 +211,13 @@
                   <button id="doc-discard-button" type="button" class="toolbar-button secondary" title="Annuler le brouillon">
                     Annuler le brouillon
                   </button>
-                  <button id="doc-refresh-button" type="button" class="toolbar-button secondary">
-                    Recharger
+                  <button
+                    id="doc-refresh-button"
+                    type="button"
+                    class="toolbar-button secondary"
+                    title="Recharger la liste des fichiers depuis le disque (sans appliquer le brouillon)"
+                  >
+                    Actualiser la liste
                   </button>
                 </div>
                 <div id="doc-error" class="doc-flash-error hidden" role="alert"></div>
@@ -215,6 +231,6 @@
       </main>
     </div>
 
-    <script src="/admin-static/admin.js?v=20260514d" defer></script>
+    <script src="/admin-static/admin.js?v=20260514f" defer></script>
   </body>
   </html>
