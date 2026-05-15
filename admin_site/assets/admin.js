@@ -286,9 +286,24 @@ function showDocError(message) {
   if (!message) {
     docError.textContent = "";
     docError.classList.add("hidden");
+    docError.classList.remove("doc-flash-info");
     return;
   }
   docError.textContent = message;
+  docError.classList.remove("doc-flash-info");
+  docError.classList.remove("hidden");
+}
+
+function showDocInfo(message) {
+  if (!docError) return;
+  if (!message) {
+    docError.textContent = "";
+    docError.classList.add("hidden");
+    docError.classList.remove("doc-flash-info");
+    return;
+  }
+  docError.textContent = message;
+  docError.classList.add("doc-flash-info");
   docError.classList.remove("hidden");
 }
 
@@ -322,6 +337,7 @@ function docFileKindLabel(filename) {
 
 async function addFilesToDraftFromFileList(fileList) {
   showDocError("");
+  showDocInfo("");
   try {
     await ensureDocsReadyForEdits();
   } catch (error) {
@@ -329,29 +345,32 @@ async function addFilesToDraftFromFileList(fileList) {
     return;
   }
   const category = getCorpusCategory();
-  const list = Array.from(fileList || []);
-  if (!list.length) {
+  const raw = Array.from(fileList || []);
+  let extSkipped = 0;
+  const allowed = [];
+  for (const f of raw) {
+    if (isAllowedCorpusUpload(f.name)) allowed.push(f);
+    else extSkipped += 1;
+  }
+  if (!allowed.length) {
+    showDocError(
+      extSkipped ? "Aucun fichier .docx, .txt ou .md dans la sélection." : "",
+    );
     return;
   }
-  let added = 0;
-  let skipped = 0;
-  for (const file of list) {
-    if (!isAllowedCorpusUpload(file.name)) {
-      skipped += 1;
-      continue;
-    }
-    draftAddUpload(file, category);
-    added += 1;
+  const { modalQueue, anyAdded, draftConflictSkip } = stageIncomingFiles(allowed, category);
+  const msgParts = [];
+  if (extSkipped) msgParts.push(`${extSkipped} ignoré(s) (extension).`);
+  if (draftConflictSkip) {
+    msgParts.push(
+      `${draftConflictSkip} ignoré(s) (ce nom est déjà dans le brouillon pour un déplacement ou un autre remplacement).`,
+    );
   }
-  if (!added) {
-    showDocError("Aucun fichier .docx, .txt ou .md dans la sélection.");
-    return;
+  if (modalQueue.length) {
+    openOverwriteConflictsModal(modalQueue);
   }
-  if (skipped > 0) {
-    showDocError(`${added} fichier(s) ajouté(s) au brouillon. ${skipped} ignoré(s) (extension).`);
-  } else {
-    showDocError("");
-  }
+  if (msgParts.length) showDocError(msgParts.join(" "));
+  else if (!modalQueue.length && anyAdded) showDocError("");
   renderDocuments();
 }
 
@@ -554,6 +573,216 @@ function draftAddUpload(file, category) {
   _setDirty(true);
 }
 
+/** Replace the File object for a pending-only upload (same name). */
+function draftSwapPendingUpload(category, filename, newFile) {
+  const u = state.docsDraft.uploads.find((x) => x.category === category && x.filename === filename);
+  if (!u) return;
+  u.file = newFile;
+  if (newFile.name !== filename) {
+    u.filename = newFile.name;
+    const cat = state.docsDraft.categories.find((c) => c.name === category);
+    const r = cat?.files.find((f) => f.name === filename && f.pendingOp === "upload");
+    if (r) {
+      r.name = newFile.name;
+      r.source = inferStagedSourceFromFilename(newFile.name);
+    }
+  }
+  _setDirty(true);
+}
+
+/**
+ * Stage new files: add non-conflicting; queue disk-backed name collisions for the modal.
+ * @returns {{ modalQueue: Array<{file: File, row: object, category: string}>, anyAdded: boolean, draftConflictSkip: number }}
+ */
+function stageIncomingFiles(allowedFiles, category) {
+  const modalQueue = [];
+  let anyAdded = false;
+  let draftConflictSkip = 0;
+  if (!state.docsDraft || !allowedFiles.length) {
+    return { modalQueue, anyAdded, draftConflictSkip };
+  }
+  ensureDraftCategory(category);
+  const cat = state.docsDraft.categories.find((c) => c.name === category);
+  if (!cat) return { modalQueue, anyAdded, draftConflictSkip };
+
+  for (const file of allowedFiles) {
+    const row = cat.files.find((f) => f.name === file.name);
+    if (!row) {
+      draftAddUpload(file, category);
+      anyAdded = true;
+      continue;
+    }
+    if (row.pendingOp === "upload") {
+      draftSwapPendingUpload(category, file.name, file);
+      anyAdded = true;
+      continue;
+    }
+    if (row.pendingOp) {
+      draftConflictSkip += 1;
+      continue;
+    }
+    modalQueue.push({ file, row, category });
+  }
+  return { modalQueue, anyAdded, draftConflictSkip };
+}
+
+function openOverwriteConflictsModal(items) {
+  if (!items.length || !state.docsDraft) return;
+  let overwriteCount = 0;
+  let remaining = items.slice();
+
+  const overlay = document.createElement("div");
+  overlay.className = "doc-modal-backdrop";
+
+  const dialog = document.createElement("div");
+  dialog.className = "doc-modal doc-modal--conflicts";
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", "doc-conflict-title");
+
+  const title = document.createElement("h3");
+  title.id = "doc-conflict-title";
+  title.className = "doc-modal-title";
+  title.textContent = "Fichiers déjà présents";
+
+  const intro = document.createElement("p");
+  intro.className = "doc-modal-intro";
+  intro.textContent = `Ces noms existent déjà dans ce corpus (sur le disque ou dans l’aperçu). Les autres fichiers de votre sélection sont déjà dans le brouillon. Choisissez par fichier, ou écrasez-les tous.`;
+
+  const counter = document.createElement("p");
+  counter.className = "doc-modal-counter";
+  function refreshCounter() {
+    counter.textContent = `Écrasements confirmés : ${overwriteCount}`;
+  }
+  refreshCounter();
+
+  const listEl = document.createElement("div");
+  listEl.className = "doc-conflict-list";
+
+  const footer = document.createElement("div");
+  footer.className = "doc-modal-footer";
+
+  const btnAll = document.createElement("button");
+  btnAll.type = "button";
+  btnAll.className = "toolbar-button doc-btn-save";
+
+  const btnClose = document.createElement("button");
+  btnClose.type = "button";
+  btnClose.className = "toolbar-button secondary";
+  btnClose.textContent = "Fermer";
+
+  const prevOverflow = document.body.style.overflow;
+
+  function closeAll() {
+    document.removeEventListener("keydown", onKey);
+    document.body.style.overflow = prevOverflow;
+    document.body.classList.remove("doc-modal-open");
+    overlay.remove();
+    if (overwriteCount > 0) {
+      const hint = `${overwriteCount} fichier(s) marqué(s) pour écrasement — enregistrez sur le disque pour appliquer.`;
+      if (docError && !docError.classList.contains("hidden") && (docError.textContent || "").trim()) {
+        /* keep extension / brouillon warning visible */
+      } else {
+        showDocInfo(hint);
+      }
+    }
+    renderDocuments();
+    updatePendingSummary();
+  }
+
+  function onKey(ev) {
+    if (ev.key === "Escape") {
+      ev.preventDefault();
+      closeAll();
+    }
+  }
+
+  function applyOverwrite(entry) {
+    draftReplaceFile(entry.category, entry.row.name, entry.row.source, entry.file);
+    overwriteCount += 1;
+    refreshCounter();
+  }
+
+  function renderList() {
+    listEl.innerHTML = "";
+    btnAll.textContent = `Tout écraser (${remaining.length})`;
+    btnAll.disabled = remaining.length === 0;
+    for (const entry of remaining) {
+      const row = document.createElement("div");
+      row.className = "doc-conflict-row";
+      const nameEl = document.createElement("span");
+      nameEl.className = "doc-conflict-name";
+      nameEl.textContent = entry.file.name;
+      const meta = document.createElement("span");
+      meta.className = "doc-conflict-meta";
+      meta.textContent = `existant · ${entry.row.source}`;
+      const actions = document.createElement("div");
+      actions.className = "doc-conflict-actions";
+      const btnO = document.createElement("button");
+      btnO.type = "button";
+      btnO.className = "toolbar-button doc-modal-btn-primary";
+      btnO.textContent = "Écraser";
+      btnO.addEventListener("click", () => {
+        applyOverwrite(entry);
+        remaining = remaining.filter((x) => x !== entry);
+        if (!remaining.length) {
+          closeAll();
+          return;
+        }
+        renderList();
+      });
+      const btnS = document.createElement("button");
+      btnS.type = "button";
+      btnS.className = "toolbar-button secondary";
+      btnS.textContent = "Ignorer";
+      btnS.addEventListener("click", () => {
+        remaining = remaining.filter((x) => x !== entry);
+        if (!remaining.length) {
+          closeAll();
+          return;
+        }
+        renderList();
+      });
+      row.appendChild(nameEl);
+      row.appendChild(meta);
+      row.appendChild(actions);
+      actions.appendChild(btnO);
+      actions.appendChild(btnS);
+      listEl.appendChild(row);
+    }
+  }
+
+  btnAll.addEventListener("click", () => {
+    const batch = remaining.slice();
+    for (const entry of batch) {
+      applyOverwrite(entry);
+    }
+    remaining = [];
+    closeAll();
+  });
+
+  btnClose.addEventListener("click", () => {
+    closeAll();
+  });
+
+  document.addEventListener("keydown", onKey);
+  document.body.classList.add("doc-modal-open");
+  document.body.style.overflow = "hidden";
+
+  footer.appendChild(btnAll);
+  footer.appendChild(btnClose);
+
+  dialog.appendChild(title);
+  dialog.appendChild(intro);
+  dialog.appendChild(counter);
+  dialog.appendChild(listEl);
+  dialog.appendChild(footer);
+  overlay.appendChild(dialog);
+  document.body.appendChild(overlay);
+
+  renderList();
+}
+
 function draftReplaceFile(category, filename, sourceKind, file) {
   if (!state.docsDraft) return;
   const lower = file.name.toLowerCase();
@@ -594,18 +823,6 @@ function draftReplaceFile(category, filename, sourceKind, file) {
     replaceOf: filename,
   });
   _setDirty(true);
-}
-
-/** All .docx / .txt / .md from a folder tree go to one corpus (no subfolder→category split). */
-function assignFolderFilesToCategories(files, corpusCategory) {
-  const assignments = [];
-  const errors = [];
-  const cat = (corpusCategory || "").trim() || "procedures";
-  for (const file of files) {
-    if (!isAllowedCorpusUpload(file.name)) continue;
-    assignments.push({ file, category: cat });
-  }
-  return { assignments, errors };
 }
 
 function renderDocuments() {
@@ -797,17 +1014,36 @@ async function handleFolderSelection() {
     showDocError(error.message || "Chargez la vue Documents.");
     return;
   }
+  showDocError("");
+  showDocInfo("");
   const corpus = getCorpusCategory();
-  const { assignments, errors } = assignFolderFilesToCategories(files, corpus);
-  for (const item of assignments) {
-    draftAddUpload(item.file, item.category);
+  let extSkipped = 0;
+  const allowed = [];
+  for (const f of files) {
+    if (isAllowedCorpusUpload(f.name)) allowed.push(f);
+    else extSkipped += 1;
   }
-  if (!assignments.length) {
-    showDocError(errors[0] || "Aucun fichier .docx, .txt ou .md dans ce dossier.");
-  } else {
-    showDocError(errors.length ? errors[0] : "");
-    renderDocuments();
+  if (!allowed.length) {
+    showDocError(
+      extSkipped ? "Aucun fichier .docx, .txt ou .md dans ce dossier." : "",
+    );
+    if (docFolderInput) docFolderInput.value = "";
+    return;
   }
+  const { modalQueue, anyAdded, draftConflictSkip } = stageIncomingFiles(allowed, corpus);
+  const msgParts = [];
+  if (extSkipped) msgParts.push(`${extSkipped} ignoré(s) (extension).`);
+  if (draftConflictSkip) {
+    msgParts.push(
+      `${draftConflictSkip} ignoré(s) (ce nom est déjà dans le brouillon pour un déplacement ou un autre remplacement).`,
+    );
+  }
+  if (modalQueue.length) {
+    openOverwriteConflictsModal(modalQueue);
+  }
+  if (msgParts.length) showDocError(msgParts.join(" "));
+  else if (!modalQueue.length && anyAdded) showDocError("");
+  renderDocuments();
   if (docFolderInput) docFolderInput.value = "";
 }
 
