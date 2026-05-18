@@ -46,17 +46,24 @@ class LLMGenerateResult:
 # Second model call when the first claims "absent" despite a large RAG inject.
 _RAG_REPAIR_MIN_CONTEXT_CHARS = 500
 _RAG_REPAIR_TEMPERATURE = 0.35
-_RAG_REPAIR_USER = (
-    "Le message système contenait une section **DOCUMENTS DE RÉFÉRENCE** avec des extraits de procédures SENDIT "
-    "(coordonnées / téléphone, livraison, colis, vendeur). "
-    "Ta réponse précédente disait à tort que l’information n’y était pas.\n"
-    "Reprends **uniquement** à partir de ces extraits : réponds **dans la même langue que la question utilisateur** "
-    "(darija professionnelle si la question était en darija / mélange), avec des **étapes numérotées** pour le cas : "
-    "vendeur qui veut **changer le numéro de téléphone du client** alors que le **colis est déjà en livraison**. "
-    "Si les textes ne décrivent pas exactement ce cas, indique les **étapes les plus proches** (coordonnées, statut, "
-    "contact livreur, etc.) et précise l’écart. "
-    "Dernière ligne obligatoire : **Source :** + nom exact du document cité."
-)
+
+
+def _rag_repair_followup_user_content(last_user_question: str) -> str:
+    """Generic repair nudge: stay on the user's actual question (no hard-coded scenario)."""
+    q = (last_user_question or "").strip()
+    if len(q) > 650:
+        q = q[:650] + "…"
+    return (
+        "Le message système contenait une section **DOCUMENTS DE RÉFÉRENCE** avec des extraits de procédures SENDIT.\n"
+        "Ta réponse précédente affirme à tort que l’information est absente ou introuvable dans ces extraits.\n\n"
+        f"**Question utilisateur (tu dois répondre à celle-ci, et uniquement à elle) :**\n{q}\n\n"
+        "Relis les extraits. Réponds **dans la même langue** que cette question. "
+        "Si un passage du **même domaine métier** couvre tout ou partie du besoin, utilise-le : "
+        "**étapes numérotées** fidèles aux textes, limites éventuelles si le cas exact diffère. "
+        "**N’invente pas** un autre scénario (ex. ne substitue pas téléphone/livraison si la question parle d’autre chose). "
+        "Si vraiment aucun angle utile : une courte phrase + **quels titres de documents** tu as consultés. "
+        "Dernière ligne si tu cites un document : **Source :** + nom exact du fichier / titre."
+    )
 
 
 # After deploy / start_all, vLLM often needs several minutes before :8002 accepts HTTP.
@@ -195,6 +202,10 @@ SYSTEM_PROMPT = """
 ## Rôle
 Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu aides les collaborateurs sur les **procédures officielles (SOP)** décrites dans les documents fournis.
 
+## Priorité — question actuelle
+- La **dernière question utilisateur** fait foi. Ne la remplace pas par un autre cas métier parce que les documents parlent surtout d’exemples différents.
+- Réponds **au point demandé d’abord** (réponse directe ou première étape), puis détaille par **étapes numérotées** si la procédure l’exige. Évite les digressions et les scénarios non demandés.
+
 ## Documents fournis (contexte RAG)
 - Après ce bloc, tu peux recevoir une section **DOCUMENTS DE RÉFÉRENCE** : extraits ou dossier (parfois tronqué) d’une catégorie (ex. `procedures`).
 - Chaque morceau commence par `### Document : [Nom]`.
@@ -221,7 +232,7 @@ Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu
 
 ## Information absente des documents
 - **Uniquement** si aucun extrait ne permet de répondre **même partiellement** au thème (après avoir cherché une procédure voisine, voir ci-dessus).
-- **Interdit** si la section DOCUMENTS DE RÉFÉRENCE est **non vide** : réponses du type « l’information est absente des documents », « ce n’est pas dans les procédures », ou toute formulation équivalente **sans** avoir d’abord proposé **au moins une procédure voisine** (téléphone/coordonnées **ou** colis en livraison **ou** contact livreur) avec **étapes numérotées tirées des textes** et une ligne **Source : …**. Si les textes ne couvrent vraiment aucun de ces angles, indique **explicitement** quels titres de documents tu as consultés et **quel sous-thème** manque (ex. « pas d’étape pour changement de téléphone **pendant** la tournée »).
+- **Interdit** si la section DOCUMENTS DE RÉFÉRENCE est **non vide** : réponses du type « absent des documents » **sans** avoir d’abord exploité une **procédure voisine du même domaine** que la question (pas seulement téléphone/livraison : tout angle métier pertinent dans les textes), avec **étapes numérotées tirées des extraits** et une ligne **Source : …** quand tu t’appuies sur un document. Si les textes ne couvrent vraiment pas le sujet posé, indique **quels titres** tu as parcourus et **quel angle** manque.
 - Une **seule phrase courte** pour le cas « vraiment absent », dans la **même langue** que la question.
 - Ne dis pas que tu as cherché sur Internet.
 
@@ -273,11 +284,13 @@ class GemmaModel:
         base_messages: list[dict],
         first_answer: str,
         payload_template: dict,
+        *,
+        user_question: str,
     ) -> str:
         """One follow-up turn when the model wrongly claims info is missing despite RAG text."""
         msgs = list(base_messages) + [
             {"role": "assistant", "content": first_answer},
-            {"role": "user", "content": _RAG_REPAIR_USER},
+            {"role": "user", "content": _rag_repair_followup_user_content(user_question)},
         ]
         payload = {
             **payload_template,
@@ -469,16 +482,21 @@ class GemmaModel:
                     raw[-80:] if raw else "",
                 )
             if (
-                ctx
+                settings.RAG_REPAIR_ENABLED
+                and ctx
                 and ctx_len >= _RAG_REPAIR_MIN_CONTEXT_CHARS
                 and claims_absent_in_docs_response(raw)
             ):
                 logger.warning(
-                    "RAG repair turn: first answer claims missing docs despite %s context chars",
+                    "RAG repair turn: question_preview=%r ctx_len=%s first_answer_preview=%r",
+                    (message or "")[:220],
                     ctx_len,
+                    (raw or "")[:160],
                 )
                 try:
-                    repaired = await self._rag_repair_turn(messages, raw, payload)
+                    repaired = await self._rag_repair_turn(
+                        messages, raw, payload, user_question=message
+                    )
                     if repaired:
                         raw = repaired
                         rag_meta["rag_repair"] = True
