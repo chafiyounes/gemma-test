@@ -1,0 +1,26 @@
+---
+description: After local edits, git push then sync RunPod (pull/build/restart) so the pod matches the repo.
+alwaysApply: true
+---
+
+# Git push + RunPod sync after changes
+
+Whenever this agent **finishes a task that changes** tracked project files (code, scripts, `web_test` source, config samples, etc.):
+
+1. **Git (local repo)**  
+   - Show `git status`.  
+   - If there are meaningful changes: stage them, **commit** with a clear message, then **`git push`** to the remote branch the user is on (usually `main`).  
+   - Do not end the turn with only local commits if the user expects the pod updated—**push** is part of the workflow.
+
+2. **RunPod**  
+   - After a successful push, sync the pod so it **pulls** that commit. From the machine that has SSH/paramiko access to the pod, run from the repo root:
+     ```powershell
+     python scripts/deploy_runner.py --skip-deps
+     ```
+     (default restart: API only; use `--restart all` only when vLLM must reload.)  
+   - If `deploy_runner` cannot be run from this environment, **tell the user exactly** to run that command (or an interactive `git pull` on `/workspace/gemma-test` on the pod) **immediately after push**, then `bash scripts/restart_api.sh` or rebuild the frontend as needed.
+
+3. **Frontend**  
+   - If `web_test/src` changed, ensure **CI/deploy** includes `npm run build` (Git refresh and `deploy_runner` already do this on the pod).
+
+Skip push/sync only for **draft/experimental** work if the user explicitly says to leave changes local.
