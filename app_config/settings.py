@@ -30,7 +30,7 @@ class Settings(BaseSettings):
     RAG_FULL_CATEGORY_MAX_FILES: int = 10
     # Hard ceiling per inject pass (effective budget is usually **lower** — see
     # ``_compute_rag_inject_limit_chars`` in core/llm.py using LLM_MAX_CONTEXT_TOKENS).
-    RAG_INJECT_MAX_CHARS: int = 28_000
+    RAG_INJECT_MAX_CHARS: int = 22_000
     # Must match vLLM ``--max-model-len`` on the pod (4096 / 8192 / 16384 / …).
     LLM_MAX_CONTEXT_TOKENS: int = 16_384
     # Rough chars-per-token for budgeting mixed FR/Darija/EN (conservative).
