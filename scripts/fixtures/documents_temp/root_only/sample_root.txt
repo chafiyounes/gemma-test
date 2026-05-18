@@ -1,1 +1,0 @@
-Temp fixture: root_only becomes category "root_only" (single folder, files at depth 0 under root).
