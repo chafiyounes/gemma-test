@@ -142,6 +142,30 @@ def answer_language_instruction_suffix(bucket: str) -> str:
     return "\n\n[Consigne langue] Réponds **entièrement en français**."
 
 
+def continuation_followup_message(bucket: str) -> str:
+    """User turn when the model stopped with finish_reason=length (mid-answer truncation)."""
+    b = (bucket or "fr").lower()
+    if b == "en":
+        return (
+            "Continue your previous answer **exactly** where you stopped—same language, "
+            "same step numbering. Do not repeat the introduction."
+        )
+    if b == "ar":
+        return (
+            "أكمل إجابتك **بالضبط** من حيث توقفت؛ نفس اللغة ونفس تعداد الخطوات. "
+            "لا تعُد المقدمة."
+        )
+    if b == "darija":
+        return (
+            "كمّل الجواب **من اللي وقفتي** بنفس اللغة وبنفس الأرقام ديال الخطوات. "
+            "ما تعاودش المقدمة من الأول."
+        )
+    return (
+        "Poursuis ta réponse **exactement** là où tu t'es arrêté : même langue, même "
+        "numérotation d'étapes. Ne répète pas l'introduction."
+    )
+
+
 def detect_lang_bucket(text: str) -> str:
     """Bucket for templated replies: 'fr' | 'en' | 'ar' | 'darija' | 'es'."""
     t = text or ""
