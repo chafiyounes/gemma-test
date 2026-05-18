@@ -128,6 +128,7 @@ def main():
         # Fix Windows line endings
         "sed -i 's/\\r//' scripts/*.sh start_all.sh",
         "chmod +x scripts/*.sh start_all.sh",
+        "cd /workspace/gemma-test && bash scripts/materialize_help_md_from_git.sh",
         # Build web_test (fail closed if dist missing) + admin static paths exist
         "bash scripts/build_web.sh",
         "bash -lc 'set -euo pipefail; cd /workspace/gemma-test && test -f admin_site/index.html && test -f admin_site/assets/admin.js'",

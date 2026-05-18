@@ -57,7 +57,8 @@ class Settings(BaseSettings):
     RAG_DEFAULT_CATEGORY: str = "procedures"
     # Comma-separated extra corpus names (must exist under data/documents/<name>/)
     # merged into RAG retrieval together with the primary category from the chat UI.
-    RAG_EXTRA_CATEGORIES: str = "help_articles"
+    # Help-center Markdown under data/documents_md/help_md/ (comma-separated aliases OK).
+    RAG_EXTRA_CATEGORIES: str = "help_md,help_articles"
     # If True, omit SOP cover-sheet-style tables (titre / référence / …) from MD export.
     DOCX_MD_DROP_METADATA_TABLES: bool = False
 
