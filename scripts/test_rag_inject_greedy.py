@@ -113,6 +113,8 @@ def test_build_context_real_store_few_partials() -> None:
         self,
         query,
         category=None,
+        *,
+        categories=None,
         k=5,
         expand_fr_darija_hints=False,
     ):
