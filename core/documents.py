@@ -1,18 +1,14 @@
 """Category-aware document loader + BM25 retrieval.
 
-Layout (pick one per category, first match wins):
+Layout (per category folder under ``data/documents/<name>/``):
 
-1. **Preferred — Markdown exports** (systematic DOCX→MD, tables + headings):
-       data/documents_md/<Category>/**/*.md (recursive under each category)
-   Produce with ``python -m scripts.export_sop_to_md`` from ``data/documents/…/*.docx``.
-   Read as UTF-8 text for the model (``.md`` is convention only; ``#`` and pipe tables are fine).
+1. Try **Markdown** ``data/documents_md/<name>/**/*.md`` — used **only if** at least one
+   file indexes (non-empty, tokenizable). Otherwise fall through (so empty/stale MD
+   mirrors do not hide a real ``data/documents/<name>/`` corpus).
 
-2. **Plain text exports** (legacy / hand-edited):
-       data/documents_txt/<Category>/**/*.txt
-   Produced with ``python -m scripts.export_sop_to_txt`` from ``.docx`` sources.
+2. Else try **plain text** ``data/documents_txt/<name>/**/*.txt`` with the same rule.
 
-3. **Fallback — Word sources** (parsed on the fly via ``core.docx_to_md``):
-       data/documents/<Category>/*.docx
+3. Else **Word/PDF** under ``data/documents/<name>/`` (``*.docx`` and optional ``pdf/*.pdf``).
 
 Main-body only: headers, footers, and images are not extracted. Files placed
 directly in data/documents/ (without a subfolder) are ignored.
@@ -464,6 +460,10 @@ class DocStore:
                     df[term] += 1
                 total_len += len(toks)
 
+            # Prefer exported MD/TXT when they actually index at least one document.
+            # If ``data/documents_md/<cat>`` contains only empty/broken .md files, we must
+            # fall through to ``data/documents/<cat>/`` (Word/PDF) — otherwise help_md etc.
+            # vanish from RAG despite a full docx corpus (common on pods).
             md_files = sorted(md_cat.rglob("*.md")) if md_cat.is_dir() else []
             if md_files:
                 source = "documents_md"
@@ -474,7 +474,15 @@ class DocStore:
                         ingest(name, _read_md(p))
                     except Exception:
                         logger.exception("DocStore: skip md %s", p.as_posix())
-            else:
+            if not docs and md_files:
+                logger.warning(
+                    "DocStore: category %r had %d .md path(s) under documents_md but indexed 0 docs; "
+                    "trying documents_txt then data/documents (Word/PDF).",
+                    cat_name,
+                    len(md_files),
+                )
+
+            if not docs:
                 txt_files = sorted(txt_cat.rglob("*.txt")) if txt_cat.is_dir() else []
                 if txt_files:
                     source = "documents_txt"
@@ -485,15 +493,24 @@ class DocStore:
                             ingest(name, _read_txt(p))
                         except Exception:
                             logger.exception("DocStore: skip txt %s", p.as_posix())
-                else:
-                    pdf_dir = sub / "pdf"
-                    file_jobs: List[tuple[Path, Any]] = []
-                    for p in sorted(sub.glob("*.docx")):
-                        file_jobs.append((p, _read_docx))
-                    if pdf_dir.is_dir():
-                        for p in sorted(pdf_dir.glob("*.pdf")):
-                            file_jobs.append((p, _read_pdf))
-                    file_jobs.sort(key=lambda x: x[0].as_posix().lower())
+                if not docs and txt_files:
+                    logger.warning(
+                        "DocStore: category %r had %d .txt path(s) under documents_txt but indexed 0 docs; "
+                        "trying data/documents (Word/PDF).",
+                        cat_name,
+                        len(txt_files),
+                    )
+
+            if not docs:
+                pdf_dir = sub / "pdf"
+                file_jobs: List[tuple[Path, Any]] = []
+                for p in sorted(sub.glob("*.docx")):
+                    file_jobs.append((p, _read_docx))
+                if pdf_dir.is_dir():
+                    for p in sorted(pdf_dir.glob("*.pdf")):
+                        file_jobs.append((p, _read_pdf))
+                file_jobs.sort(key=lambda x: x[0].as_posix().lower())
+                if file_jobs:
                     has_pdf = any(j[0].suffix.lower() == ".pdf" for j in file_jobs)
                     if has_pdf and any(j[0].suffix.lower() == ".docx" for j in file_jobs):
                         source = "docx+pdf"
