@@ -55,6 +55,9 @@ class Settings(BaseSettings):
     # Persist full injected document block for admin inspection (DB metadata).
     # Client-facing /chat metadata still strips this field.
     RAG_ADMIN_FULL_CONTEXT_MAX_CHARS: int = 120_000
+    # If True (default), run a second vLLM turn when the model claims “not in docs” despite a large inject.
+    # Disable for debugging or if repair adds latency without benefit.
+    RAG_REPAIR_ENABLED: bool = True
     # Replay answers only after explicit user « like »; dislikes remove the entry for that Q.
     LIKED_ANSWER_CACHE_ENABLED: bool = True
     # Default document corpus folder under data/documents_md|txt|…/<name>/ and the

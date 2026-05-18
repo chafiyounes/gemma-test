@@ -242,13 +242,28 @@ _NOT_FOUND_MARKERS = (
 
 
 def claims_absent_in_docs_response(model_text: str) -> bool:
-    """True if the model claims the answer is not in the (supposedly provided) procedures."""
+    """True if the model claims the answer is not in the (supposedly provided) procedures.
+
+    Uses word boundaries for French *absent/absente* so we do not match arbitrary substrings,
+    and requires procedure/document context for absence-style claims (reduces false positives).
+    """
     low = (model_text or "").lower()
     if any(m in low for m in _NOT_FOUND_MARKERS):
         return True
-    if "absent" in low and "document" in low:
+    has_proc_or_doc = (
+        "document" in low
+        or "documents" in low
+        or "procédure" in low
+        or "procedure" in low
+        or "procedures" in low
+    )
+    if has_proc_or_doc and (
+        re.search(r"\babsents?\b", low)
+        or re.search(r"\babsente\b", low)
+        or re.search(r"\babsence\b", low)
+    ):
         return True
-    if "introuvable" in low and ("procédure" in low or "document" in low):
+    if "introuvable" in low and ("procédure" in low or "document" in low or "documents" in low):
         return True
     return False
 
