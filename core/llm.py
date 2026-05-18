@@ -13,6 +13,7 @@ from core.chat_policy import (
     POLICY_UNSUPPORTED_LANG,
     answer_language_instruction_suffix,
     claims_absent_in_docs_response,
+    continuation_followup_message,
     detect_lang_bucket,
     has_unsupported_script,
     message_contains_profanity,
@@ -154,8 +155,11 @@ def _compute_rag_inject_limit_chars(
         room_tokens = 400.0
 
     # ~92% of the room goes to document bytes (greedy inject may still trim).
+    # Never force a minimum inject size: a ``max(2500,…)`` floor was stealing completion
+    # budget when prompts were already near ``--max-model-len`` (vLLM then clamps output).
     doc_chars = int(room_tokens * cpt * 0.92)
-    return max(2500, min(int(settings.RAG_INJECT_MAX_CHARS), doc_chars))
+    cap = int(settings.RAG_INJECT_MAX_CHARS)
+    return max(0, min(cap, doc_chars))
 
 
 def _vllm_unavailable_message(base_url: str, bucket: str, *, after_retries: bool) -> str:
@@ -469,17 +473,78 @@ class GemmaModel:
             pt = usage.get("prompt_tokens")
             ct = usage.get("completion_tokens")
             logger.info(
-                "vLLM chat done finish_reason=%s prompt_tokens=%s completion_tokens=%s max_tokens_sent=%s",
+                "vLLM chat finish_reason=%s prompt_tokens=%s completion_tokens=%s max_tokens_sent=%s",
                 finish,
                 pt,
                 ct,
                 payload.get("max_tokens"),
             )
+
+            continuation_rounds = 0
+            while (
+                finish == "length"
+                and continuation_rounds < settings.VLLM_MAX_CONTINUE_ROUNDS
+            ):
+                continuation_rounds += 1
+                logger.warning(
+                    "vLLM finish_reason=length; continuation %s/%s prompt_tokens=%s completion_tokens=%s tail=%r",
+                    continuation_rounds,
+                    settings.VLLM_MAX_CONTINUE_ROUNDS,
+                    pt,
+                    ct,
+                    (raw[-120:] if raw else ""),
+                )
+                try:
+                    cu = continuation_followup_message(bucket)
+                    cont_messages = list(messages) + [
+                        {"role": "assistant", "content": raw},
+                        {"role": "user", "content": cu},
+                    ]
+                    cont_payload = {
+                        **payload,
+                        "messages": cont_messages,
+                        "max_tokens": min(
+                            settings.MAX_NEW_TOKENS,
+                            settings.VLLM_CONTINUE_MAX_TOKENS,
+                        ),
+                    }
+                    resp_c = await self._client.post(
+                        "/v1/chat/completions", json=cont_payload
+                    )
+                    resp_c.raise_for_status()
+                    data = resp_c.json()
+                    choice = data["choices"][0]
+                    msg = choice.get("message") or {}
+                    chunk = (msg.get("content") or "").strip()
+                    finish = choice.get("finish_reason")
+                    usage = data.get("usage") or {}
+                    pt = usage.get("prompt_tokens")
+                    ct = usage.get("completion_tokens")
+                    if chunk:
+                        raw = raw + ("\n\n" if raw else "") + chunk
+                except Exception as exc:
+                    logger.error("vLLM continuation failed: %s", exc)
+                    break
+
+            if continuation_rounds:
+                rag_meta["continuation_rounds"] = continuation_rounds
+            rag_meta["vllm_finish_reason"] = finish
+            if pt is not None:
+                rag_meta["vllm_prompt_tokens"] = pt
+            if ct is not None:
+                rag_meta["vllm_completion_tokens"] = ct
+
+            logger.info(
+                "vLLM final finish_reason=%s prompt_tokens=%s completion_tokens=%s continuation_rounds=%s",
+                finish,
+                pt,
+                ct,
+                continuation_rounds,
+            )
             if finish == "length":
                 logger.warning(
-                    "vLLM finish_reason=length (context or max_tokens hit). "
-                    "Raise VLLM_MAX_MODEL_LEN / RAG_INJECT_MAX_CHARS or MAX_NEW_TOKENS. tail=%r",
-                    raw[-80:] if raw else "",
+                    "vLLM still finish_reason=length after continuation; tail=%r",
+                    raw[-120:] if raw else "",
                 )
             if (
                 settings.RAG_REPAIR_ENABLED
