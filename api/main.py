@@ -1,11 +1,14 @@
 import asyncio
 import json
 import logging
+import shutil
 import sqlite3
+import subprocess
 import time
 import uuid
 from collections import defaultdict, deque
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -59,6 +62,12 @@ WEB_DIST_CANDIDATES = [
     APP_ROOT.parent / "web_test" / "dist",
 ]
 ADMIN_SITE_CANDIDATES = [APP_ROOT / "admin_site"]
+
+# Prevent browsers from keeping an old index.html that points at outdated hashed JS/CSS.
+_SPA_INDEX_HEADERS = {
+    "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+    "Pragma": "no-cache",
+}
 
 
 def _find_dir(candidates: list[Path]) -> Optional[Path]:
@@ -563,13 +572,15 @@ async def chat(
 ):
     history = [{"role": t.role, "content": t.content} for t in body.conversation_history]
 
-    category = _resolve_rag_category(body.category)
     interaction_id = str(uuid.uuid4())
     client_ip = request.client.host if request.client else "unknown"
     account_id = int(session["uid"])
     user_label = str(session["username"])
     doc_store = get_doc_store()
-    rag_cat_key = ",".join(doc_store.rag_categories_for_primary(category or "")) or (category or "")
+    rag_cats = doc_store.rag_categories_all()
+    rag_cat_key = ",".join(rag_cats)
+    category_used_label = rag_cat_key if rag_cat_key else "all"
+    category: Optional[str] = None
 
     want_agentic = False
     agentic_explicit = body.agentic_rag is True
@@ -614,7 +625,7 @@ async def chat(
                         "message": body.message,
                         "response": result.response,
                         "role": session["role"],
-                        "category_used": rag_cat_key,
+                        "category_used": category_used_label,
                         "rag": result.rag_meta,
                     }
                 )
@@ -625,7 +636,7 @@ async def chat(
                 metadata={
                     "session_role": session["role"],
                     "rate_limit_remaining": rate_limiter.remaining(client_ip),
-                    "category_used": category,
+                    "category_used": category_used_label,
                     "rag": rag_client,
                 },
             )
@@ -637,8 +648,8 @@ async def chat(
         )
         if cached is not None:
             rag_meta = {
-                "category": category,
-                "categories_used": rag_cat_key.split(",") if rag_cat_key else [],
+                "category": None,
+                "categories_used": rag_cats,
                 "liked_cache_hit": True,
                 "context_chars": 0,
                 "documents_in_prompt": 0,
@@ -655,7 +666,7 @@ async def chat(
                         "message": body.message,
                         "response": cached,
                         "role": session["role"],
-                        "category_used": rag_cat_key,
+                        "category_used": category_used_label,
                         "rag": rag_meta,
                     }
                 )
@@ -666,7 +677,7 @@ async def chat(
                 metadata={
                     "session_role": session["role"],
                     "rate_limit_remaining": rate_limiter.remaining(client_ip),
-                    "category_used": category,
+                    "category_used": category_used_label,
                     "rag": rag_meta,
                 },
             )
@@ -691,7 +702,7 @@ async def chat(
                 "message": body.message,
                 "response": result.response,
                 "role": session["role"],
-                "category_used": rag_cat_key,
+                "category_used": category_used_label,
                 "rag": result.rag_meta,
             }
         )
@@ -703,7 +714,7 @@ async def chat(
         metadata={
             "session_role": session["role"],
             "rate_limit_remaining": rate_limiter.remaining(client_ip),
-            "category_used": category,
+            "category_used": category_used_label,
             "rag": rag_client,
         },
     )
@@ -791,10 +802,43 @@ async def admin_conversation(
     return {"items": items, "count": len(items)}
 
 
-def _git_pull_and_reindex_sync() -> dict:
-    import os
-    import subprocess
+def _build_web_test_sync(root: Path) -> Optional[str]:
+    """Run ``npm install`` + ``npm run build`` in web_test. Returns error message or None."""
+    web = root / "web_test"
+    if not (web / "package.json").is_file():
+        return None
+    npm = shutil.which("npm")
+    if not npm:
+        return "npm not found on PATH (install Node.js to build web_test)"
+    env = {**os.environ}
+    r1 = subprocess.run(
+        [npm, "install"],
+        cwd=str(web),
+        capture_output=True,
+        text=True,
+        timeout=600,
+        env=env,
+    )
+    if r1.returncode != 0:
+        err = (r1.stderr or r1.stdout or "").strip()
+        return err or "npm install failed"
+    r2 = subprocess.run(
+        [npm, "run", "build"],
+        cwd=str(web),
+        capture_output=True,
+        text=True,
+        timeout=600,
+        env=env,
+    )
+    if r2.returncode != 0:
+        err = (r2.stderr or r2.stdout or "").strip()
+        return err or "npm run build failed"
+    if not (web / "dist" / "index.html").is_file():
+        return "web_test/dist/index.html missing after build"
+    return None
 
+
+def _git_pull_and_reindex_sync() -> dict:
     root = APP_ROOT
     branch = (settings.GIT_BRANCH or "main").strip()
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
@@ -826,6 +870,9 @@ def _git_pull_and_reindex_sync() -> dict:
         env=env,
     )
     commit = (rev.stdout or "").strip() if rev.returncode == 0 else "unknown"
+    web_err = _build_web_test_sync(root)
+    if web_err:
+        return {"ok": False, "step": "web_build", "stderr": web_err}
     reload_document_store()
     cats = get_doc_store().list_categories()
     return {
@@ -833,16 +880,18 @@ def _git_pull_and_reindex_sync() -> dict:
         "commit": commit,
         "branch": branch,
         "rag_categories": cats,
+        "web_test": "built",
         "note": (
-            "Index RAG rechargé depuis le disque. Les changements de code Python "
-            "exigent encore un redémarrage du processus API (ex. fenêtre tmux / uvicorn)."
+            "Frontend web_test/dist reconstruit, index RAG rechargé. "
+            "Si le chat ne reflète pas les derniers .js, redémarrez l’API "
+            "(ex. bash scripts/restart_api.sh) pour recharger les fichiers statiques."
         ),
     }
 
 
 @app.post("/admin/git-refresh")
 async def admin_git_refresh(_admin: dict = Depends(_require_administrator)):
-    """``git fetch`` + ``reset --hard origin/<branch>``, puis rechargement du BM25."""
+    """``git fetch`` + ``reset --hard origin/<branch>``, build ``web_test/dist``, puis BM25 reload."""
     if not settings.ADMIN_GIT_REFRESH_ENABLED:
         raise HTTPException(403, detail="ADMIN_GIT_REFRESH_ENABLED=false")
     out = await asyncio.to_thread(_git_pull_and_reindex_sync)
@@ -1079,11 +1128,13 @@ async def serve_spa(full_path: str):
     if web_dist:
         file_path = web_dist / full_path
         if file_path.is_file():
+            if file_path.name == "index.html":
+                return FileResponse(str(file_path), headers=_SPA_INDEX_HEADERS)
             return FileResponse(str(file_path))
         # SPA fallback — serve index.html for all other routes
         index = web_dist / "index.html"
         if index.exists():
-            return FileResponse(str(index))
+            return FileResponse(str(index), headers=_SPA_INDEX_HEADERS)
     # No dist yet — return helpful JSON
     return JSONResponse(
         status_code=200,

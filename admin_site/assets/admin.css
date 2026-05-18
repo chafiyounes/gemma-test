@@ -713,6 +713,18 @@ body {
   padding: 6px 10px;
 }
 
+.doc-file--dup {
+  background: rgba(250, 204, 21, 0.12) !important;
+  border-left: 3px solid #ca8a04;
+}
+
+.doc-dup-icon {
+  flex-shrink: 0;
+  font-size: 1rem;
+  line-height: 1;
+  color: #ca8a04;
+}
+
 .doc-file.pending {
   border-color: rgba(217, 119, 69, 0.4);
 }
@@ -1370,6 +1382,18 @@ body.doc-modal-open {
   grid-template-columns: auto minmax(0, 1fr) minmax(0, auto);
   gap: 0.5rem 0.65rem;
   align-items: center;
+}
+
+.documents-categories .doc-file.doc-file--dup {
+  background: rgba(250, 204, 21, 0.08);
+  border-left: 3px solid #ca8a04;
+}
+
+.documents-categories .doc-dup-icon {
+  flex-shrink: 0;
+  font-size: 1rem;
+  line-height: 1;
+  color: #fbbf24;
 }
 
 .doc-file-kind {

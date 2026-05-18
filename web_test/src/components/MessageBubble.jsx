@@ -1,5 +1,15 @@
 import { useState } from "react";
+import { getApiUrl } from "../services/api";
 import "./MessageBubble.css";
+
+function resolveDocImageSrc(src) {
+  if (!src) return src;
+  const s = src.trim();
+  if (/^https?:\/\//i.test(s)) return s;
+  const base = getApiUrl().replace(/\/+$/, "");
+  const path = s.startsWith("/") ? s : `/api/rag-media/${s.replace(/^\.?\//, "")}`;
+  return `${base}${path}`;
+}
 
 const DISLIKE_REASONS = ["Hors sujet", "Incomplete", "Incorrecte"];
 
@@ -96,6 +106,14 @@ function renderFormattedMessage(content) {
       return;
     }
 
+    const imgOnly = line.match(/^!\[([^\]]*)\]\(([^)]+)\)\s*$/);
+    if (imgOnly) {
+      flushParagraph();
+      flushList();
+      blocks.push({ type: "img", alt: imgOnly[1].trim(), src: imgOnly[2].trim() });
+      return;
+    }
+
     const sourceCandidate = line.replace(/^\*\*\s*/, "").replace(/\s*\*\*$/, "").trim();
     const sourceMatch = sourceCandidate.match(/^source\s*[:\-]\s*(.+)$/i);
     if (sourceMatch) {
@@ -149,6 +167,19 @@ function renderFormattedMessage(content) {
   flushList();
 
   return blocks.map((block, blockIndex) => {
+    if (block.type === "img") {
+      const src = resolveDocImageSrc(block.src);
+      return (
+        <div key={`img-${blockIndex}`} className="msg-img-wrap">
+          <img
+            src={src}
+            alt={block.alt || ""}
+            className="msg-inline-img"
+            loading="lazy"
+          />
+        </div>
+      );
+    }
     if (block.type === "h") {
       return (
         <p key={`h-${blockIndex}`} className="msg-section-title">

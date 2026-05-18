@@ -6,6 +6,7 @@ Run from the repo root so .env / INTERACTIONS_DB_PATH resolve like the API:
 
     cd /workspace/gemma-test
     python3 scripts/manage_users.py list
+    python3 scripts/manage_users.py list --show-hashes   # PBKDF2 hashes only, not plaintext
     python3 scripts/manage_users.py add younes 'Secret!123' administrator
     python3 scripts/manage_users.py set-password younes 'NewSecret!456'
     python3 scripts/manage_users.py set-role nouhaila manager
@@ -48,16 +49,26 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
-def cmd_list(_args: argparse.Namespace) -> None:
+def cmd_list(args: argparse.Namespace) -> None:
+    cols = "id, username, role, password_hash, created_at" if args.show_hashes else "id, username, role, created_at"
     with _connect() as conn:
-        rows = conn.execute(
-            "SELECT id, username, role, created_at FROM users ORDER BY id"
-        ).fetchall()
+        rows = conn.execute(f"SELECT {cols} FROM users ORDER BY id").fetchall()
     if not rows:
         print("(no users)")
         return
+    if not args.show_hashes:
+        print(
+            "(passwords are stored as one-way PBKDF2 hashes only — plaintext is not in the DB; "
+            "use: list --show-hashes to print hashes)",
+        )
     for r in rows:
-        print(f"{r['id']:>4}  {r['username']!s:20}  {r['role']!s:16}  {r['created_at']!s}")
+        if args.show_hashes:
+            print(
+                f"{r['id']:>4}  {r['username']!s:20}  {r['role']!s:16}  "
+                f"{r['password_hash']!s}  {r['created_at']!s}"
+            )
+        else:
+            print(f"{r['id']:>4}  {r['username']!s:20}  {r['role']!s:16}  {r['created_at']!s}")
 
 
 def cmd_add(args: argparse.Namespace) -> None:
@@ -121,7 +132,16 @@ def main() -> None:
     p = argparse.ArgumentParser(description="Manage Gemma SQLite users")
     sub = p.add_subparsers(dest="cmd", required=True)
 
-    sub.add_parser("list", help="List users (no secrets shown)").set_defaults(func=cmd_list)
+    sub_list = sub.add_parser(
+        "list",
+        help="List users (plaintext passwords are never stored; use --show-hashes for PBKDF2 hashes)",
+    )
+    sub_list.add_argument(
+        "--show-hashes",
+        action="store_true",
+        help="Include password_hash column (sensitive; still not recoverable plaintext)",
+    )
+    sub_list.set_defaults(func=cmd_list)
 
     q = sub.add_parser("add", help="Create user")
     q.add_argument("username")

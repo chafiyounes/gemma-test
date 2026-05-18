@@ -1,10 +1,10 @@
 # Architecture — gemma-test (SENDIT internal chatbot)
 
-Canonical description of how the repo is wired: **FastAPI backend**, **React UI (`web_test`)**, **category-aware RAG**, and **OpenAI-compatible inference** (primary: **vLLM** on the GPU pod; optional: `serve_gemma4.py` via Transformers).
+**Stack:** FastAPI (`:8000`), React (`web_test` → `dist/`), category-aware **RAG**, **OpenAI-compatible** inference (**vLLM** `:8002`; optional `serve_gemma4.py`). SQLite for interactions. Companion: [`DEPLOYMENT.md`](DEPLOYMENT.md) (SSH, pod, glitches), [`ROADMAP.md`](ROADMAP.md) (priorities, actions beyond chat).
 
 ---
 
-## 1. System overview (Mermaid)
+## 1. System overview
 
 ```mermaid
 flowchart TB
@@ -20,21 +20,22 @@ flowchart TB
     DB[(SQLite interactions)]
   end
   subgraph Inference[":8002 OpenAI-compatible"]
-    VLLM["vLLM (preferred on pod)\nscripts/start_vllm.sh"]
-    SGV["serve_gemma4.py (Transformers fallback)"]
+    VLLM["vLLM scripts/start_vllm.sh"]
+    SGV["serve_gemma4.py"]
   end
   subgraph Data
+    MD[data/documents_md/…]
     TXT[data/documents_txt/…]
-    DOCX[data/documents/…]
+    DOCX["data/documents/… .docx pdf/"]
   end
-
-  B -->|HTTP REST + static| M
+  B --> M
   M --> POL
   M --> PL
   PL --> LLM
   LLM -->|POST /v1/chat/completions| VLLM
-  LLM -.->|alternative| SGV
+  LLM -.-> SGV
   PL --> DOC
+  DOC --> MD
   DOC --> TXT
   DOC --> DOCX
   M --> DB
@@ -42,163 +43,101 @@ flowchart TB
 
 ---
 
-## 2. Chat request path (sequence)
+## 2. Chat path (classic vs agentic)
 
-```mermaid
-sequenceDiagram
-  participant U as User
-  participant API as FastAPI
-  participant POL as chat_policy
-  participant RAG as DocStore
-  participant V as vLLM
+**Classic RAG:** `POST /chat` → policy → DocStore builds **DOCUMENTS DE RÉFÉRENCE** (full category or BM25) → one vLLM completion with `SYSTEM_PROMPT` + docs + history.
 
-  U->>API: POST /chat (message, category, history)
-  API->>POL: profanity / script / lang checks
-  alt blocked by policy
-    POL-->>API: short policy message
-    API-->>U: JSON response
-  else OK
-    API->>RAG: build_context or full category
-    RAG-->>API: DOCUMENTS DE RÉFÉRENCE block
-    API->>V: chat completions (system+docs+history+user)
-    V-->>API: assistant text
-    API-->>U: JSON response
-  end
-```
+**Agentic RAG** (optional, `AGENTIC_RAG_ENABLED=true` and client `agentic_rag: true` for admin unless `AGENTIC_RAG_ALLOW_NON_ADMIN`): **two-phase** by default (`AGENTIC_RAG_TWO_PHASE`):
+
+1. **Router** — English system prompt + JSON **catalog** per indexed doc: `id`, `path`, `objective`, `section_1` (heuristic extract from SOP body). Model calls tool **`request_documents(ids)`**; backend returns **full** bodies from `DocStore`. First vLLM round uses a **forced** `tool_choice` for `request_documents` so the router cannot “finish” without a tool call. Up to **`AGENTIC_RAG_ROUTER_MAX_ROUNDS`** rounds; **`AGENTIC_RAG_ROUTER_MAX_IDS_PER_ROUND`** ids per call; **`AGENTIC_RAG_ROUTER_MAX_TOTAL_IDS`** unique docs cap (default aim **~5**, max **10** via settings + prompts).
+2. **Answer** — Second completion: normal **`SYSTEM_PROMPT`** + same **DOCUMENTS DE RÉFÉRENCE** block formatting as classic RAG (`format_retrieved_documents_for_prompt`, greedy inject / query windows). **No tools.** Metadata must keep **`tool_rounds`** from the router (answer phase must not overwrite it with `0`).
+
+**Not-found:** If the router retrieves nothing, response uses the configured agentic not-found string; `normalize_not_found_response` applies as in classic RAG.
+
+**Code:** `core/agentic_rag.py` (catalog, router, tools), `core/llm.py` (`generate_agentic_rag`), `api/main.py` (agentic branch), `app_config/settings.py` (`AGENTIC_*`).
 
 ---
 
 ## 3. RAG: full category vs BM25
 
-Categories are subfolders under `data/documents/<category>/` (Word) or `data/documents_txt/<category>/` (preferred plain text from `scripts/export_sop_to_txt.py`).
+Sources: prefer `data/documents_md/<category>/`, else `documents_txt`, else `.docx` / `pdf/*.pdf` (**pypdf**).
 
 ```mermaid
 flowchart LR
   Q[User message + category]
   S[Sum of chars in category]
-  S -->|≤ RAG_FULL_CATEGORY_MAX_CHARS| ALL[Inject all docs up to RAG_INJECT_MAX_CHARS]
-  S -->|>| BM25[BM25 top-k = RAG_BM25_K]
-  BM25 --> EXP{Language bucket\nfr or darija?}
-  EXP -->|yes| HINT[expand_query_for_retrieval_fr_darija]
-  EXP -->|no| PLAIN[plain query tokens]
+  S -->|≤ RAG_FULL_CATEGORY_MAX_CHARS| ALL[Inject all up to RAG_INJECT_MAX_CHARS]
+  S -->|>| BM25[BM25 top-k RAG_BM25_K]
+  BM25 --> EXP{Bucket fr or darija?}
+  EXP -->|yes| HINT[expand_query FR/darija]
+  EXP -->|no| PLAIN[plain query]
   HINT --> CTX[build_context]
   PLAIN --> CTX
   ALL --> INJ[build_all_docs_context]
 ```
 
-**Important:** French keyword / synonym expansion for BM25 is **only** applied when the detected bucket is `fr` or `darija`. **English** (and other buckets such as MSA `ar`) keep the retrieval query in normal words — no French stuffing (`core/llm.py`, `core/documents.py`).
+**French/Darija expansion** for BM25 only when the language bucket is `fr` or `darija` — not for English/MSA retrieval query construction (`core/llm.py`, `core/documents.py`).
+
+### 3.1 Greedy inject (`RAG_GREEDY_FULL_DOCS=true`)
+
+`_greedy_inject_document_blocks` + `_best_window_for_query`: prefer **full** top-ranked files, then **at most one** query-aligned excerpt; avoid thin slices of every file. Agentic answer phase reuses the same helpers.
+
+### 3.2 Optional map / embeddings “test track”
+
+Separate from the **runtime catalog** above: scripts can build **`data/agentic_map`** (titles/tags) and **`data/agentic_index`** (E5 embeddings) for **BM25/E5 map search** experiments. Commands: `scripts/bootstrap_agentic_map.py`, `scripts/build_agentic_embedding_index.py`. If you do not build them, agentic flow still works off **DocStore** catalog. See settings `AGENTIC_RAG_MAP_DIR`, `AGENTIC_RAG_INDEX_DIR`, `AGENTIC_RAG_USE_EMBEDDINGS`.
 
 ---
 
-## 4. Main modules
+## 4. Gemma 4 tool use (vLLM)
+
+Agentic mode needs vLLM started with **Gemma 4 tooling** (see `scripts/start_vllm.sh` when `TARGET=gemma4`): e.g. `--enable-auto-tool-choice`, `--tool-call-parser gemma4`, Gemma 4 **tool** chat template (often vendored under `scripts/vendor/`). If tools are misconfigured, completions may lack `tool_calls` — smoke test: `scripts/test_agentic_rag_pod.py` (`vllm_tool_roundtrip`).
+
+---
+
+## 5. Main modules
 
 | Layer | Path | Role |
 |--------|------|------|
-| HTTP API | `api/main.py` | Routes: chat, auth, categories, health, static `web_test/dist` if built |
-| Schemas | `api/schemas.py` | Pydantic request/response models |
-| Pipeline | `core/pipeline.py` | `GemmaPipeline.process` → `GemmaModel.generate` |
-| LLM client | `core/llm.py` | Builds system prompt + RAG block; calls `VLLM_BASE_URL`; `SYSTEM_PROMPT` rules (language, context, continuations) |
-| Policies | `core/chat_policy.py` | Language bucket, profanity, unsupported scripts, retrieval anchor query, “not found” normalisation |
-| Documents | `core/documents.py` | Load `documents_txt` / `.docx`, BM25 index per category, `DocStore` |
-| Settings | `app_config/settings.py` | Env-backed: vLLM URL, RAG limits, auth, rate limits, generation defaults |
-| Persistence | `core/persistence.py` | SQLite interaction logging |
-| Security | `core/security.py` | Cookie sessions, admin vs user |
-| UI | `web_test/src/…` | Vite/React client; API base URL in `web_test/src/services/api.js` |
+| HTTP | `api/main.py` | `/chat`, auth, categories, health, admin, static |
+| Pipeline | `core/pipeline.py` | `process` / `process_agentic` |
+| LLM | `core/llm.py` | `SYSTEM_PROMPT`, RAG block, vLLM client |
+| Policy | `core/chat_policy.py` | Lang, profanity, anchors, not-found normalisation |
+| Documents | `core/documents.py` | Load index, BM25, greedy inject, `_best_window_for_query` |
+| Agentic | `core/agentic_rag.py` | Catalog, router, `request_documents`, formatting |
+| Settings | `app_config/settings.py` | Env-backed knobs |
+| UI | `web_test/` | Vite/React |
 
 ---
 
-## 5. Inference on the pod
+## 6. Inference on the pod
 
-**Preferred:** **vLLM ≥ 0.19** with tensor parallelism across **2× A40** (Gemma 4 MoE).
+- **vLLM** on **8002** — `scripts/start_vllm.sh [gemma4|gemma|gemmaroc|atlaschat]`. Typical: Gemma 4 MoE, `VLLM_MAX_MODEL_LEN` vs `RAG_INJECT_MAX_CHARS` / `MAX_NEW_TOKENS` must stay within model context.
+- **Fallback:** `scripts/serve_gemma4.py` (Transformers).
 
-- Setup: `scripts/install_vllm.sh` → venv `/workspace/vllm-venv`
-- Start: `bash scripts/start_vllm.sh [gemma4|gemma|gemmaroc|atlaschat]`
-- Listens on **port 8002**, OpenAI-compatible **`POST /v1/chat/completions`**, **`GET /health`**
-- Env knobs (typical): `VLLM_TENSOR_PARALLEL_SIZE=2`, `VLLM_MAX_MODEL_LEN`, `VLLM_GPU_MEMORY_UTILIZATION`
-- **`VLLM_MAX_MODEL_LEN` vs RAG:** full-category inject can be **many thousand tokens**. If `prompt_tokens + max_tokens` would exceed `--max-model-len`, vLLM **shrinks the completion budget** — answers then stop mid-sentence at roughly the same place (`finish_reason=length`). Defaults: `start_vllm.sh` uses **12288** (tunable); `RAG_INJECT_MAX_CHARS` limits inject size so smaller `--max-model-len` (e.g. 8192) still leaves room for long answers. API logs `prompt_tokens` / `completion_tokens` / `finish_reason` after each chat.
-- `serve_gemma4` processes are killed when starting vLLM (see `start_vllm.sh`)
-
-**Fallback / legacy:** `scripts/serve_gemma4.py` — single-process FastAPI + Transformers + optional CPU offload; same HTTP shape as vLLM for the backend client.
-
-Backend **does not** embed the model; it only needs `VLLM_BASE_URL` pointing at whatever serves `/v1/chat/completions`.
+Backend only calls **`VLLM_BASE_URL`**; it does not load weights.
 
 ---
 
-## 6. Language, system prompt, and context
+## 7. Language and prompts
 
-- **Detection & policy** live in `core/chat_policy.py` (`detect_lang_bucket`, etc.).
-- **Generation rules** (RAG usage, FR / EN / MSA / Darija behaviour, “continue”, source line, out-of-document answers) are in **`SYSTEM_PROMPT`** in `core/llm.py`. The API appends the **DOCUMENTS DE RÉFÉRENCE** section after that block when a category is selected.
-- **Retrieval query expansion** for BM25 is gated: `expand_fr_darija_hints=(bucket in ("fr", "darija"))` inside `GemmaModel.generate`.
+Detection and rules in `core/chat_policy.py` and **`SYSTEM_PROMPT`** in `core/llm.py`. **DOCUMENTS DE RÉFÉRENCE** appended when a category applies.
 
 ---
 
-## 7. Deployment notes
+## 8. Environment (summary)
 
-- **Roadmap (actions / tools / CI):** see [`NEXT_STEPS_ACTIONS.md`](NEXT_STEPS_ACTIONS.md).
-- Automation helpers live under **`artifacts/`** (e.g. `pod_deploy.py`) — paths and SSH details may be environment-specific; adjust before running.
-- Typical pod flow: install vLLM once → `git pull` → `start_vllm.sh` → start backend with uvicorn on **8000** (e.g. `uvicorn api.main:app --host 0.0.0.0 --port 8000`).
-- Frontend: build `web_test` (`npm run build`) so `web_test/dist` can be served by FastAPI, or run Vite dev server with CORS origins in `FRONTEND_ALLOWED_ORIGINS`.
-- **Browser UI:** conversations are stored in **`localStorage`** (`sendbot_state`). The app **replays saved messages** after refresh — it is **not** the model “cache”. If you once got a truncated reply, open **New chat** (or clear site data) so you are not staring at the old text.
+Full list: **`.env.example`**. Highlights: `VLLM_*`, `RAG_*`, `AGENTIC_RAG_ENABLED`, `AGENTIC_RAG_TWO_PHASE`, `AGENTIC_RAG_ROUTER_MAX_TOTAL_IDS`, `AGENTIC_RAG_ROUTER_MAX_IDS_PER_ROUND`, `AGENTIC_RAG_ROUTER_MAX_ROUNDS`, `AGENTIC_RAG_ROUTER_TARGET_DOCS`, `MAX_NEW_TOKENS`.
 
 ---
 
-## 8. Environment variables (summary)
+## 9. Regression checks
 
-See **`.env.example`**. Notable keys:
-
-| Variable | Purpose |
-|----------|---------|
-| `VLLM_BASE_URL` | Base URL for inference (e.g. `http://localhost:8002` when tunneled from pod) |
-| `VLLM_MODEL_NAME` | Must match `--served-model-name` in vLLM (e.g. `gemma4-26b-it`) |
-| `RAG_FULL_CATEGORY_MAX_CHARS` | Below this → inject entire category; above → BM25 |
-| `RAG_INJECT_MAX_CHARS` | Cap on injected document text |
-| `RAG_BM25_K` | Top-k documents for BM25 |
-| `API_PORT` | Uvicorn port (default 8000) |
+- `python scripts/test_rag_inject_greedy.py`
+- `python scripts/verify_map_rag_pipeline.py` (optional)
+- On GPU pod with secrets: `python scripts/test_agentic_rag_pod.py`
 
 ---
 
-## 9. Local access via SSH tunnel
-
-```bash
-ssh -L 8000:localhost:8000 -L 8002:localhost:8002 <your-pod-alias>
-# API: http://localhost:8000
-# vLLM: http://localhost:8002
-```
-
----
-
-## 10. Optional LaTeX figure (TikZ)
-
-Compile with `pdflatex` (package **`tikz`**):
-
-```latex
-\documentclass[tikz,border=4pt]{standalone}
-\usetikzlibrary{arrows.meta,positioning}
-\begin{document}
-\begin{tikzpicture}[
-  node distance=6mm and 10mm,
-  box/.style={draw, rounded corners, align=center, inner sep=4pt, font=\small},
-  arr/.style={-{Stealth}, thick}]
-  \node[box] (u) {User\\\texttt{web\_test}};
-  \node[box, right=of u] (api) {FastAPI\\\texttt{api/main.py}};
-  \node[box, right=of api] (rag) {RAG\\\texttt{DocStore}};
-  \node[box, below=of api] (v) {vLLM :8002\\\texttt{start\_vllm.sh}};
-  \draw[arr] (u) -- (api);
-  \draw[arr] (api) -- (rag);
-  \draw[arr] (api) -- (v);
-\end{tikzpicture}
-\end{document}
-```
-
----
-
-## 11. Checkpoint / ops habits
-
-- Prefer **`artifacts/`** for one-off diagnostic scripts; avoid littering the repo root.
-- After changing inference (vLLM flags, model path) or RAG defaults, update this file and `.env.example` if new variables appear.
-
----
-
-## 12. Git
+## 10. Git
 
 `https://github.com/chafiyounes/gemma-test`

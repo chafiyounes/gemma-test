@@ -63,7 +63,7 @@ class GemmaPipeline:
             out = await self.llm.generate_agentic_rag(
                 message=message,
                 history=history or [],
-                category=category or "",
+                category=category,
             )
             return PipelineResult(
                 response=out.text,

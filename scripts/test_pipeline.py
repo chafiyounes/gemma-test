@@ -21,6 +21,7 @@ import httpx
 API_URL = os.environ.get("API_URL", "http://localhost:8000")
 VLLM_URL = os.environ.get("VLLM_URL", "http://localhost:8002")
 USER_PASSWORD = os.environ.get("USER_PASSWORD", "user1234")
+USER_USERNAME = os.environ.get("USER_USERNAME", "user")
 
 PASS = "✅"
 FAIL = "❌"
@@ -74,7 +75,7 @@ async def test_auth():
             # Login
             resp = await client.post(
                 f"{API_URL}/auth/login",
-                json={"password": USER_PASSWORD},
+                json={"username": USER_USERNAME, "password": USER_PASSWORD},
             )
             if resp.status_code != 200:
                 print(f"  {FAIL} Login failed with status {resp.status_code}")

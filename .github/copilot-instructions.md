@@ -1,8 +1,10 @@
 # Copilot Instructions
 
 ## Required Reading
-- Always read [`project/ARCHITECTURE.md`](../project/ARCHITECTURE.md) before deployment, inference, or pod-debugging changes (diagrams + full stack).
-- [.copilot/ARCHITECTURE.md](../.copilot/ARCHITECTURE.md) and [.copilot/DEPLOYMENT.md](../.copilot/DEPLOYMENT.md) point to the same canonical doc.
+- **`project/ARCHITECTURE.md`** — stack, RAG, agentic two-phase, modules, inference.
+- **`project/DEPLOYMENT.md`** — RunPod SSH (gateway vs direct), deploy scripts, pitfalls, health.
+- **`project/ROADMAP.md`** — product priorities, admin/debug, future “actions” beyond chat.
+- Shortcuts: [.copilot/ARCHITECTURE.md](../.copilot/ARCHITECTURE.md), [.copilot/DEPLOYMENT.md](../.copilot/DEPLOYMENT.md) point into `project/`.
 
 ## Architecture Essentials
 - **Inference (preferred on pod):** **vLLM** on **port 8002** — `scripts/start_vllm.sh` (tensor parallel across 2× A40). **Legacy:** `scripts/serve_gemma4.py` (Transformers).
@@ -10,12 +12,12 @@
 - **RAG:** For each category, if corpus size ≤ `RAG_FULL_CATEGORY_MAX_CHARS`, **all** docs in that category are injected (`build_all_docs_context`); else **BM25** top-k. **BM25 query expansion** (French logistics hints) applies only when the user language bucket is **French or Darija** — English stays English-only (`core/llm.py`).
 
 ## SSH to RunPod
-- RunPod SSH gateway **requires a PTY**. Never use `ssh user@host "command"` — it will fail with "Your SSH client doesn't support PTY".
-- Use `scripts/pod_cmd.py` (paramiko-based) for automated commands, or connect interactively.
-- Current SSH user: `l8lnmi6ofx0tpz-64411278@ssh.runpod.io` with key `~/.ssh/id_ed25519`.
+- **Gateway** `ssh.runpod.io`: often needs a **PTY**; bare `ssh user@host "cmd"` may fail. Use **`scripts/pod_cmd.py`** or **`scripts/deploy_runner.py`**, or interactive SSH.
+- **`scp`/SFTP** through the gateway is often broken; prefer **`git push` + `git pull`** on the pod, or **direct** `root@<ip> -p <port>` if RunPod exposes it (ports change when the pod is recreated).
+- Example gateway user: `l8lnmi6ofx0tpz-64411278@ssh.runpod.io` with key `~/.ssh/id_ed25519`.
 
 ## Code Change Rules
-- When any code, docs, environment variables, deployment scripts, or model-loading logic changes, update **`project/ARCHITECTURE.md`** (and keep `.copilot/*.md` pointers accurate if needed).
+- When behaviour, env vars, deploy, or inference setup changes, update **`project/ARCHITECTURE.md`** and **`project/DEPLOYMENT.md`** as needed (and **`project/ROADMAP.md`** for product/process shifts). Keep `.copilot/*.md` pointers accurate.
 - Temporary Python files used for diagnostics, checks, or one-off debugging must be placed in `artifacts/`.
 - Do not leave temporary `.py` files in the repository root or in application folders.
 

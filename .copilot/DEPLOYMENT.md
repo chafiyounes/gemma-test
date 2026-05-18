@@ -1,8 +1,8 @@
 # Deployment
 
-**Canonical documentation:** [`project/ARCHITECTURE.md`](../project/ARCHITECTURE.md) (deployment section).
+**Canonical deployment + SSH guide:** [`project/DEPLOYMENT.md`](../project/DEPLOYMENT.md)
 
-Quick reference:
+Architecture and RAG: [`project/ARCHITECTURE.md`](../project/ARCHITECTURE.md) · Product roadmap: [`project/ROADMAP.md`](../project/ROADMAP.md)
 
 | Service | Default port | Notes |
 |--------|--------------|--------|

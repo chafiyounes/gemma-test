@@ -91,12 +91,11 @@ export async function checkHealth() {
   return res.json();
 }
 
-export async function sendChat({ message, sessionId, history, category }) {
+export async function sendChat({ message, sessionId, history }) {
   const payload = {
     message,
     session_id: sessionId,
     conversation_history: history.slice(-20),
-    category: category || null,
   };
   if (import.meta.env.VITE_AGENTIC_RAG === "true") {
     payload.agentic_rag = true;
@@ -106,13 +105,6 @@ export async function sendChat({ message, sessionId, history, category }) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(TIMEOUT_MS),
-  });
-  return res.json();
-}
-
-export async function fetchCategories() {
-  const res = await apiFetch("/categories", {
-    signal: AbortSignal.timeout(10_000),
   });
   return res.json();
 }

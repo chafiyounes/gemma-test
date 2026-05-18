@@ -138,8 +138,9 @@ def test_vllm_tool_roundtrip(vllm: httpx.Client, model: str) -> bool:
         return False
 
 
-def login(api: httpx.Client, password: str) -> bool:
-    r = api.post("/auth/login", json={"password": password})
+def login(api: httpx.Client, password: str, username: str | None = None) -> bool:
+    u = username or os.environ.get("ADMIN_USERNAME", "admin")
+    r = api.post("/auth/login", json={"username": u, "password": password})
     return r.status_code == 200
 
 
@@ -299,7 +300,7 @@ def main() -> int:
 
         if user_pw:
             api.cookies.clear()
-            if login(api, user_pw):
+            if login(api, user_pw, os.environ.get("USER_USERNAME", "user")):
                 sc4, _ = chat_agentic(
                     api,
                     message="test",
