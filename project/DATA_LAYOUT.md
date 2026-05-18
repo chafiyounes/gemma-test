@@ -45,6 +45,8 @@ python scripts/fetch_pod_tar.py --remote /workspace/gemma-test-backup-2026050512
 
 Edit `HOST` / `USER` in `scripts/fetch_pod_tar.py` and `scripts/deploy_runner.py` if your RunPod SSH identity changes.
 
+**Note:** Extracting this archive on **Windows** can normalize **Unicode** characters in filenames (accents may become stripped or substituted). The **`.docx` contents are unchanged**; if you need exact names in git, extract or `git add` from Linux/WSL, or treat the pod as source of truth for display names.
+
 ---
 
 ## 5. Example categories
