@@ -8,7 +8,26 @@ import {
 } from "../services/api";
 import MessageBubble from "./MessageBubble";
 import TypingIndicator from "./TypingIndicator";
+import SettingsModal from "./SettingsModal";
 import "./ChatArea.css";
+
+const RAG_SCOPE_STORAGE_KEY = "sendbot_rag_scope";
+
+const RAG_SCOPES = [
+  { id: "procedures", label: "Procédures" },
+  { id: "help_md", label: "Aide" },
+  { id: "all", label: "Tout" },
+];
+
+function readInitialRagScope() {
+  try {
+    const v = localStorage.getItem(RAG_SCOPE_STORAGE_KEY);
+    if (v && RAG_SCOPES.some((s) => s.id === v)) return v;
+  } catch {
+    /* ignore */
+  }
+  return "all";
+}
 
 const SAMPLES = [
   "Comment postuler pour un poste de livreur chez SENDIT ?",
@@ -26,6 +45,8 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
     setConversationLoading,
   } = useChat();
   const [input, setInput] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [ragScope, setRagScope] = useState(readInitialRagScope);
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
 
@@ -74,6 +95,7 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
         message: text,
         sessionId,
         history: [...historyAtSend, { role: "user", content: text }],
+        category: ragScope,
       });
       addMessage(
         {
@@ -124,20 +146,58 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
     }
   };
 
+  const setScope = (id) => {
+    setRagScope(id);
+    try {
+      localStorage.setItem(RAG_SCOPE_STORAGE_KEY, id);
+    } catch {
+      /* ignore */
+    }
+  };
+
   return (
     <div className="chat-area">
+      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} session={session} />
       {/* Top bar */}
       <header className="chat-topbar">
-        <button className="topbar-btn menu-btn" onClick={onOpenSidebar}>
+        <button type="button" className="topbar-btn menu-btn" onClick={onOpenSidebar}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M3 12h18M3 6h18M3 18h18" />
           </svg>
         </button>
-        <div className="topbar-badge">
-          Acces{" "}
-          {isPrivilegedChatRole(session?.role)
-            ? sessionRoleLabel(session?.role).toLowerCase()
-            : "client"}
+        <div className="rag-scope-group" role="tablist" aria-label="Portée des documents">
+          {RAG_SCOPES.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              role="tab"
+              aria-selected={ragScope === s.id}
+              className={`rag-scope-btn ${ragScope === s.id ? "active" : ""}`}
+              onClick={() => setScope(s.id)}
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+        <div className="topbar-right">
+          <button
+            type="button"
+            className="topbar-btn"
+            title="Réglages"
+            aria-label="Réglages"
+            onClick={() => setSettingsOpen(true)}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
+            </svg>
+          </button>
+          <div className="topbar-badge">
+            Acces{" "}
+            {isPrivilegedChatRole(session?.role)
+              ? sessionRoleLabel(session?.role).toLowerCase()
+              : "client"}
+          </div>
         </div>
       </header>
 

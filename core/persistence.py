@@ -290,6 +290,54 @@ class InteractionStore:
             uid = int(conn.execute("SELECT last_insert_rowid()").fetchone()[0])
         return {"uid": uid, "username": u, "role": r}
 
+    def list_users(self) -> List[Dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, username, role, created_at
+                FROM users
+                ORDER BY username COLLATE NOCASE
+                """
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def update_user(
+        self,
+        uid: int,
+        *,
+        password: Optional[str] = None,
+        role: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        if password is None and role is None:
+            raise ValueError("nothing to update")
+        new_role: Optional[str] = None
+        if role is not None:
+            new_role = AuthManager.normalize_role(role)
+            if new_role not in ("user", "manager", "administrator"):
+                raise ValueError("role must be user, manager, or administrator")
+        with self._connect() as conn:
+            row = conn.execute("SELECT id FROM users WHERE id = ?", (uid,)).fetchone()
+            if row is None:
+                raise ValueError("user not found")
+            if password is not None:
+                conn.execute(
+                    "UPDATE users SET password_hash = ? WHERE id = ?",
+                    (_hash_password(password), uid),
+                )
+            if new_role is not None:
+                conn.execute(
+                    "UPDATE users SET role = ? WHERE id = ?",
+                    (new_role, uid),
+                )
+            conn.commit()
+            row2 = conn.execute(
+                "SELECT id, username, role, created_at FROM users WHERE id = ?",
+                (uid,),
+            ).fetchone()
+        if row2 is None:
+            raise ValueError("user missing after update")
+        return dict(row2)
+
     async def list_chat_threads(self, account_id: int) -> List[Dict[str, Any]]:
         return await asyncio.to_thread(self._list_chat_threads, account_id)
 

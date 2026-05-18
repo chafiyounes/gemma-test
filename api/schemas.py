@@ -1,5 +1,5 @@
 from typing import Any, Dict, List, Optional
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class ConversationTurn(BaseModel):
@@ -16,7 +16,10 @@ class ChatRequest(BaseModel):
     skip_persist: bool = Field(default=False)
     category: Optional[str] = Field(
         default=None,
-        description="Ignored for /chat; the API always retrieves from every document category.",
+        description=(
+            "RAG scope: omit or 'all' / 'tout' → every indexed category; "
+            "'procedures' or 'help_md' (aliases: aide, help) → that corpus only."
+        ),
     ),
     agentic_rag: Optional[bool] = Field(
         default=None,
@@ -82,6 +85,40 @@ class AdminCreateUserRequest(BaseModel):
         if key not in ("user", "manager", "administrator"):
             raise ValueError("role must be 'user', 'manager', or 'administrator'")
         return key
+
+
+class AdminUserInfo(BaseModel):
+    id: int
+    username: str
+    role: str
+    created_at: str
+
+
+class AdminUserListResponse(BaseModel):
+    users: List[AdminUserInfo]
+
+
+class AdminUpdateUserRequest(BaseModel):
+    password: Optional[str] = Field(default=None, min_length=4)
+    role: Optional[str] = Field(default=None, description="'user', 'manager', or 'administrator'")
+
+    @field_validator("role")
+    @classmethod
+    def role_ok(cls, v: Optional[str]) -> Optional[str]:
+        if v is None or v == "":
+            return None
+        key = v.strip().lower()
+        if key == "admin":
+            key = "administrator"
+        if key not in ("user", "manager", "administrator"):
+            raise ValueError("role must be 'user', 'manager', or 'administrator'")
+        return key
+
+    @model_validator(mode="after")
+    def at_least_one(self) -> "AdminUpdateUserRequest":
+        if self.password is None and self.role is None:
+            raise ValueError("Provide password and/or role to update")
+        return self
 
 
 class HealthResponse(BaseModel):

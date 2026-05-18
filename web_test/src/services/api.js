@@ -46,6 +46,11 @@ export function isPrivilegedChatRole(role) {
   return r === "administrator" || r === "admin" || r === "manager";
 }
 
+export function isAdministrator(role) {
+  const r = String(role || "").toLowerCase();
+  return r === "administrator" || r === "admin";
+}
+
 export function getClientUserId() {
   const existing = localStorage.getItem(USER_ID_STORAGE_KEY);
   if (existing) {
@@ -91,12 +96,15 @@ export async function checkHealth() {
   return res.json();
 }
 
-export async function sendChat({ message, sessionId, history }) {
+export async function sendChat({ message, sessionId, history, category }) {
   const payload = {
     message,
     session_id: sessionId,
     conversation_history: history.slice(-20),
   };
+  if (category != null && category !== "") {
+    payload.category = category;
+  }
   if (import.meta.env.VITE_AGENTIC_RAG === "true") {
     payload.agentic_rag = true;
   }
@@ -149,4 +157,32 @@ export async function submitFeedback({ interactionId, value, reason, comment }) 
   });
   // The /feedback endpoint returns 204 No Content — do not parse JSON
   return { value, reason, comment };
+}
+
+export async function fetchAdminUsers() {
+  const res = await apiFetch("/api/admin/users", { signal: AbortSignal.timeout(20_000) });
+  return res.json();
+}
+
+export async function createAdminUser({ username, password, role }) {
+  const res = await apiFetch("/api/admin/users", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password, role }),
+    signal: AbortSignal.timeout(30_000),
+  });
+  return res.json();
+}
+
+export async function updateAdminUser(userId, { password, role }) {
+  const body = {};
+  if (password != null && password !== "") body.password = password;
+  if (role != null && role !== "") body.role = role;
+  const res = await apiFetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+    signal: AbortSignal.timeout(30_000),
+  });
+  return res.json();
 }

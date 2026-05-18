@@ -264,13 +264,9 @@ class GemmaModel:
         try:
             ctx = None
             store = get_store()
-            primary = (category or "").strip()
-            if primary and primary in store.indexes:
-                cats = store.rag_categories_for_primary(primary)
-                rag_meta["category"] = primary
-            else:
-                cats = store.rag_categories_all()
-                rag_meta["category"] = None
+            cats = store.resolve_rag_scope(category)
+            req = (category or "").strip()
+            rag_meta["category"] = req if req else "all"
             rag_meta["categories_used"] = cats
             if cats:
                 rq = retrieval_anchor_query(message, hist)
@@ -313,8 +309,6 @@ class GemmaModel:
                 cat_hint = ""
                 if rag_meta.get("categories_used"):
                     cat_hint = f" (catégories : {', '.join(rag_meta['categories_used'])})"
-                elif primary:
-                    cat_hint = f" (catégorie : {primary})"
                 sys_prompt = (
                     sys_prompt
                     + f"\n\n--- DOCUMENTS DE RÉFÉRENCE{cat_hint} ---\n"
@@ -515,13 +509,9 @@ class GemmaModel:
             return LLMGenerateResult(text=wrong_lang, rag=rag_meta)
 
         store = get_store()
-        primary = (category or "").strip()
-        if primary and primary in store.indexes:
-            cats = store.rag_categories_for_primary(primary)
-            rag_meta["category"] = primary
-        else:
-            cats = store.rag_categories_all()
-            rag_meta["category"] = None
+        cats = store.resolve_rag_scope(category)
+        req = (category or "").strip()
+        rag_meta["category"] = req if req else "all"
         rag_meta["categories_used"] = cats
         if not cats:
             rag_meta["note"] = "agentic_no_documents"
