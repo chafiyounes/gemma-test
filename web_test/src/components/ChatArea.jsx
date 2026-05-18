@@ -13,6 +13,8 @@ import "./ChatArea.css";
 
 const RAG_SCOPE_STORAGE_KEY = "sendbot_rag_scope";
 
+const DEFAULT_RAG_SCOPE = "procedures";
+
 function readInitialRagScope() {
   try {
     const v = localStorage.getItem(RAG_SCOPE_STORAGE_KEY);
@@ -20,7 +22,7 @@ function readInitialRagScope() {
   } catch {
     /* ignore */
   }
-  return "all";
+  return DEFAULT_RAG_SCOPE;
 }
 
 const SAMPLES = [
@@ -66,11 +68,11 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
       if (prev === "all") return prev;
       if (names.has(prev)) return prev;
       try {
-        localStorage.setItem(RAG_SCOPE_STORAGE_KEY, "all");
+        localStorage.setItem(RAG_SCOPE_STORAGE_KEY, DEFAULT_RAG_SCOPE);
       } catch {
         /* ignore */
       }
-      return "all";
+      return DEFAULT_RAG_SCOPE;
     });
   }, [categoryOptions]);
 
@@ -196,7 +198,11 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
           <span className="rag-scope-select-label">Documents</span>
           <select
             className="rag-doc-select"
-            value={ragScope === "all" || categoryOptions.some((c) => c.name === ragScope) ? ragScope : "all"}
+            value={
+              ragScope === "all" || categoryOptions.some((c) => c.name === ragScope)
+                ? ragScope
+                : DEFAULT_RAG_SCOPE
+            }
             onChange={handleRagSelectChange}
             aria-label="Portée des documents RAG"
           >

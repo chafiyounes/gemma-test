@@ -464,47 +464,54 @@ class DocStore:
                     df[term] += 1
                 total_len += len(toks)
 
-            if md_cat.is_dir() and any(md_cat.glob("*.md")):
+            md_files = sorted(md_cat.rglob("*.md")) if md_cat.is_dir() else []
+            if md_files:
                 source = "documents_md"
-                for p in sorted(md_cat.glob("*.md")):
+                for p in md_files:
                     try:
-                        ingest(p.stem, _read_md(p))
+                        rel = p.relative_to(md_cat)
+                        name = rel.with_suffix("").as_posix()
+                        ingest(name, _read_md(p))
                     except Exception:
                         logger.exception("DocStore: skip md %s", p.as_posix())
-            elif txt_cat.is_dir() and any(txt_cat.glob("*.txt")):
-                source = "documents_txt"
-                for p in sorted(txt_cat.glob("*.txt")):
-                    try:
-                        ingest(p.stem, _read_txt(p))
-                    except Exception:
-                        logger.exception("DocStore: skip txt %s", p.as_posix())
             else:
-                pdf_dir = sub / "pdf"
-                file_jobs: List[tuple[Path, Any]] = []
-                for p in sorted(sub.glob("*.docx")):
-                    file_jobs.append((p, _read_docx))
-                if pdf_dir.is_dir():
-                    for p in sorted(pdf_dir.glob("*.pdf")):
-                        file_jobs.append((p, _read_pdf))
-                file_jobs.sort(key=lambda x: x[0].as_posix().lower())
-                has_pdf = any(j[0].suffix.lower() == ".pdf" for j in file_jobs)
-                if has_pdf and any(j[0].suffix.lower() == ".docx" for j in file_jobs):
-                    source = "docx+pdf"
-                elif has_pdf:
-                    source = "pdf"
-                else:
-                    source = "docx"
-                for p, reader_fn in file_jobs:
-                    try:
+                txt_files = sorted(txt_cat.rglob("*.txt")) if txt_cat.is_dir() else []
+                if txt_files:
+                    source = "documents_txt"
+                    for p in txt_files:
                         try:
-                            rel_stem = p.relative_to(sub).with_suffix("")
-                            doc_name = rel_stem.as_posix()
-                        except ValueError:
-                            doc_name = p.stem
-                        text = reader_fn(p)
-                        ingest(doc_name, text)
-                    except Exception:
-                        logger.exception("DocStore: skip %s", p.as_posix())
+                            rel = p.relative_to(txt_cat)
+                            name = rel.with_suffix("").as_posix()
+                            ingest(name, _read_txt(p))
+                        except Exception:
+                            logger.exception("DocStore: skip txt %s", p.as_posix())
+                else:
+                    pdf_dir = sub / "pdf"
+                    file_jobs: List[tuple[Path, Any]] = []
+                    for p in sorted(sub.glob("*.docx")):
+                        file_jobs.append((p, _read_docx))
+                    if pdf_dir.is_dir():
+                        for p in sorted(pdf_dir.glob("*.pdf")):
+                            file_jobs.append((p, _read_pdf))
+                    file_jobs.sort(key=lambda x: x[0].as_posix().lower())
+                    has_pdf = any(j[0].suffix.lower() == ".pdf" for j in file_jobs)
+                    if has_pdf and any(j[0].suffix.lower() == ".docx" for j in file_jobs):
+                        source = "docx+pdf"
+                    elif has_pdf:
+                        source = "pdf"
+                    else:
+                        source = "docx"
+                    for p, reader_fn in file_jobs:
+                        try:
+                            try:
+                                rel_stem = p.relative_to(sub).with_suffix("")
+                                doc_name = rel_stem.as_posix()
+                            except ValueError:
+                                doc_name = p.stem
+                            text = reader_fn(p)
+                            ingest(doc_name, text)
+                        except Exception:
+                            logger.exception("DocStore: skip %s", p.as_posix())
             if docs:
                 self.indexes[cat_name] = CategoryIndex(
                     name=cat_name,
