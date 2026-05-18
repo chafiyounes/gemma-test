@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Darija Chatbot Admin</title>
-    <link rel="stylesheet" href="/admin-static/admin.css?v=20260514c" />
+    <link rel="stylesheet" href="/admin-static/admin.css?v=20260518a" />
   </head>
   <body>
     <div class="admin-shell">
@@ -55,6 +55,9 @@
           <div class="toolbar-actions">
             <button id="view-interactions-button" type="button" class="toolbar-button secondary active">Interactions</button>
             <button id="view-documents-button" type="button" class="toolbar-button secondary">Documents</button>
+            <button id="view-users-button" type="button" class="toolbar-button secondary">
+              Utilisateurs
+            </button>
             <button id="git-refresh-button" type="button" class="toolbar-button git-refresh" title="git pull + recharger les documents RAG">
               Git: MAJ + RAG
             </button>
@@ -96,6 +99,48 @@
               <div id="interaction-detail" class="detail-empty">Selectionnez une interaction.</div>
             </section>
           </div>
+          </div>
+
+          <div id="users-view" class="hidden">
+            <section class="panel users-admin-panel">
+              <div class="panel-header users-panel-header">
+                <h2>Comptes utilisateurs</h2>
+                <button id="users-refresh-button" type="button" class="toolbar-button secondary">
+                  Actualiser
+                </button>
+              </div>
+              <p class="users-lead">
+                Création de comptes, changement de rôle et de mot de passe (sessions existantes : se reconnecter pour
+                certains effets).
+              </p>
+              <div id="users-error" class="login-error hidden" role="alert"></div>
+              <div id="users-table-wrap" class="users-table-wrap"></div>
+              <div class="users-create-block">
+                <h3 class="users-create-title">Nouvel utilisateur</h3>
+                <div class="users-create-row">
+                  <input
+                    id="users-new-username"
+                    type="text"
+                    class="users-field"
+                    autocomplete="off"
+                    placeholder="Identifiant (min. 2)"
+                  />
+                  <input
+                    id="users-new-password"
+                    type="password"
+                    class="users-field"
+                    autocomplete="new-password"
+                    placeholder="Mot de passe (min. 4)"
+                  />
+                  <select id="users-new-role" class="users-field users-select">
+                    <option value="user">Utilisateur</option>
+                    <option value="manager">Gestionnaire</option>
+                    <option value="administrator">Administrateur</option>
+                  </select>
+                  <button id="users-create-button" type="button" class="toolbar-button">Créer</button>
+                </div>
+              </div>
+            </section>
           </div>
 
           <div id="documents-view" class="hidden">
@@ -231,6 +276,6 @@
       </main>
     </div>
 
-    <script src="/admin-static/admin.js?v=20260514h" defer></script>
+    <script src="/admin-static/admin.js?v=20260518a" defer></script>
   </body>
   </html>
