@@ -563,6 +563,23 @@ class DocStore:
                 out.append(e)
         return out
 
+    def resolve_rag_scope(self, requested: Optional[str]) -> List[str]:
+        """Retrieval scope from client: empty / 'all' → every indexed category; else one category (aliases)."""
+        raw = (requested or "").strip().lower()
+        if not raw or raw in ("all", "__all__", "*", "tout", "both"):
+            return self.rag_categories_all()
+        norm = raw.replace("-", "_")
+        if norm in ("help", "help_md", "helpmd", "aide", "articles", "helpcenter"):
+            key = "help_md"
+        elif norm in ("procedures", "procedure", "sop", "sops"):
+            key = "procedures"
+        else:
+            key = raw
+        if key in self.indexes:
+            return [key]
+        logger.warning("RAG scope %r missing on disk — using all categories", requested)
+        return self.rag_categories_all()
+
     def category_corpus_chars_multi(self, categories: List[str]) -> int:
         return sum(self.category_corpus_chars(c) for c in categories if c in self.indexes)
 

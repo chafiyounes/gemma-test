@@ -21,6 +21,9 @@ from pydantic import BaseModel, Field
 
 from api.schemas import (
     AdminCreateUserRequest,
+    AdminUpdateUserRequest,
+    AdminUserInfo,
+    AdminUserListResponse,
     AuthLoginRequest,
     AuthSessionResponse,
     CategoriesResponse,
@@ -577,10 +580,10 @@ async def chat(
     account_id = int(session["uid"])
     user_label = str(session["username"])
     doc_store = get_doc_store()
-    rag_cats = doc_store.rag_categories_all()
-    rag_cat_key = ",".join(rag_cats)
-    category_used_label = rag_cat_key if rag_cat_key else "all"
-    category: Optional[str] = None
+    cats_resolved = doc_store.resolve_rag_scope(body.category)
+    rag_cat_key = ",".join(sorted(cats_resolved))
+    category_used_label = rag_cat_key if rag_cat_key else "none"
+    category: Optional[str] = body.category
 
     want_agentic = False
     agentic_explicit = body.agentic_rag is True
@@ -648,8 +651,8 @@ async def chat(
         )
         if cached is not None:
             rag_meta = {
-                "category": None,
-                "categories_used": rag_cats,
+                "category": body.category or "all",
+                "categories_used": cats_resolved,
                 "liked_cache_hit": True,
                 "context_chars": 0,
                 "documents_in_prompt": 0,
@@ -913,6 +916,40 @@ async def admin_create_user(
     except sqlite3.IntegrityError:
         raise HTTPException(status_code=409, detail="Username already exists")
     except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/admin/users", response_model=AdminUserListResponse)
+@app.get("/admin/users", response_model=AdminUserListResponse)
+async def admin_list_users(
+    db: InteractionStore = Depends(_get_store),
+    _admin: dict = Depends(_require_administrator),
+):
+    rows = await asyncio.to_thread(db.list_users)
+    return AdminUserListResponse(
+        users=[AdminUserInfo(**r) for r in rows],
+    )
+
+
+@app.patch("/api/admin/users/{user_id}")
+@app.patch("/admin/users/{user_id}")
+async def admin_update_user(
+    user_id: int,
+    body: AdminUpdateUserRequest,
+    db: InteractionStore = Depends(_get_store),
+    _admin: dict = Depends(_require_administrator),
+):
+    try:
+        row = await asyncio.to_thread(
+            db.update_user,
+            user_id,
+            password=body.password,
+            role=body.role,
+        )
+        return AdminUserInfo(**row)
+    except ValueError as exc:
+        if "not found" in str(exc).lower():
+            raise HTTPException(status_code=404, detail=str(exc))
         raise HTTPException(status_code=400, detail=str(exc))
 
 

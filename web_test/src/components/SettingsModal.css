@@ -19,6 +19,113 @@
   overflow-y: auto;
 }
 
+.modal-card-wide {
+  width: min(720px, 96vw);
+}
+
+.modal-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 20px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-tab {
+  flex: 1;
+  padding: 10px 12px;
+  border: none;
+  border-radius: 10px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.modal-tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.modal-tab.active {
+  background: rgba(230, 122, 62, 0.16);
+  color: #f3b176;
+}
+
+.admin-users-error {
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: var(--error, #f87171);
+  padding: 10px 12px;
+  border-radius: 10px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.admin-users-table-wrap {
+  overflow-x: auto;
+  margin-bottom: 20px;
+}
+
+.admin-users-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.admin-users-table th,
+.admin-users-table td {
+  text-align: left;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.admin-users-table th {
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.admin-role-select {
+  padding: 8px 10px;
+  font-size: 13px;
+}
+
+.admin-users-date {
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.admin-pw-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.admin-pw-row .field-input {
+  flex: 1;
+  min-width: 100px;
+}
+
+.admin-users-subtitle {
+  font-size: 14px;
+  font-weight: 600;
+  margin: 8px 0 12px;
+  color: var(--text-secondary);
+}
+
+.admin-create-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.admin-create-form .field-input {
+  flex: 1 1 140px;
+}
+
 .modal-header {
   display: flex;
   align-items: center;
