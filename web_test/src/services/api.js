@@ -29,10 +29,6 @@ export function getApiUrl() {
   return localStorage.getItem(API_URL_STORAGE_KEY) || DEFAULT_API_URL;
 }
 
-export function setApiUrl(url) {
-  localStorage.setItem(API_URL_STORAGE_KEY, url.replace(/\/+$/, ""));
-}
-
 /** Display labels for API auth roles (administrator | manager | user). */
 export function sessionRoleLabel(role) {
   const r = String(role || "").toLowerCase();
@@ -44,11 +40,6 @@ export function sessionRoleLabel(role) {
 export function isPrivilegedChatRole(role) {
   const r = String(role || "").toLowerCase();
   return r === "administrator" || r === "admin" || r === "manager";
-}
-
-export function isAdministrator(role) {
-  const r = String(role || "").toLowerCase();
-  return r === "administrator" || r === "admin";
 }
 
 export function getClientUserId() {
@@ -85,15 +76,6 @@ export async function logout() {
     credentials: "include",
     signal: AbortSignal.timeout(10_000),
   });
-}
-
-export async function checkHealth() {
-  const res = await fetch(buildUrl("/health"), {
-    credentials: "include",
-    signal: AbortSignal.timeout(10_000),
-  });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
 }
 
 export async function sendChat({ message, sessionId, history, category }) {
@@ -159,30 +141,8 @@ export async function submitFeedback({ interactionId, value, reason, comment }) 
   return { value, reason, comment };
 }
 
-export async function fetchAdminUsers() {
-  const res = await apiFetch("/api/admin/users", { signal: AbortSignal.timeout(20_000) });
-  return res.json();
-}
-
-export async function createAdminUser({ username, password, role }) {
-  const res = await apiFetch("/api/admin/users", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password, role }),
-    signal: AbortSignal.timeout(30_000),
-  });
-  return res.json();
-}
-
-export async function updateAdminUser(userId, { password, role }) {
-  const body = {};
-  if (password != null && password !== "") body.password = password;
-  if (role != null && role !== "") body.role = role;
-  const res = await apiFetch(`/api/admin/users/${encodeURIComponent(userId)}`, {
-    method: "PATCH",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(30_000),
-  });
+/** @returns {{ categories: { name: string, doc_count: number, doc_names: string[] }[] }} */
+export async function fetchDocumentCategories() {
+  const res = await apiFetch("/categories", { signal: AbortSignal.timeout(15_000) });
   return res.json();
 }
