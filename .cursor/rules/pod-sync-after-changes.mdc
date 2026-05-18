@@ -10,7 +10,8 @@ Whenever this agent **finishes a task that changes** tracked project files (code
 1. **Git (local repo)**  
    - Show `git status`.  
    - If there are meaningful changes: stage them, **commit** with a clear message, then **`git push`** to the remote branch the user is on (usually `main`).  
-   - Do not end the turn with only local commits if the user expects the pod updated—**push** is part of the workflow.
+   - Do not end the turn with only local commits if the user expects the pod updated—**push** is part of the workflow.  
+   - **Do not commit or push** bulk document trees (`sendit_docs/`, `data/documents_txt/`, `scripts/fixtures/documents_temp/`, scraped article dumps, etc.): the user loads documents on the pod separately. Prefer **web (`web_test`)** or agreed code-only changes unless they ask otherwise.
 
 2. **RunPod**  
    - After a successful push, sync the pod so it **pulls** that commit. From the machine that has SSH/paramiko access to the pod, run from the repo root:
