@@ -11,6 +11,7 @@ from app_config.settings import settings
 from core.chat_policy import (
     POLICY_PROFANITY,
     POLICY_UNSUPPORTED_LANG,
+    answer_language_instruction_suffix,
     claims_absent_in_docs_response,
     detect_lang_bucket,
     has_unsupported_script,
@@ -109,6 +110,11 @@ def _vllm_user_hint_from_400_body(body: str) -> str:
     if one_line:
         return f"Détail : {one_line[:280]}{'…' if len(one_line) > 280 else ''}"
     return "Le serveur d’inférence a refusé la requête. Consultez les logs vLLM ou réessayez."
+
+
+def _user_message_for_model(message: str, bucket: str) -> str:
+    """Appends a short language instruction so answers match the question (Darija/EN/FR)."""
+    return (message or "").rstrip() + answer_language_instruction_suffix(bucket)
 
 
 def _compute_rag_inject_limit_chars(
@@ -321,12 +327,14 @@ class GemmaModel:
         if wrong_lang:
             return LLMGenerateResult(text=wrong_lang, rag=rag_meta)
 
+        user_msg = _user_message_for_model(message, bucket)
+
         sys_prompt = (system_prompt or SYSTEM_PROMPT).strip()
         mt_for_budget = max_tokens if max_tokens is not None else settings.MAX_NEW_TOKENS
         inject_cap = _compute_rag_inject_limit_chars(
             system_prompt_base=sys_prompt,
             history=hist,
-            message=message,
+            message=user_msg,
             max_new_tokens=int(mt_for_budget),
         )
 
@@ -401,7 +409,7 @@ class GemmaModel:
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
 
-        messages.append({"role": "user", "content": message})
+        messages.append({"role": "user", "content": user_msg})
 
         payload = {
             "model": self._model_name,
@@ -602,6 +610,8 @@ class GemmaModel:
         if wrong_lang:
             return LLMGenerateResult(text=wrong_lang, rag=rag_meta)
 
+        user_msg = _user_message_for_model(message, bucket)
+
         store = get_store()
         cats = store.resolve_rag_scope(category)
         req = (category or "").strip()
@@ -635,14 +645,14 @@ class GemmaModel:
             if role in ("user", "assistant") and content:
                 messages.append({"role": role, "content": content})
                 messages_router.append({"role": role, "content": content})
-        messages.append({"role": "user", "content": message})
+        messages.append({"role": "user", "content": user_msg})
         messages_router.append({"role": "user", "content": message})
 
         mt = max_tokens or settings.MAX_NEW_TOKENS
         inject_cap = _compute_rag_inject_limit_chars(
             system_prompt_base=SYSTEM_PROMPT.strip(),
             history=hist,
-            message=message,
+            message=user_msg,
             max_new_tokens=int(mt),
         )
         rag_meta["rag_inject_budget_chars"] = inject_cap
@@ -704,7 +714,7 @@ class GemmaModel:
                     content = turn.get("content", "")
                     if role in ("user", "assistant") and content:
                         answer_messages.append({"role": role, "content": content})
-                answer_messages.append({"role": "user", "content": message})
+                answer_messages.append({"role": "user", "content": user_msg})
                 router_tool_rounds = rag_meta.get("tool_rounds")
                 text, ans_meta = await run_agentic_answer_phase(
                     client=self._client,

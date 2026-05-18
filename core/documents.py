@@ -126,6 +126,17 @@ _LOGISTICS_FR_HINTS: tuple[tuple[str, str], ...] = (
     ("messagerie", "email courriel e-mail modification compte"),
 )
 
+# Darija / arabizi tokens that rarely overlap French SOP wording — add FR lemmas for BM25.
+_DARIJA_RETRIEVAL_HINTS: tuple[tuple[str, str], ...] = (
+    ("takhzin", "stockage entrepôt magasin stock gratuit payant tarif prix frais"),
+    ("tak7zin", "stockage entrepôt magasin stock gratuit payant tarif"),
+    ("t7zin", "stockage entrepôt magasin stock inventaire"),
+    ("takhzen", "stock stockage entrepôt"),
+    ("fabor", "gratuit offert payant tarif prix frais"),
+    ("fabour", "gratuit payant tarif prix"),
+    ("blach", "gratuit payant tarif prix"),
+)
+
 
 def expand_query_for_retrieval_fr_darija(query: str) -> str:
     """Broaden BM25 recall: French/Darija hints + English→FR lemmas when EN terms match.
@@ -139,6 +150,9 @@ def expand_query_for_retrieval_fr_darija(query: str) -> str:
         if en in low:
             extra.append(fr)
     for trigger, fr in _LOGISTICS_FR_HINTS:
+        if trigger in low:
+            extra.append(fr)
+    for trigger, fr in _DARIJA_RETRIEVAL_HINTS:
         if trigger in low:
             extra.append(fr)
     if not extra and _DARIJA_LEX_BOOST.search(query or ""):
