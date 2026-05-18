@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import re
 from dataclasses import dataclass, field
@@ -79,8 +80,33 @@ def _vllm_body_suggests_context_overflow(body: str) -> bool:
         "total length of",
         "input + max_tokens",
         "max_tokens is too large",
+        "model length",
+        "decoder prompt",
+        "sequence length",
+        "max sequence",
     )
     return any(n in b for n in needles)
+
+
+def _vllm_user_hint_from_400_body(body: str) -> str:
+    """Short French hint for UI when vLLM returns 400 (helps ops without dumping full JSON)."""
+    raw = (body or "").strip()
+    try:
+        j = json.loads(raw)
+        err = j.get("error")
+        if isinstance(err, dict):
+            msg = err.get("message") or err.get("type")
+        else:
+            msg = err if err is not None else j.get("message")
+        msg = str(msg or "").strip().replace("\n", " ")
+        if msg:
+            return f"Détail : {msg[:280]}{'…' if len(msg) > 280 else ''}"
+    except (json.JSONDecodeError, TypeError, ValueError):
+        pass
+    one_line = raw.replace("\n", " ").strip()
+    if one_line:
+        return f"Détail : {one_line[:280]}{'…' if len(one_line) > 280 else ''}"
+    return "Le serveur d’inférence a refusé la requête. Consultez les logs vLLM ou réessayez."
 
 
 def _vllm_unavailable_message(base_url: str, bucket: str, *, after_retries: bool) -> str:
@@ -413,21 +439,37 @@ class GemmaModel:
                 rag=rag_meta,
             )
         except httpx.HTTPStatusError as exc:
+            status = exc.response.status_code
             body = exc.response.text or ""
-            if exc.response.status_code == 400 and _vllm_body_suggests_context_overflow(body):
-                max_ctx_m = re.search(r"maximum context length is (\d+)", body, flags=re.IGNORECASE)
-                in_tok_m = re.search(r"input tokens[^\d]*(\d+)", body, flags=re.IGNORECASE)
+
+            if status == 400:
                 current_max = int(payload.get("max_tokens") or settings.MAX_NEW_TOKENS)
-                reduced: Optional[int] = None
-                if max_ctx_m and in_tok_m:
-                    max_ctx = int(max_ctx_m.group(1))
-                    in_tok = int(in_tok_m.group(1))
-                    reduced = max(64, min(current_max, max_ctx - in_tok - 16))
-                if reduced is None or reduced >= current_max:
-                    reduced = max(64, current_max // 2)
-                if reduced < current_max:
+                to_try: List[int] = []
+
+                if _vllm_body_suggests_context_overflow(body):
+                    reduced: Optional[int] = None
+                    max_ctx_m = re.search(r"maximum context length is (\d+)", body, flags=re.IGNORECASE)
+                    in_tok_m = re.search(r"input tokens[^\d]*(\d+)", body, flags=re.IGNORECASE)
+                    if max_ctx_m and in_tok_m:
+                        max_ctx = int(max_ctx_m.group(1))
+                        in_tok = int(in_tok_m.group(1))
+                        reduced = max(64, min(current_max, max_ctx - in_tok - 16))
+                    if reduced is None or reduced >= current_max:
+                        reduced = max(64, current_max // 2)
+                    if reduced < current_max:
+                        to_try.append(reduced)
+
+                for fb in (max(128, current_max // 2), max(64, current_max // 4)):
+                    if fb < current_max:
+                        to_try.append(fb)
+
+                tried: set[int] = set()
+                for reduced in to_try:
+                    if reduced in tried or reduced >= current_max:
+                        continue
+                    tried.add(reduced)
                     logger.warning(
-                        "vLLM 400 context overflow; retry with lower max_tokens=%s (was %s). body~=%r",
+                        "vLLM 400; retry max_tokens=%s (was %s). body~=%r",
                         reduced,
                         current_max,
                         (body[:280] + "…") if len(body) > 280 else body,
@@ -449,10 +491,18 @@ class GemmaModel:
                             rag=rag_meta,
                         )
                     except Exception as retry_exc:
-                        logger.error("Retry after context overflow failed: %s", retry_exc)
-            logger.error("vLLM HTTP error %s: %s", exc.response.status_code, exc.response.text)
+                        logger.warning("vLLM 400 retry failed (max_tokens=%s): %s", reduced, retry_exc)
+
+                hint = _vllm_user_hint_from_400_body(body)
+                logger.error("vLLM HTTP 400 after retries: %s", body[:1200])
+                return LLMGenerateResult(
+                    text=f"⚠️ Model error (400). {hint}",
+                    rag=rag_meta,
+                )
+
+            logger.error("vLLM HTTP error %s: %s", status, exc.response.text)
             return LLMGenerateResult(
-                text=f"⚠️ Model error ({exc.response.status_code}). Please try again.",
+                text=f"⚠️ Model error ({status}). Please try again.",
                 rag=rag_meta,
             )
         except httpx.ConnectError:
@@ -651,6 +701,12 @@ class GemmaModel:
             )
         except httpx.HTTPStatusError as exc:
             logger.error("vLLM HTTP error (agentic): %s %s", exc.response.status_code, exc.response.text)
+            if exc.response.status_code == 400:
+                hint = _vllm_user_hint_from_400_body(exc.response.text or "")
+                return LLMGenerateResult(
+                    text=f"⚠️ Model error (400) in agentic mode. {hint}",
+                    rag=rag_meta,
+                )
             return LLMGenerateResult(
                 text=f"⚠️ Model error ({exc.response.status_code}) in agentic mode. Tool calling may be unsupported.",
                 rag=rag_meta,

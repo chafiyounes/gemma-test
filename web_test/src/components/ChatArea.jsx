@@ -5,24 +5,18 @@ import {
   submitFeedback,
   isPrivilegedChatRole,
   sessionRoleLabel,
+  fetchDocumentCategories,
 } from "../services/api";
 import MessageBubble from "./MessageBubble";
 import TypingIndicator from "./TypingIndicator";
-import SettingsModal from "./SettingsModal";
 import "./ChatArea.css";
 
 const RAG_SCOPE_STORAGE_KEY = "sendbot_rag_scope";
 
-const RAG_SCOPES = [
-  { id: "procedures", label: "Procédures" },
-  { id: "help_md", label: "Aide" },
-  { id: "all", label: "Tout" },
-];
-
 function readInitialRagScope() {
   try {
     const v = localStorage.getItem(RAG_SCOPE_STORAGE_KEY);
-    if (v && RAG_SCOPES.some((s) => s.id === v)) return v;
+    if (v != null && v !== "") return v;
   } catch {
     /* ignore */
   }
@@ -45,10 +39,40 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
     setConversationLoading,
   } = useChat();
   const [input, setInput] = useState("");
-  const [settingsOpen, setSettingsOpen] = useState(false);
   const [ragScope, setRagScope] = useState(readInitialRagScope);
+  const [categoryOptions, setCategoryOptions] = useState([]);
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchDocumentCategories();
+        if (!cancelled) setCategoryOptions(data.categories || []);
+      } catch {
+        if (!cancelled) setCategoryOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!categoryOptions.length) return;
+    const names = new Set(categoryOptions.map((c) => c.name));
+    setRagScope((prev) => {
+      if (prev === "all") return prev;
+      if (names.has(prev)) return prev;
+      try {
+        localStorage.setItem(RAG_SCOPE_STORAGE_KEY, "all");
+      } catch {
+        /* ignore */
+      }
+      return "all";
+    });
+  }, [categoryOptions]);
 
   const messages = activeConversation.messages;
   const loading = !!activeConversation.loading;
@@ -155,9 +179,12 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
     }
   };
 
+  const handleRagSelectChange = (e) => {
+    setScope(e.target.value);
+  };
+
   return (
     <div className="chat-area">
-      <SettingsModal open={settingsOpen} onClose={() => setSettingsOpen(false)} session={session} />
       {/* Top bar */}
       <header className="chat-topbar">
         <button type="button" className="topbar-btn menu-btn" onClick={onOpenSidebar}>
@@ -165,33 +192,24 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
             <path d="M3 12h18M3 6h18M3 18h18" />
           </svg>
         </button>
-        <div className="rag-scope-group" role="tablist" aria-label="Portée des documents">
-          {RAG_SCOPES.map((s) => (
-            <button
-              key={s.id}
-              type="button"
-              role="tab"
-              aria-selected={ragScope === s.id}
-              className={`rag-scope-btn ${ragScope === s.id ? "active" : ""}`}
-              onClick={() => setScope(s.id)}
-            >
-              {s.label}
-            </button>
-          ))}
-        </div>
-        <div className="topbar-right">
-          <button
-            type="button"
-            className="topbar-btn"
-            title="Réglages"
-            aria-label="Réglages"
-            onClick={() => setSettingsOpen(true)}
+        <label className="rag-scope-select-wrap">
+          <span className="rag-scope-select-label">Documents</span>
+          <select
+            className="rag-doc-select"
+            value={ragScope === "all" || categoryOptions.some((c) => c.name === ragScope) ? ragScope : "all"}
+            onChange={handleRagSelectChange}
+            aria-label="Portée des documents RAG"
           >
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <circle cx="12" cy="12" r="3" />
-              <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-            </svg>
-          </button>
+            <option value="all">Tous les documents</option>
+            {categoryOptions.map((c) => (
+              <option key={c.name} value={c.name}>
+                {c.name}
+                {typeof c.doc_count === "number" ? ` (${c.doc_count})` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="topbar-right">
           <div className="topbar-badge">
             Acces{" "}
             {isPrivilegedChatRole(session?.role)
