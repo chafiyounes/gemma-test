@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Darija Chatbot Admin</title>
-    <link rel="stylesheet" href="/admin-static/admin.css?v=20260518a" />
+    <link rel="stylesheet" href="/admin-static/admin.css?v=20260518b" />
   </head>
   <body>
     <div class="admin-shell">
@@ -58,8 +58,12 @@
             <button id="view-users-button" type="button" class="toolbar-button secondary">
               Utilisateurs
             </button>
-            <button id="git-refresh-button" type="button" class="toolbar-button git-refresh" title="git pull + recharger les documents RAG">
-              Git: MAJ + RAG
+            <span class="toolbar-actions-gap" aria-hidden="true"></span>
+            <button id="git-refresh-button" type="button" class="toolbar-button git-refresh" title="Git: pull + build web_test (sans recharger l’index RAG)">
+              Git: MAJ code
+            </button>
+            <button id="rag-reload-button" type="button" class="toolbar-button rag-reload" title="Recharger uniquement l’index documents (BM25)">
+              Index RAG
             </button>
             <button id="eval-toggle" type="button" class="toolbar-button eval-toggle" title="Toggle model evaluation">Eval: ...</button>
             <button id="refresh-button" type="button" class="toolbar-button">Rafraichir</button>

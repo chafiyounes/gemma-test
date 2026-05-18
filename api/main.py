@@ -841,7 +841,8 @@ def _build_web_test_sync(root: Path) -> Optional[str]:
     return None
 
 
-def _git_pull_and_reindex_sync() -> dict:
+def _git_pull_and_build_web_sync() -> dict:
+    """``git fetch`` + ``reset --hard origin/<branch>`` + ``web_test`` build only (no RAG reload)."""
     root = APP_ROOT
     branch = (settings.GIT_BRANCH or "main").strip()
     env = {**os.environ, "GIT_TERMINAL_PROMPT": "0"}
@@ -876,32 +877,53 @@ def _git_pull_and_reindex_sync() -> dict:
     web_err = _build_web_test_sync(root)
     if web_err:
         return {"ok": False, "step": "web_build", "stderr": web_err}
-    reload_document_store()
-    cats = get_doc_store().list_categories()
     return {
         "ok": True,
         "commit": commit,
         "branch": branch,
-        "rag_categories": cats,
         "web_test": "built",
         "note": (
-            "Frontend web_test/dist reconstruit, index RAG rechargé. "
-            "Si le chat ne reflète pas les derniers .js, redémarrez l’API "
-            "(ex. bash scripts/restart_api.sh) pour recharger les fichiers statiques."
+            "Code à jour et web_test/dist reconstruit. "
+            "Pour recharger uniquement les documents RAG (sans git), utilisez « Recharger index RAG ». "
+            "Redémarrez l’API (ex. bash scripts/restart_api.sh) si le chat sert encore d’anciens fichiers statiques."
         ),
     }
 
 
+def _rag_reload_sync() -> dict:
+    """Reload DocStore / BM25 from disk (after document edits or git pull that touched data/)."""
+    reload_document_store()
+    cats = get_doc_store().list_categories()
+    return {
+        "ok": True,
+        "rag_categories": cats,
+        "note": f"Index RAG rechargé ({len(cats)} catégorie(s)).",
+    }
+
+
 @app.post("/admin/git-refresh")
+@app.post("/api/admin/git-refresh")
 async def admin_git_refresh(_admin: dict = Depends(_require_administrator)):
-    """``git fetch`` + ``reset --hard origin/<branch>``, build ``web_test/dist``, puis BM25 reload."""
+    """``git fetch`` + ``reset --hard origin/<branch>`` + build ``web_test/dist``. Does **not** reload RAG."""
     if not settings.ADMIN_GIT_REFRESH_ENABLED:
         raise HTTPException(403, detail="ADMIN_GIT_REFRESH_ENABLED=false")
-    out = await asyncio.to_thread(_git_pull_and_reindex_sync)
+    out = await asyncio.to_thread(_git_pull_and_build_web_sync)
     if not out.get("ok"):
         detail = (out.get("stderr") or out.get("step") or "git failed")[:4000]
         raise HTTPException(status_code=500, detail=detail)
     return out
+
+
+@app.post("/admin/rag-reload")
+@app.post("/api/admin/rag-reload")
+async def admin_rag_reload(_mgr: dict = Depends(_require_docs_manager)):
+    """Reload document index / BM25 only (no git, no npm)."""
+    try:
+        out = await asyncio.to_thread(_rag_reload_sync)
+        return out
+    except Exception as exc:
+        logger.error("RAG reload failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(exc)[:4000]) from exc
 
 
 @app.post("/api/admin/users")
