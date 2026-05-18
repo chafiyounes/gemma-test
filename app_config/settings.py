@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     # Rough chars-per-token for budgeting mixed FR/Darija/EN (conservative).
     RAG_BUDGET_CHARS_PER_TOKEN: float = 3.0
     # Extra tokens reserved for chat template, special tokens, JSON overhead — not doc text.
-    RAG_BUDGET_OVERHEAD_TOKENS: int = 520
+    RAG_BUDGET_OVERHEAD_TOKENS: int = 600
     # Reserve part of the prompt budget for conversation history so long chats keep coherence.
     RAG_CHAT_HISTORY_RESERVE_CHARS: int = 12_000
     RAG_BM25_K: int = 12
@@ -158,9 +158,9 @@ class Settings(BaseSettings):
     MAX_NEW_TOKENS: int = 2048
     TEMPERATURE: float = 0.7
     TOP_P: float = 0.9
-    # If the model hits max length mid-answer, send short continuation turn(s) (same thread).
-    VLLM_MAX_CONTINUE_ROUNDS: int = 2
-    VLLM_CONTINUE_MAX_TOKENS: int = 1536
+    # If the model hits max length mid-answer, send continuation turn(s) (same thread).
+    VLLM_MAX_CONTINUE_ROUNDS: int = 5
+    VLLM_CONTINUE_MAX_TOKENS: int = 2048
 
 
 settings = Settings()

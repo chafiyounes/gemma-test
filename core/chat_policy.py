@@ -131,7 +131,8 @@ def answer_language_instruction_suffix(bucket: str) -> str:
     if b == "darija":
         return (
             "\n\n[Consigne langue] Réponds **entièrement en darija marocaine** (même registre que la question). "
-            "Pas d’intro ni d’explication en français administratif."
+            "Pas d’intro ni d’explication en français administratif. "
+            "Si la question est en **latin (arabizi)**, réponds **en latin** aussi ; n’impose pas l’arabe en caractères arabes sauf si l’utilisateur en a déjà mis."
         )
     if b == "ar":
         return "\n\n[Language] أجب بالكامل بالعربية وفق أسلوب السؤال (فصحى أو دارجة)."

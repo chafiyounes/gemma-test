@@ -149,15 +149,23 @@ def _compute_rag_inject_limit_chars(
     doc_shell_chars = 120
     non_document_chars = sys_len + doc_shell_chars + hist_chars + msg_len
     non_document_tokens_est = non_document_chars / cpt + float(settings.RAG_BUDGET_OVERHEAD_TOKENS)
+    # Arabic script in history/question tokens denser — leave completion headroom.
+    hist_blob = "".join(
+        (t.get("content") or "")
+        for t in (history or [])
+        if t.get("role") in ("user", "assistant")
+    )
+    if re.search(r"[\u0600-\u06FF]", (message or "") + hist_blob):
+        non_document_tokens_est += 300.0
 
     room_tokens = float(settings.LLM_MAX_CONTEXT_TOKENS) - float(max_new_tokens) - non_document_tokens_est
     if room_tokens < 400.0:
         room_tokens = 400.0
 
-    # ~92% of the room goes to document bytes (greedy inject may still trim).
+    # ~85% of the room goes to document bytes — leave extra completion headroom vs vLLM clamp.
     # Never force a minimum inject size: a ``max(2500,…)`` floor was stealing completion
     # budget when prompts were already near ``--max-model-len`` (vLLM then clamps output).
-    doc_chars = int(room_tokens * cpt * 0.92)
+    doc_chars = int(room_tokens * cpt * 0.85)
     cap = int(settings.RAG_INJECT_MAX_CHARS)
     return max(0, min(cap, doc_chars))
 
@@ -226,7 +234,7 @@ Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu
 2. **Français** : question en français, ou ambiguë sans marqueurs darija.
 3. **Anglais** : question en anglais ⇒ réponse entière en anglais.
 4. **Arabe standard (MSA)** : question en fusha ⇒ MSA professionnel.
-5. **Darija** : question en darija ⇒ **darija naturelle du début à la fin** — pas d’introductions ni tournures **françaises** (« D’abord… », « Il faut… », « On doit… », « Ensuite… » mises comme en français). Tu peux garder **tels quels** les termes / noms d’outils métier souvent en français ou international : *colis*, *stock*, *ramassage*, *livraison*, *vendor* / *vendeur*, *SENDIT*, *API*, *tracking*, noms propres. La phrase doit **sonner** comme une réponse darija, pas comme du français traduit mot à mot.
+5. **Darija** : question en darija ⇒ **darija naturelle du début à la fin** — pas d’introductions ni tournures **françaises** (« D’abord… », « Il faut… », « On doit… », « Ensuite… » mises comme en français). Tu peux garder **tels quels** les termes / noms d’outils métier souvent en français ou international : *colis*, *stock*, *ramassage*, *livraison*, *vendor* / *vendeur*, *SENDIT*, *API*, *tracking*, noms propres. La phrase doit **sonner** comme une réponse darija, pas comme du français traduit mot à mot. **Si la question est écrite en latin (arabizi)**, réponds en **latin** ; évite de basculer vers l’alphabet arabe si l’utilisateur n’a pas écrit en arabe.
 
 ## Structure des réponses
 - Procédures : étapes **numérotées** ou puces, ordre fidèle au document.
@@ -482,7 +490,7 @@ class GemmaModel:
 
             continuation_rounds = 0
             while (
-                finish == "length"
+                str(finish or "").lower() == "length"
                 and continuation_rounds < settings.VLLM_MAX_CONTINUE_ROUNDS
             ):
                 continuation_rounds += 1
@@ -522,6 +530,9 @@ class GemmaModel:
                     ct = usage.get("completion_tokens")
                     if chunk:
                         raw = raw + ("\n\n" if raw else "") + chunk
+                    elif str(finish or "").lower() == "length":
+                        logger.warning("vLLM continuation returned empty content; stopping")
+                        break
                 except Exception as exc:
                     logger.error("vLLM continuation failed: %s", exc)
                     break
@@ -541,7 +552,7 @@ class GemmaModel:
                 ct,
                 continuation_rounds,
             )
-            if finish == "length":
+            if str(finish or "").lower() == "length":
                 logger.warning(
                     "vLLM still finish_reason=length after continuation; tail=%r",
                     raw[-120:] if raw else "",
