@@ -1,80 +1,23 @@
 import { useState, useRef, useEffect } from "react";
 import { useChat } from "../context/ChatContext";
-import {
-  sendChat,
-  submitFeedback,
-  isPrivilegedChatRole,
-  sessionRoleLabel,
-  fetchDocumentCategories,
-} from "../services/api";
+import { sendChat, submitFeedback, isPrivilegedChatRole, sessionRoleLabel } from "../services/api";
 import MessageBubble from "./MessageBubble";
 import TypingIndicator from "./TypingIndicator";
 import "./ChatArea.css";
 
-const RAG_SCOPE_STORAGE_KEY = "sendbot_rag_scope";
-
-const DEFAULT_RAG_SCOPE = "procedures";
-
-function readInitialRagScope() {
-  try {
-    const v = localStorage.getItem(RAG_SCOPE_STORAGE_KEY);
-    if (v != null && v !== "") return v;
-  } catch {
-    /* ignore */
-  }
-  return DEFAULT_RAG_SCOPE;
-}
-
 const SAMPLES = [
   "Comment postuler pour un poste de livreur chez SENDIT ?",
   "Où puis-je consulter les tarifs de SENDIT ?",
-  "Comment identifier les comptes vendeurs à valider ?",
+  "كيفاش نزاد مرسول فالبلايص؟",
   "Quels documents le vendeur doit fournir pour changer son adresse email ?",
 ];
 
 export default function ChatArea({ onOpenSidebar, onLogout, session }) {
-  const {
-    activeConversation,
-    apiHistory,
-    addMessage,
-    updateMessage,
-    setConversationLoading,
-  } = useChat();
+  const { activeConversation, apiHistory, addMessage, updateMessage, setConversationLoading } =
+    useChat();
   const [input, setInput] = useState("");
-  const [ragScope, setRagScope] = useState(readInitialRagScope);
-  const [categoryOptions, setCategoryOptions] = useState([]);
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await fetchDocumentCategories();
-        if (!cancelled) setCategoryOptions(data.categories || []);
-      } catch {
-        if (!cancelled) setCategoryOptions([]);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!categoryOptions.length) return;
-    const names = new Set(categoryOptions.map((c) => c.name));
-    setRagScope((prev) => {
-      if (prev === "all") return prev;
-      if (names.has(prev)) return prev;
-      try {
-        localStorage.setItem(RAG_SCOPE_STORAGE_KEY, DEFAULT_RAG_SCOPE);
-      } catch {
-        /* ignore */
-      }
-      return DEFAULT_RAG_SCOPE;
-    });
-  }, [categoryOptions]);
 
   const messages = activeConversation.messages;
   const loading = !!activeConversation.loading;
@@ -106,8 +49,6 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
     const text = input.trim();
     if (!text || loading) return;
 
-    // Capture the conversation context at send time so the reply lands in
-    // the originating conversation even if the user navigates away.
     const conversationId = activeConversation.id;
     const sessionId = activeConversation.sessionId;
     const historyAtSend = apiHistory;
@@ -121,7 +62,6 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
         message: text,
         sessionId,
         history: [...historyAtSend, { role: "user", content: text }],
-        category: ragScope,
       });
       addMessage(
         {
@@ -158,11 +98,7 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
       reason: feedback.reason,
       comment: feedback.comment,
     });
-    updateMessage(
-      interactionId,
-      { feedback: savedFeedback },
-      activeConversation.id
-    );
+    updateMessage(interactionId, { feedback: savedFeedback }, activeConversation.id);
   };
 
   const handleKeyDown = (e) => {
@@ -172,52 +108,18 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
     }
   };
 
-  const setScope = (id) => {
-    setRagScope(id);
-    try {
-      localStorage.setItem(RAG_SCOPE_STORAGE_KEY, id);
-    } catch {
-      /* ignore */
-    }
-  };
-
-  const handleRagSelectChange = (e) => {
-    setScope(e.target.value);
-  };
-
   return (
     <div className="chat-area">
-      {/* Top bar */}
       <header className="chat-topbar">
         <button type="button" className="topbar-btn menu-btn" onClick={onOpenSidebar}>
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M3 12h18M3 6h18M3 18h18" />
           </svg>
         </button>
-        <label className="rag-scope-select-wrap">
-          <span className="rag-scope-select-label">Documents</span>
-          <select
-            className="rag-doc-select"
-            value={
-              ragScope === "all" || categoryOptions.some((c) => c.name === ragScope)
-                ? ragScope
-                : DEFAULT_RAG_SCOPE
-            }
-            onChange={handleRagSelectChange}
-            aria-label="Portée des documents RAG"
-          >
-            <option value="all">Tous les documents</option>
-            {categoryOptions.map((c) => (
-              <option key={c.name} value={c.name}>
-                {c.name}
-                {typeof c.doc_count === "number" ? ` (${c.doc_count})` : ""}
-              </option>
-            ))}
-          </select>
-        </label>
+        <span className="topbar-title">SendBot</span>
         <div className="topbar-right">
           <div className="topbar-badge">
-            Acces{" "}
+            Accès{" "}
             {isPrivilegedChatRole(session?.role)
               ? sessionRoleLabel(session?.role).toLowerCase()
               : "client"}
@@ -225,7 +127,6 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
         </div>
       </header>
 
-      {/* Messages */}
       <div className="chat-messages">
         {isEmpty ? (
           <div className="empty-state">
@@ -235,9 +136,7 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
               </svg>
             </div>
             <h2>Comment puis-je vous aider ?</h2>
-            <p className="empty-subtitle">
-              Posez votre question en français.
-            </p>
+            <p className="empty-subtitle">Français, darija ou les deux — comme vous préférez.</p>
             <div className="sample-grid">
               {SAMPLES.map((s) => (
                 <button
@@ -246,9 +145,7 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
                   type="button"
                   onClick={() => {
                     setInput(s);
-                    requestAnimationFrame(() =>
-                      textareaRef.current?.focus({ preventScroll: true })
-                    );
+                    requestAnimationFrame(() => textareaRef.current?.focus({ preventScroll: true }));
                   }}
                 >
                   {s}
@@ -267,7 +164,6 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
         )}
       </div>
 
-      {/* Input */}
       <div className="chat-input-area">
         <div className="input-box">
           <textarea
@@ -280,19 +176,13 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
             rows={1}
             maxLength={2000}
           />
-          <button
-            className="send-btn"
-            onClick={handleSend}
-            disabled={!input.trim() || loading}
-          >
+          <button className="send-btn" onClick={handleSend} disabled={!input.trim() || loading}>
             <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
               <path d="M2.01 21L23 12 2.01 3 2 10l15 2-15 2z" />
             </svg>
           </button>
         </div>
-        <span className="input-hint">
-          Ce chatbot peut se tromper. Verifiez les informations importantes.
-        </span>
+        <span className="input-hint">Ce chatbot peut se tromper. Vérifiez les informations importantes.</span>
       </div>
     </div>
   );

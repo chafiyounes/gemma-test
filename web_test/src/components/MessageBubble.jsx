@@ -13,6 +13,31 @@ function resolveDocImageSrc(src) {
 
 const DISLIKE_REASONS = ["Hors sujet", "Incomplete", "Incorrecte"];
 
+function RagHint({ rag, scopeLabel }) {
+  if (!rag || typeof rag !== "object") return null;
+  const chars = typeof rag.context_chars === "number" ? rag.context_chars : null;
+  const docs = typeof rag.documents_in_prompt === "number" ? rag.documents_in_prompt : null;
+  const note = rag.note != null && rag.note !== "" ? String(rag.note) : null;
+  if (chars == null && docs == null && !note && !scopeLabel) return null;
+  const warn = chars === 0 || docs === 0;
+  return (
+    <div className={`msg-rag-hint ${warn ? "msg-rag-hint-warn" : ""}`} role="status">
+      {scopeLabel ? (
+        <span className="msg-rag-scope">
+          Périmètre: <strong>{scopeLabel === "none" ? "—" : scopeLabel}</strong>
+        </span>
+      ) : null}
+      {chars != null && docs != null ? (
+        <span className="msg-rag-stats">
+          {chars.toLocaleString("fr-FR")} caractères de contexte · {docs} document
+          {docs === 1 ? "" : "s"} dans la réponse
+        </span>
+      ) : null}
+      {note ? <span className="msg-rag-note">{note}</span> : null}
+    </div>
+  );
+}
+
 // Detect the dominant script of a message so we can force the correct
 // paragraph direction. `dir="auto"` only inspects the first strong character,
 // which mis-renders Arabic paragraphs that happen to start with a Latin token
@@ -287,6 +312,9 @@ export default function MessageBubble({ message, onSubmitFeedback }) {
         <div className="msg-text" dir={textDir}>
           {isUser || isError ? message.content : renderFormattedMessage(message.content)}
         </div>
+        {!isUser && !isError && message.metadata?.rag ? (
+          <RagHint rag={message.metadata.rag} scopeLabel={message.metadata.category_used} />
+        ) : null}
         {!isUser && !isError && message.interactionId ? (
           <div className="feedback-section">
             <div className="feedback-actions">

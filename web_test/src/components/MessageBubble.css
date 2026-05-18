@@ -250,6 +250,36 @@
   color: #fca5a5;
 }
 
+.msg-rag-hint {
+  margin-top: 10px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--text-muted, #8a8a8a);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.msg-rag-hint-warn {
+  border-color: rgba(250, 204, 21, 0.35);
+  background: rgba(250, 204, 21, 0.08);
+  color: #fde68a;
+}
+
+.msg-rag-scope,
+.msg-rag-stats {
+  display: block;
+}
+
+.msg-rag-note {
+  font-size: 10px;
+  opacity: 0.85;
+}
+
 @media (max-width: 767px) {
   .msg-bubble {
     max-width: 85%;
