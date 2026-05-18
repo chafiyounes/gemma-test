@@ -145,9 +145,8 @@ class Settings(BaseSettings):
     RATE_LIMIT_WINDOW_SECONDS: int = 60
 
     # ── Generation parameters ─────────────────────────────────────────────
-    # Procédures longues (FR + darija, plusieurs « cas ») dépassent vite 768 sorties.
-    # 1536 garde des réponses longues tout en libérant plus de budget d'entrée RAG.
-    MAX_NEW_TOKENS: int = 1536
+    # 2048 aligns with .env.example; reduces mid-answer truncation (vLLM finish_reason=length).
+    MAX_NEW_TOKENS: int = 2048
     TEMPERATURE: float = 0.7
     TOP_P: float = 0.9
 
