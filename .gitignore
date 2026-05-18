@@ -14,3 +14,6 @@ web_test/dist/
 *.egg-info/
 .venv/
 media/
+
+# Ephemeral local scratch scripts
+.tmp_*.py

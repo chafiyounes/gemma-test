@@ -1,0 +1,1 @@
+Fixture for multi_sub: when subfolders exist, category is cat_a not multi_sub.

@@ -13,6 +13,8 @@ const state = {
   docsOverview: null,
   docsDraft: null,
   docsDirty: false,
+  docsPinnedExpandCategory: null,
+  docsRevealScrollKeys: null,
 };
 
 const loginForm = document.getElementById("login-form");
@@ -358,7 +360,8 @@ async function addFilesToDraftFromFileList(fileList) {
     );
     return;
   }
-  const { modalQueue, anyAdded, draftConflictSkip } = stageIncomingFiles(allowed, category);
+  const { modalQueue, anyAdded, draftConflictSkip, revealKeys } = stageIncomingFiles(allowed, category);
+  applyDocsReveal(revealKeys);
   const msgParts = [];
   if (extSkipped) msgParts.push(`${extSkipped} ignoré(s) (extension).`);
   if (draftConflictSkip) {
@@ -408,6 +411,8 @@ function initDocsDraft() {
     deletes: [],
   };
   state.docsDirty = false;
+  state.docsPinnedExpandCategory = null;
+  state.docsRevealScrollKeys = null;
 }
 
 function ensureDraftCategory(name) {
@@ -591,39 +596,101 @@ function draftSwapPendingUpload(category, filename, newFile) {
 }
 
 /**
+ * After staging files, expand the target category and scroll file rows into view.
+ */
+function applyDocsReveal(revealKeys) {
+  if (!revealKeys?.length) return;
+  state.docsPinnedExpandCategory = revealKeys[0].category;
+  state.docsRevealScrollKeys = revealKeys.slice();
+}
+
+function findDocRowEl(category, name, source) {
+  if (!documentsCategories) return null;
+  for (const el of documentsCategories.querySelectorAll(".doc-file[data-doc-cat]")) {
+    if (
+      el.dataset.docCat === category &&
+      el.dataset.docName === name &&
+      el.dataset.docSrc === source
+    ) {
+      return el;
+    }
+  }
+  return null;
+}
+
+function flushDocsRevealScroll() {
+  const keys = state.docsRevealScrollKeys;
+  if (!keys?.length) return;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      const last = keys[keys.length - 1];
+      const el = findDocRowEl(last.category, last.name, last.source);
+      el?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+      state.docsRevealScrollKeys = null;
+    });
+  });
+}
+
+function duplicateLowerNamesForCategory(cat) {
+  const counts = new Map();
+  for (const f of cat.files || []) {
+    const ln = String(f.name || "").toLowerCase();
+    counts.set(ln, (counts.get(ln) || 0) + 1);
+  }
+  const dups = new Set();
+  for (const [ln, c] of counts) {
+    if (c > 1) dups.add(ln);
+  }
+  return dups;
+}
+
+/**
  * Stage new files: add non-conflicting; queue disk-backed name collisions for the modal.
- * @returns {{ modalQueue: Array<{file: File, row: object, category: string}>, anyAdded: boolean, draftConflictSkip: number }}
+ * @returns {{ modalQueue: Array<{file: File, row: object, category: string}>, anyAdded: boolean, draftConflictSkip: number, revealKeys: Array<{category: string, name: string, source: string}> }}
  */
 function stageIncomingFiles(allowedFiles, category) {
   const modalQueue = [];
+  const revealKeys = [];
   let anyAdded = false;
   let draftConflictSkip = 0;
   if (!state.docsDraft || !allowedFiles.length) {
-    return { modalQueue, anyAdded, draftConflictSkip };
+    return { modalQueue, anyAdded, draftConflictSkip, revealKeys };
   }
   ensureDraftCategory(category);
   const cat = state.docsDraft.categories.find((c) => c.name === category);
-  if (!cat) return { modalQueue, anyAdded, draftConflictSkip };
+  if (!cat) return { modalQueue, anyAdded, draftConflictSkip, revealKeys };
 
   for (const file of allowedFiles) {
     const row = cat.files.find((f) => f.name === file.name);
     if (!row) {
       draftAddUpload(file, category);
       anyAdded = true;
+      revealKeys.push({
+        category,
+        name: file.name,
+        source: inferStagedSourceFromFilename(file.name),
+      });
       continue;
     }
     if (row.pendingOp === "upload") {
       draftSwapPendingUpload(category, file.name, file);
       anyAdded = true;
+      revealKeys.push({
+        category,
+        name: file.name,
+        source: inferStagedSourceFromFilename(file.name),
+      });
       continue;
     }
     if (row.pendingOp) {
       draftConflictSkip += 1;
       continue;
     }
+    row.nameCollisionPending = true;
     modalQueue.push({ file, row, category });
+    revealKeys.push({ category, name: row.name, source: row.source });
   }
-  return { modalQueue, anyAdded, draftConflictSkip };
+  return { modalQueue, anyAdded, draftConflictSkip, revealKeys };
 }
 
 function openOverwriteConflictsModal(items) {
@@ -698,7 +765,9 @@ function openOverwriteConflictsModal(items) {
   }
 
   function applyOverwrite(entry) {
-    draftReplaceFile(entry.category, entry.row.name, entry.row.source, entry.file);
+    delete entry.row.nameCollisionPending;
+    const rev = draftReplaceFile(entry.category, entry.row.name, entry.row.source, entry.file);
+    if (rev) applyDocsReveal([rev]);
     overwriteCount += 1;
     refreshCounter();
   }
@@ -736,6 +805,7 @@ function openOverwriteConflictsModal(items) {
       btnS.className = "toolbar-button secondary";
       btnS.textContent = "Ignorer";
       btnS.addEventListener("click", () => {
+        delete entry.row.nameCollisionPending;
         remaining = remaining.filter((x) => x !== entry);
         if (!remaining.length) {
           closeAll();
@@ -784,12 +854,12 @@ function openOverwriteConflictsModal(items) {
 }
 
 function draftReplaceFile(category, filename, sourceKind, file) {
-  if (!state.docsDraft) return;
+  if (!state.docsDraft) return null;
   const lower = file.name.toLowerCase();
   const cat = state.docsDraft.categories.find((c) => c.name === category);
-  if (!cat) return;
+  if (!cat) return null;
   const idx = cat.files.findIndex((f) => f.name === filename && f.source === sourceKind);
-  if (idx < 0) return;
+  if (idx < 0) return null;
   cat.files.splice(idx, 1);
   state.docsDraft.deletes.push({ category, source_kind: sourceKind, filename });
   const stem = filename.includes(".") ? filename.slice(0, filename.lastIndexOf(".")) : filename;
@@ -806,7 +876,7 @@ function draftReplaceFile(category, filename, sourceKind, file) {
     source = "docx";
   } else {
     showDocError("Remplacement : choisir un fichier .docx, .txt ou .md.");
-    return;
+    return null;
   }
   const targetName = stem + ext;
   cat.files.push({
@@ -823,6 +893,7 @@ function draftReplaceFile(category, filename, sourceKind, file) {
     replaceOf: filename,
   });
   _setDirty(true);
+  return { category, name: targetName, source };
 }
 
 function renderDocuments() {
@@ -850,18 +921,28 @@ function renderDocuments() {
     .join("");
 
   documentsCategories.innerHTML = categories
-    .map((cat, idx) => {
+    .map((cat) => {
+      const expandCat = state.docsPinnedExpandCategory;
+      const isExpanded = expandCat && cat.name === expandCat;
       const live = (state.docsOverview.categories || []).find((x) => x.name === cat.name);
       const sizePill = live
         ? `<span class="pill">${live.total_chars} chars (corpus)</span>`
         : `<span class="pill">nouvelle categorie</span>`;
+      const dupLower = duplicateLowerNamesForCategory(cat);
       const files = (cat.files || [])
         .map((file) => {
           const kind = docFileKindLabel(file.name);
+          const isDup =
+            dupLower.has(String(file.name || "").toLowerCase()) || Boolean(file.nameCollisionPending);
+          const dupPart = isDup ? " doc-file--dup" : "";
+          const warn = isDup
+            ? `<span class="doc-dup-icon" title="Conflit ou nom en double dans ce corpus" aria-hidden="true">⚠</span>`
+            : "";
           return `
-          <div class="doc-file ${file.isPending ? "pending" : ""}">
+          <div class="doc-file ${file.isPending ? "pending" : ""}${dupPart}" data-doc-cat="${escapeHtml(cat.name)}" data-doc-name="${escapeHtml(file.name)}" data-doc-src="${escapeHtml(file.source)}">
             <span class="doc-file-kind" title="Type">${kind}</span>
             <div class="doc-file-info">
+              ${warn}
               <span class="doc-file-title">${escapeHtml(file.name)}</span>
               <span class="doc-file-meta">
                 <span class="pill">${escapeHtml(file.source)}</span>
@@ -882,9 +963,9 @@ function renderDocuments() {
         .join("");
 
       return `
-        <div class="doc-category ${idx === 0 ? "expanded" : ""}">
+        <div class="doc-category ${isExpanded ? "expanded" : ""}">
           <div class="doc-category-head-wrap">
-            <button type="button" class="doc-category-head" data-doc-toggle aria-expanded="${idx === 0}">
+            <button type="button" class="doc-category-head" data-doc-toggle aria-expanded="${isExpanded}">
               <span class="doc-category-chevron" aria-hidden="true"></span>
               <div class="doc-category-head-text">
                 <span class="doc-category-name">${escapeHtml(cat.name)}</span>
@@ -991,6 +1072,7 @@ function renderDocuments() {
     });
   });
   updatePendingSummary();
+  flushDocsRevealScroll();
 }
 
 async function loadDocumentsOverview() {
@@ -1030,7 +1112,8 @@ async function handleFolderSelection() {
     if (docFolderInput) docFolderInput.value = "";
     return;
   }
-  const { modalQueue, anyAdded, draftConflictSkip } = stageIncomingFiles(allowed, corpus);
+  const { modalQueue, anyAdded, draftConflictSkip, revealKeys } = stageIncomingFiles(allowed, corpus);
+  applyDocsReveal(revealKeys);
   const msgParts = [];
   if (extSkipped) msgParts.push(`${extSkipped} ignoré(s) (extension).`);
   if (draftConflictSkip) {
@@ -1507,7 +1590,8 @@ if (docReplaceInput) {
     ensureDocsReadyForEdits()
       .then(() => {
         showDocError("");
-        draftReplaceFile(t.category, t.filename, t.sourceKind, f);
+        const rev = draftReplaceFile(t.category, t.filename, t.sourceKind, f);
+        if (rev) applyDocsReveal([rev]);
         renderDocuments();
       })
       .catch((error) => showDocError(error.message || "Chargez la vue Documents."));

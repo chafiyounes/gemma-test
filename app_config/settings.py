@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # Reserve part of the prompt budget for conversation history so long chats keep coherence.
     RAG_CHAT_HISTORY_RESERVE_CHARS: int = 12_000
     RAG_BM25_K: int = 12
+    # Rank up to this many documents **across all merged categories** (flat pool;
+    # category stays metadata on each chunk). Greedy / max_chars trims what actually
+    # goes into the prompt — this is retrieval breadth, not injection size.
+    RAG_RETRIEVAL_CANDIDATE_K: int = 100
     # When the corpus exceeds the inject budget: prefer **complete** top-ranked files
     # and at most **one** partial (query-aligned), instead of thin slices of many files.
     RAG_GREEDY_FULL_DOCS: bool = True

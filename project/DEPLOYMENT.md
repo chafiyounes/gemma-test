@@ -69,11 +69,15 @@ After **`pip` / dependency** changes, restart API (or full stack) as appropriate
 
 ### Frontend
 
+After **every** `git pull` that touches the chat UI, rebuild the SPA (otherwise the browser may still get an old `web_test/dist`):
+
 ```bash
-cd /workspace/gemma-test/web_test && npm install && npm run build
+cd /workspace/gemma-test && bash scripts/build_web.sh
 ```
 
-Then restart API. Fail closed: `web_test/dist/index.html` must exist if the API serves the SPA.
+Or use **Admin → Git refresh**: it now runs **`npm install` + `npm run build`** in `web_test` after pull, then reloads the RAG index. **Still restart the API** (`bash scripts/restart_api.sh`) so uvicorn picks up fresh static files if needed.
+
+Fail closed: `web_test/dist/index.html` must exist if the API serves the SPA.
 
 ### Line endings (Windows clones)
 

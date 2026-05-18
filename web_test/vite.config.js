@@ -27,10 +27,6 @@ export default defineConfig({
         target: 'http://localhost:8000',
         changeOrigin: true,
       },
-      '/categories': {
-        target: 'http://localhost:8000',
-        changeOrigin: true,
-      },
       '/feedback': {
         target: 'http://localhost:8000',
         changeOrigin: true,

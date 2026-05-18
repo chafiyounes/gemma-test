@@ -535,6 +535,10 @@ class DocStore:
             for c in self.indexes.values()
         ]
 
+    def rag_categories_all(self) -> List[str]:
+        """Every indexed folder that has at least one document (sorted). Used for full-corpus chat RAG."""
+        return sorted(name for name, idx in self.indexes.items() if idx.docs)
+
     def rag_categories_for_primary(self, primary: str) -> List[str]:
         """Primary chat category plus extras from RAG_EXTRA_CATEGORIES that exist on disk."""
         p = (primary or "").strip()
@@ -768,7 +772,10 @@ class DocStore:
 
         parts: List[str] = []
         used = 0
+        remaining = max_chars
         for idx in targets:
+            if remaining <= 100:
+                break
             docs = (
                 self._rank_docs_in_index(idx, query, expand_for_retrieval=expand_for_retrieval)
                 if (query and query.strip())
@@ -783,33 +790,52 @@ class DocStore:
                 header = f"### Document : {d.name}  (catégorie : {d.category})\n"
                 entries.append((header, body, d.name))
 
-            # Separator between doc blocks: single newline after body
+            # Separator between doc blocks: single newline after body.
+            # *remaining* is shared across all categories (multi-corpus inject must not
+            # re-use the full max_chars budget per folder — that blew past vLLM context).
             overhead = sum(len(h) + 1 for h, _, _ in entries)
-            budget_bodies = max(0, max_chars - overhead - max(0, n - 1))
+            budget_bodies = max(0, remaining - overhead - max(0, n - 1))
             total_body = sum(len(b) for _, b, _ in entries)
 
             if total_body == 0:
                 for header, _, _name in entries:
-                    parts.append(header + "\n")
+                    block = header + "\n"
+                    if len(block) > remaining:
+                        break
+                    parts.append(block)
+                    used += len(block)
+                    remaining -= len(block)
                 continue
 
             if total_body <= budget_bodies:
                 for header, body, _name in entries:
                     block = header + body + "\n"
+                    if len(block) > remaining:
+                        block = block[:remaining].rsplit("\n", 1)[0] + "\n…(tronqué)\n"
                     parts.append(block)
-                    used += len(block)
+                    u = len(block)
+                    used += u
+                    remaining -= u
+                    if remaining <= 100:
+                        break
                 continue
 
             if settings.RAG_GREEDY_FULL_DOCS:
                 blocks = _greedy_inject_document_blocks(
                     [(h, b) for h, b, _ in entries],
                     query=query or "",
-                    max_chars=max_chars,
+                    max_chars=remaining,
                     expand_fr_darija_hints=expand_for_retrieval,
                 )
                 for b in blocks:
+                    if remaining <= 0:
+                        break
+                    if len(b) > remaining:
+                        b = b[: max(0, remaining)].rsplit("\n", 1)[0] + "\n…(tronqué)\n"
                     parts.append(b)
-                    used += len(b)
+                    u = len(b)
+                    used += u
+                    remaining -= u
                 continue
 
             if query and query.strip():
@@ -831,6 +857,8 @@ class DocStore:
                     alloc[-1] = max(0, alloc[-1] + diff)
 
             for i, (header, body, _name) in enumerate(entries):
+                if remaining <= 100:
+                    break
                 cap = alloc[i] if i < len(alloc) else 0
                 if len(body) <= cap:
                     chunk = body
@@ -849,8 +877,17 @@ class DocStore:
                         chunk = chunk or body[:cap]
                         suffix = "\n…(tronqué — budget contexte atteint)\n"
                 block = header + chunk + suffix
+                if len(block) > remaining:
+                    over = len(block) - remaining
+                    if over > 0 and len(chunk) > over + 20:
+                        chunk = chunk[: max(0, len(chunk) - over - 20)].rsplit("\n", 1)[0]
+                        block = header + chunk + "\n…(tronqué)\n"
+                    else:
+                        block = block[:remaining]
                 parts.append(block)
-                used += len(block)
+                u = len(block)
+                used += u
+                remaining -= u
 
         logger.info(
             "Injected %d document blocks into context (~%d chars of %d budget, condense=%s)",

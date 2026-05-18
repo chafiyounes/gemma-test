@@ -129,7 +129,7 @@ def main():
         "sed -i 's/\\r//' scripts/*.sh start_all.sh",
         "chmod +x scripts/*.sh start_all.sh",
         # Build web_test (fail closed if dist missing) + admin static paths exist
-        "bash -lc 'set -euo pipefail; cd /workspace/gemma-test/web_test && npm install && npm run build && test -f dist/index.html'",
+        "bash scripts/build_web.sh",
         "bash -lc 'set -euo pipefail; cd /workspace/gemma-test && test -f admin_site/index.html && test -f admin_site/assets/admin.js'",
     ]
 

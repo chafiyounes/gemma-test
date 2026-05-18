@@ -14,7 +14,10 @@ class ChatRequest(BaseModel):
     conversation_history: List[ConversationTurn] = Field(default_factory=list)
     system_prompt: Optional[str] = Field(default=None, description="Override system prompt (admin only)")
     skip_persist: bool = Field(default=False)
-    category: Optional[str] = Field(default=None, description="Document category to use for RAG context")
+    category: Optional[str] = Field(
+        default=None,
+        description="Ignored for /chat; the API always retrieves from every document category.",
+    ),
     agentic_rag: Optional[bool] = Field(
         default=None,
         description="Agentic RAG (map + tools). Omit or null to follow AGENTIC_RAG_DEFAULT_ON_CHAT when AGENTIC_RAG_ENABLED.",

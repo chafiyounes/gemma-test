@@ -52,7 +52,7 @@ Workflow rules:
 6) Final answer must be in the same language style as the user.
 7) Never expose internal tool details or catalog internals to the user.
 
-Document catalog (JSON):
+Document catalog (JSON). Each **id** is either `category/document_stem` when multiple corpora are merged, or a plain stem for a single category:
 {catalog_json}
 """.strip()
 
@@ -162,6 +162,25 @@ def build_document_catalog(store: DocStore, category: str) -> List[MapEntry]:
     return rows
 
 
+def build_document_catalog_for_categories(store: DocStore, categories: List[str]) -> List[MapEntry]:
+    rows: List[MapEntry] = []
+    for cat in categories:
+        idx = store.indexes.get(cat)
+        if not idx:
+            continue
+        for d in idx.docs:
+            cid = f"{cat}/{d.name}"
+            rows.append(
+                MapEntry(
+                    id=cid,
+                    path=_resolve_doc_path(cat, d.name),
+                    objective=_extract_objective(d.text),
+                    section_1=_extract_section_1(d.text),
+                )
+            )
+    return rows
+
+
 def _router_prompt_limits() -> tuple[int, int, int, int]:
     """(per_round_cap, max_total, max_rounds, target_docs) from settings."""
     max_total = max(1, settings.AGENTIC_RAG_ROUTER_MAX_TOTAL_IDS)
@@ -199,6 +218,13 @@ def make_router_system_prompt(catalog: List[MapEntry]) -> str:
     )
 
 
+def _prompt_header_for_catalog_doc(doc_id: str, primary_category: str) -> str:
+    if "/" in doc_id:
+        cat, stem = doc_id.split("/", 1)
+        return f"### Document : {stem}  (catégorie : {cat})\n"
+    return f"### Document : {doc_id}  (catégorie : {primary_category})\n"
+
+
 def format_retrieved_documents_for_prompt(
     *,
     category: str,
@@ -216,7 +242,7 @@ def format_retrieved_documents_for_prompt(
         if not txt:
             continue
         body = condense_sop_plaintext(txt) if condense else txt.strip()
-        header = f"### Document : {doc_id}  (catégorie : {category})\n"
+        header = _prompt_header_for_catalog_doc(doc_id, category)
         entries.append((header, body))
     if settings.RAG_GREEDY_FULL_DOCS:
         blocks = _greedy_inject_document_blocks(
@@ -307,7 +333,7 @@ def _request_documents(
     found: List[Dict[str, str]] = []
     not_found: List[str] = []
     for doc_id in unique_ids:
-        txt = store.get_document_by_stem(category, doc_id)
+        txt = store.get_document_by_catalog_id(doc_id, category)
         if txt is None:
             not_found.append(doc_id)
             continue

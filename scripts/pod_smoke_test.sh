@@ -25,11 +25,13 @@ head -c 1200 /tmp/direct.out; echo
 echo "== auth =="
 USER_PW=$(awk -F= '/^USER_SITE_PASSWORD=/{print $2; exit}' "$PROJ/.env")
 ADMIN_PW=$(awk -F= '/^ADMIN_SITE_PASSWORD=/{print $2; exit}' "$PROJ/.env")
+USER_USER=$(awk -F= '/^AUTH_BOOTSTRAP_USER_USERNAME=/{print $2; exit}' "$PROJ/.env"); USER_USER=${USER_USER:-user}
+ADMIN_USER=$(awk -F= '/^AUTH_BOOTSTRAP_ADMIN_USERNAME=/{print $2; exit}' "$PROJ/.env"); ADMIN_USER=${ADMIN_USER:-admin}
 echo "user_pw_len=${#USER_PW} admin_pw_len=${#ADMIN_PW}"
 
 LOGIN=$(curl -s -c /tmp/cj_user.txt -X POST http://localhost:8000/auth/login \
   -H "content-type: application/json" \
-  --data "{\"password\":\"$USER_PW\"}")
+  --data "{\"username\":\"$USER_USER\",\"password\":\"$USER_PW\"}")
 echo "user_login=$LOGIN"
 
 echo "== /chat (FastAPI) =="
@@ -52,6 +54,6 @@ curl -s -b /tmp/cj_user.txt http://localhost:8000/models | head -c 500; echo
 echo "== admin login + /admin/interactions =="
 ALOGIN=$(curl -s -c /tmp/cj_admin.txt -X POST http://localhost:8000/auth/login \
   -H "content-type: application/json" \
-  --data "{\"password\":\"$ADMIN_PW\"}")
+  --data "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PW\"}")
 echo "admin_login=$ALOGIN"
 curl -s -b /tmp/cj_admin.txt "http://localhost:8000/admin/interactions?limit=3" | head -c 700; echo

@@ -1,33 +1,23 @@
-import { createContext, useContext, useReducer, useCallback } from "react";
+import { createContext, useContext, useReducer, useCallback, useEffect } from "react";
 import { v4 as uuid } from "uuid";
+import { fetchChatThreads, fetchThreadMessages, hideAllThreads, hideThread } from "../services/api";
 
 const ChatContext = createContext();
 
-const newConversation = () => ({
-  id: uuid(),
-  title: "New chat",
-  messages: [],
-  sessionId: uuid(),
-  createdAt: Date.now(),
-  loading: false,
-});
+const newConversation = () => {
+  const id = uuid();
+  return {
+    id,
+    title: "New chat",
+    messages: [],
+    sessionId: id,
+    createdAt: Date.now(),
+    loading: false,
+    needsFetch: false,
+  };
+};
 
 const initialState = () => {
-  const saved = localStorage.getItem("sendbot_state");
-  if (saved) {
-    try {
-      const parsed = JSON.parse(saved);
-      if (parsed.conversations?.length) {
-        // Defensive: any stale `loading=true` from a previous session must be
-        // cleared so the typing indicator does not show on page reload.
-        parsed.conversations = parsed.conversations.map((c) => ({
-          ...c,
-          loading: false,
-        }));
-        return parsed;
-      }
-    } catch {}
-  }
   const conv = newConversation();
   return { conversations: [conv], activeId: conv.id };
 };
@@ -35,6 +25,10 @@ const initialState = () => {
 function reducer(state, action) {
   let next;
   switch (action.type) {
+    case "REPLACE_STATE": {
+      next = action.state;
+      break;
+    }
     case "NEW_CHAT": {
       const conv = newConversation();
       next = {
@@ -63,9 +57,6 @@ function reducer(state, action) {
       break;
     }
     case "ADD_MESSAGE": {
-      // Always target the conversation passed in `action.conversationId` so
-      // that an in-flight reply lands in the conversation it was sent from,
-      // not whichever conversation the user happens to be viewing now.
       const targetId = action.conversationId || state.activeId;
       next = {
         ...state,
@@ -127,6 +118,21 @@ function reducer(state, action) {
       };
       break;
     }
+    case "SET_MESSAGES": {
+      const targetId = action.conversationId || state.activeId;
+      next = {
+        ...state,
+        conversations: state.conversations.map((c) => {
+          if (c.id !== targetId) return c;
+          return {
+            ...c,
+            messages: action.messages,
+            needsFetch: false,
+          };
+        }),
+      };
+      break;
+    }
     case "CLEAR_ALL": {
       const conv = newConversation();
       next = { conversations: [conv], activeId: conv.id };
@@ -135,11 +141,15 @@ function reducer(state, action) {
     default:
       return state;
   }
-  localStorage.setItem("sendbot_state", JSON.stringify(next));
+  try {
+    localStorage.setItem("sendbot_state", JSON.stringify(next));
+  } catch {
+    /* ignore quota */
+  }
   return next;
 }
 
-export function ChatProvider({ children }) {
+export function ChatProvider({ children, session }) {
   const [state, dispatch] = useReducer(reducer, null, initialState);
 
   const activeConversation =
@@ -150,15 +160,102 @@ export function ChatProvider({ children }) {
     .filter((m) => m.role === "user" || m.role === "assistant")
     .map((m) => ({ role: m.role, content: m.content }));
 
+  useEffect(() => {
+    if (!session?.authenticated || !session?.user_id) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { threads } = await fetchChatThreads();
+        if (cancelled) return;
+        if (!threads?.length) {
+          dispatch({ type: "REPLACE_STATE", state: initialState() });
+          return;
+        }
+        const convs = threads.map((t) => ({
+          id: t.id,
+          sessionId: t.id,
+          title: t.title || "Chat",
+          messages: [],
+          loading: false,
+          createdAt: Date.parse(t.updated_at) || Date.now(),
+          needsFetch: true,
+        }));
+        dispatch({
+          type: "REPLACE_STATE",
+          state: { conversations: convs, activeId: convs[0].id },
+        });
+      } catch {
+        /* keep local state */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [session?.authenticated, session?.user_id]);
+
+  useEffect(() => {
+    if (!session?.authenticated || !activeConversation?.sessionId) return;
+    if (!activeConversation.needsFetch) return;
+    if (activeConversation.messages.length > 0) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const { messages } = await fetchThreadMessages(activeConversation.sessionId);
+        if (cancelled) return;
+        dispatch({
+          type: "SET_MESSAGES",
+          conversationId: activeConversation.id,
+          messages: messages || [],
+        });
+      } catch {
+        dispatch({
+          type: "SET_MESSAGES",
+          conversationId: activeConversation.id,
+          messages: [],
+        });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    session?.authenticated,
+    activeConversation?.id,
+    activeConversation?.sessionId,
+    activeConversation?.needsFetch,
+    activeConversation?.messages.length,
+  ]);
+
   const value = {
     conversations: state.conversations,
     activeConversation,
     activeId: state.activeId,
     apiHistory,
     dispatch,
+    session,
     newChat: useCallback(() => dispatch({ type: "NEW_CHAT" }), []),
     selectChat: useCallback((id) => dispatch({ type: "SELECT_CHAT", id }), []),
     deleteChat: useCallback((id) => dispatch({ type: "DELETE_CHAT", id }), []),
+    removeChat: useCallback(async (conv) => {
+      if (session?.authenticated && conv?.sessionId) {
+        try {
+          await hideThread(conv.sessionId);
+        } catch {
+          /* still drop from UI */
+        }
+      }
+      dispatch({ type: "DELETE_CHAT", id: conv.id });
+    }, [session?.authenticated]),
+    clearAllChats: useCallback(async () => {
+      if (session?.authenticated && session?.user_id) {
+        try {
+          await hideAllThreads();
+        } catch {
+          /* ignore */
+        }
+      }
+      dispatch({ type: "CLEAR_ALL" });
+    }, [session?.authenticated, session?.user_id]),
     addMessage: useCallback(
       (message, conversationId) =>
         dispatch({ type: "ADD_MESSAGE", message, conversationId }),
@@ -184,7 +281,6 @@ export function ChatProvider({ children }) {
         dispatch({ type: "SET_LOADING", conversationId, loading }),
       []
     ),
-    clearAll: useCallback(() => dispatch({ type: "CLEAR_ALL" }), []),
   };
 
   return <ChatContext.Provider value={value}>{children}</ChatContext.Provider>;

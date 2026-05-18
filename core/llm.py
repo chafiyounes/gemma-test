@@ -2,7 +2,7 @@ import asyncio
 import logging
 import re
 from dataclasses import dataclass, field
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 
@@ -20,7 +20,7 @@ from core.chat_policy import (
 )
 from core.agentic_rag import (
     AGENTIC_NOT_FOUND,
-    build_document_catalog,
+    build_document_catalog_for_categories,
     format_retrieved_documents_for_prompt,
     make_agentic_system_prompt,
     make_router_system_prompt,
@@ -60,6 +60,27 @@ _RAG_REPAIR_USER = (
 # After deploy / start_all, vLLM often needs several minutes before :8002 accepts HTTP.
 _VLLM_CONNECT_RETRIES = 4
 _VLLM_CONNECT_RETRY_DELAY_S = 15.0
+
+
+def _vllm_body_suggests_context_overflow(body: str) -> bool:
+    """vLLM / OpenAI-compatible servers use varying 400 bodies for prompt-too-long errors."""
+    b = (body or "").lower()
+    needles = (
+        "maximum context length",
+        "context length",
+        "reduce the length",
+        "token limit",
+        "too many tokens",
+        "requested token",
+        "exceeds the context",
+        "prompt is too long",
+        "longer than the model",
+        "model's maximum",
+        "total length of",
+        "input + max_tokens",
+        "max_tokens is too large",
+    )
+    return any(n in b for n in needles)
 
 
 def _vllm_unavailable_message(base_url: str, bucket: str, *, after_retries: bool) -> str:
@@ -118,11 +139,11 @@ Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu
 - Réserver la phrase type **« information absente des documents »** au cas où le contexte **ne traite vraiment aucun angle utile** du sujet (pas uniquement parce qu’une formulation exacte manque).
 
 ## Langue de réponse (alignée sur l’utilisateur)
-1. Toute la réponse suit la **langue dominante de la question** (intro, étapes, conclusion). Question en darija / arabizi ⇒ **darija professionnelle** ; ne pas basculer en français sauf termes métier (`colis`, `procédure`, etc.).
+1. Toute la réponse suit la **langue dominante de la question** (intro, étapes, conclusion). Question en darija / arabizi ⇒ **darija** comme au §5 (y compris les **amorces** de phrase), sans glisser vers du français « administratif ».
 2. **Français** : question en français, ou ambiguë sans marqueurs darija.
 3. **Anglais** : question en anglais ⇒ réponse entière en anglais.
 4. **Arabe standard (MSA)** : question en fusha ⇒ MSA professionnel.
-5. **Darija** : question en darija ⇒ darija + termes métier FR si utile.
+5. **Darija** : question en darija ⇒ **darija naturelle du début à la fin** — pas d’introductions ni tournures **françaises** (« D’abord… », « Il faut… », « On doit… », « Ensuite… » mises comme en français). Tu peux garder **tels quels** les termes / noms d’outils métier souvent en français ou international : *colis*, *stock*, *ramassage*, *livraison*, *vendor* / *vendeur*, *SENDIT*, *API*, *tracking*, noms propres. La phrase doit **sonner** comme une réponse darija, pas comme du français traduit mot à mot.
 
 ## Structure des réponses
 - Procédures : étapes **numérotées** ou puces, ordre fidèle au document.
@@ -242,46 +263,38 @@ class GemmaModel:
 
         try:
             ctx = None
-            if category:
-                store = get_store()
-                corpus = store.category_corpus_chars(category)
+            store = get_store()
+            primary = (category or "").strip()
+            if primary and primary in store.indexes:
+                cats = store.rag_categories_for_primary(primary)
+                rag_meta["category"] = primary
+            else:
+                cats = store.rag_categories_all()
+                rag_meta["category"] = None
+            rag_meta["categories_used"] = cats
+            if cats:
                 rq = retrieval_anchor_query(message, hist)
+                corpus = store.category_corpus_chars_multi(cats)
                 if corpus <= 0:
                     rag_meta["note"] = "category_empty_or_missing"
-                elif store.use_full_category_inject(category):
-                    expand_hints = bucket in ("fr", "darija", "en")
-                    ctx = store.build_all_docs_context(
-                        category=category,
-                        max_chars=settings.RAG_INJECT_MAX_CHARS,
-                        query=rq,
-                        expand_for_retrieval=expand_hints,
-                        condense=settings.RAG_CONDENSE_DOCUMENTS,
-                    )
-                    logger.info(
-                        "RAG full category inject: %d corpus chars → %d ctx chars",
-                        corpus,
-                        len(ctx or ""),
-                    )
                 else:
-                    # BM25: FR/darija hints + EN→FR lemmas when English keywords match
-                    # (French SOPs still match "vendor", "delivery", "phone", …).
                     expand_hints = bucket in ("fr", "darija", "en")
+                    k = max(1, int(settings.RAG_RETRIEVAL_CANDIDATE_K))
                     ctx = store.build_context(
                         rq,
-                        category=category,
-                        k=settings.RAG_BM25_K,
+                        categories=cats,
+                        k=k,
                         max_chars=settings.RAG_INJECT_MAX_CHARS,
                         expand_fr_darija_hints=expand_hints,
                         condense=settings.RAG_CONDENSE_DOCUMENTS,
                     )
-                    if not ctx:
-                        ctx = store.build_all_docs_context(
-                            category=category,
-                            max_chars=settings.RAG_INJECT_MAX_CHARS,
-                            query=rq,
-                            expand_for_retrieval=expand_hints,
-                            condense=settings.RAG_CONDENSE_DOCUMENTS,
-                        )
+                    logger.info(
+                        "RAG unified retrieve+inject: categories=%s candidate_k=%s corpus_chars=%d → ctx=%d",
+                        cats,
+                        k,
+                        corpus,
+                        len(ctx or ""),
+                    )
             rag_meta["context_chars"] = len(ctx) if ctx else 0
             rag_meta["documents_in_prompt"] = ctx.count("### Document :") if ctx else 0
             if ctx:
@@ -294,10 +307,14 @@ class GemmaModel:
                     rag_meta["context_full"] = ctx
                 if prev and prev == "category_empty_or_missing":
                     del rag_meta["note"]
-            elif category:
+            elif cats:
                 rag_meta.setdefault("note", "no_context_built")
             if ctx:
-                cat_hint = f" (catégorie : {category})" if category else ""
+                cat_hint = ""
+                if rag_meta.get("categories_used"):
+                    cat_hint = f" (catégories : {', '.join(rag_meta['categories_used'])})"
+                elif primary:
+                    cat_hint = f" (catégorie : {primary})"
                 sys_prompt = (
                     sys_prompt
                     + f"\n\n--- DOCUMENTS DE RÉFÉRENCE{cat_hint} ---\n"
@@ -403,41 +420,42 @@ class GemmaModel:
             )
         except httpx.HTTPStatusError as exc:
             body = exc.response.text or ""
-            if exc.response.status_code == 400 and "maximum context length" in body.lower():
+            if exc.response.status_code == 400 and _vllm_body_suggests_context_overflow(body):
                 max_ctx_m = re.search(r"maximum context length is (\d+)", body, flags=re.IGNORECASE)
                 in_tok_m = re.search(r"input tokens[^\d]*(\d+)", body, flags=re.IGNORECASE)
                 current_max = int(payload.get("max_tokens") or settings.MAX_NEW_TOKENS)
+                reduced: Optional[int] = None
                 if max_ctx_m and in_tok_m:
                     max_ctx = int(max_ctx_m.group(1))
                     in_tok = int(in_tok_m.group(1))
-                    # Keep a small safety margin for template/system jitter.
                     reduced = max(64, min(current_max, max_ctx - in_tok - 16))
-                    if reduced < current_max:
-                        logger.warning(
-                            "vLLM 400 context overflow; retry with lower max_tokens=%s (was %s, max_ctx=%s, input=%s)",
-                            reduced,
-                            current_max,
-                            max_ctx,
-                            in_tok,
+                if reduced is None or reduced >= current_max:
+                    reduced = max(64, current_max // 2)
+                if reduced < current_max:
+                    logger.warning(
+                        "vLLM 400 context overflow; retry with lower max_tokens=%s (was %s). body~=%r",
+                        reduced,
+                        current_max,
+                        (body[:280] + "…") if len(body) > 280 else body,
+                    )
+                    payload_retry = dict(payload)
+                    payload_retry["max_tokens"] = reduced
+                    try:
+                        resp2 = await self._client.post("/v1/chat/completions", json=payload_retry)
+                        resp2.raise_for_status()
+                        data = resp2.json()
+                        choice = data["choices"][0]
+                        msg = choice.get("message") or {}
+                        raw = (msg.get("content") or "").strip()
+                        rag_meta["max_tokens_reduced"] = reduced
+                        return LLMGenerateResult(
+                            text=normalize_not_found_response(
+                                message, raw, rag_context_chars=ctx_len
+                            ),
+                            rag=rag_meta,
                         )
-                        payload_retry = dict(payload)
-                        payload_retry["max_tokens"] = reduced
-                        try:
-                            resp2 = await self._client.post("/v1/chat/completions", json=payload_retry)
-                            resp2.raise_for_status()
-                            data = resp2.json()
-                            choice = data["choices"][0]
-                            msg = choice.get("message") or {}
-                            raw = (msg.get("content") or "").strip()
-                            rag_meta["max_tokens_reduced"] = reduced
-                            return LLMGenerateResult(
-                                text=normalize_not_found_response(
-                                    message, raw, rag_context_chars=ctx_len
-                                ),
-                                rag=rag_meta,
-                            )
-                        except Exception as retry_exc:
-                            logger.error("Retry after context overflow failed: %s", retry_exc)
+                    except Exception as retry_exc:
+                        logger.error("Retry after context overflow failed: %s", retry_exc)
             logger.error("vLLM HTTP error %s: %s", exc.response.status_code, exc.response.text)
             return LLMGenerateResult(
                 text=f"⚠️ Model error ({exc.response.status_code}). Please try again.",
@@ -463,7 +481,7 @@ class GemmaModel:
         message: str,
         history: list[dict] | None = None,
         *,
-        category: str,
+        category: Optional[str] = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
     ) -> LLMGenerateResult:
@@ -496,15 +514,25 @@ class GemmaModel:
         if wrong_lang:
             return LLMGenerateResult(text=wrong_lang, rag=rag_meta)
 
-        if not category:
-            rag_meta["note"] = "agentic_missing_category"
+        store = get_store()
+        primary = (category or "").strip()
+        if primary and primary in store.indexes:
+            cats = store.rag_categories_for_primary(primary)
+            rag_meta["category"] = primary
+        else:
+            cats = store.rag_categories_all()
+            rag_meta["category"] = None
+        rag_meta["categories_used"] = cats
+        if not cats:
+            rag_meta["note"] = "agentic_no_documents"
             return LLMGenerateResult(
-                text="⚠️ Agentic RAG requires a document category.",
+                text="⚠️ Aucun document disponible pour l'agentic RAG.",
                 rag=rag_meta,
             )
 
-        store = get_store()
-        catalog = build_document_catalog(store, category or "")
+        tool_cat = cats[0]
+
+        catalog = build_document_catalog_for_categories(store, cats)
         rag_meta["catalog_entries"] = len(catalog)
         if not catalog:
             rag_meta["note"] = "agentic_catalog_empty"
@@ -546,7 +574,7 @@ class GemmaModel:
                     client=self._client,
                     model_name=self._model_name,
                     base_messages=messages_router,
-                    category=category,
+                    category=tool_cat,
                     max_tokens=min(mt, 768),
                     temperature=temp,
                     top_p=settings.TOP_P,
@@ -564,7 +592,7 @@ class GemmaModel:
                 rq = retrieval_anchor_query(message, hist)
                 expand_hints = bucket in ("fr", "darija", "en")
                 ctx = format_retrieved_documents_for_prompt(
-                    category=category,
+                    category=tool_cat,
                     id_to_text=retrieved,
                     ordered_ids=list(retrieved.keys()),
                     max_chars=settings.RAG_INJECT_MAX_CHARS,
@@ -572,7 +600,7 @@ class GemmaModel:
                     anchor_query=rq,
                     expand_fr_darija_hints=expand_hints,
                 )
-                cat_hint = f" (catégorie : {category})" if category else ""
+                cat_hint = f" (catégories : {', '.join(cats)})" if cats else ""
                 sys_with_docs = (
                     SYSTEM_PROMPT.strip()
                     + f"\n\n--- DOCUMENTS DE RÉFÉRENCE{cat_hint} ---\n"
@@ -617,7 +645,7 @@ class GemmaModel:
                 client=self._client,
                 model_name=self._model_name,
                 base_messages=messages,
-                category=category,
+                category=tool_cat,
                 max_tokens=mt,
                 temperature=temp,
                 top_p=settings.TOP_P,
