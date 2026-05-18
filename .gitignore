@@ -6,6 +6,7 @@ data/*.db
 data/models/
 data/documents/
 # Local / pod-managed corpora (not versioned; upload via your own workflow)
+data/documents_md/
 data/documents_txt/
 sendit_docs/
 scripts/fixtures/documents_temp/

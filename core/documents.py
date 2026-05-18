@@ -78,6 +78,13 @@ _LOGISTICS_EN_FR: tuple[tuple[str, str], ...] = (
     ("number", "numéro téléphone contact client coordonnées"),
     ("change", "modification changement coordonnées procédure"),
     ("update", "mise à jour modification changement coordonnées"),
+    ("stock", "stock entrepôt entrée sortie mouvement inventaire produit article demande catalogue"),
+    ("restock", "entrée stock réapprovisionnement produit mouvement"),
+    ("inventory", "stock inventaire entrepôt produit article"),
+    ("product", "produit produits article stock catalogue ajouter"),
+    ("products", "produits stock articles catalogue ajouter"),
+    ("warehouse", "entrepôt stock magasinage"),
+    ("request", "demande procédure support client entrée sortie activation mouvement"),
 )
 
 
@@ -653,6 +660,43 @@ class DocStore:
                     if len(fallback_nt) >= k:
                         return fallback_nt[:k]
             return fallback_nt
+
+        if categories and len(targets) >= 2:
+            floor = max(3, min(10, max(4, k // max(1, len(targets)))))
+            seen: set[tuple[str, str]] = set()
+            selected: List[Doc] = []
+            for idx in targets:
+                ranked = self._rank_docs_in_index(
+                    idx, query, expand_for_retrieval=False
+                )
+                for d in ranked[:floor]:
+                    key = (d.category, d.name)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    selected.append(d)
+            if len(selected) >= k:
+                return selected[:k]
+            scored_mc: List[tuple[float, Doc]] = []
+            for idx in targets:
+                for d in idx.docs:
+                    key = (d.category, d.name)
+                    if key in seen:
+                        continue
+                    s = self._bm25(q_tokens, d, idx)
+                    if s > 0:
+                        scored_mc.append((s, d))
+            scored_mc.sort(key=lambda x: x[0], reverse=True)
+            for d in (d for _, d in scored_mc):
+                if len(selected) >= k:
+                    break
+                key = (d.category, d.name)
+                if key in seen:
+                    continue
+                seen.add(key)
+                selected.append(d)
+            if selected:
+                return selected
 
         scored = []
         for idx in targets:
