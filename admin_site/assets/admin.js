@@ -15,6 +15,7 @@ const state = {
   docsDirty: false,
   docsPinnedExpandCategory: null,
   docsRevealScrollKeys: null,
+  usersList: [],
 };
 
 const loginForm = document.getElementById("login-form");
@@ -40,6 +41,15 @@ const interactionsView = document.getElementById("interactions-view");
 const documentsView = document.getElementById("documents-view");
 const viewInteractionsButton = document.getElementById("view-interactions-button");
 const viewDocumentsButton = document.getElementById("view-documents-button");
+const viewUsersButton = document.getElementById("view-users-button");
+const usersView = document.getElementById("users-view");
+const usersTableWrap = document.getElementById("users-table-wrap");
+const usersError = document.getElementById("users-error");
+const usersRefreshButton = document.getElementById("users-refresh-button");
+const usersNewUsername = document.getElementById("users-new-username");
+const usersNewPassword = document.getElementById("users-new-password");
+const usersNewRole = document.getElementById("users-new-role");
+const usersCreateButton = document.getElementById("users-create-button");
 const documentsBudget = document.getElementById("documents-budget");
 const documentsCategories = document.getElementById("documents-categories");
 const docCategoryInput = document.getElementById("doc-category-input");
@@ -217,18 +227,137 @@ function renderSession() {
 
 function setAdminView(view) {
   const mgrOnly = canUseStaffConsole(state.session?.role) && !isAdministratorRole(state.session?.role);
-  state.adminView = mgrOnly ? "documents" : view === "documents" ? "documents" : "interactions";
+  if (mgrOnly) {
+    state.adminView = "documents";
+  } else if (view === "documents") {
+    state.adminView = "documents";
+  } else if (view === "users") {
+    state.adminView = "users";
+  } else {
+    state.adminView = "interactions";
+  }
   if (interactionsView) interactionsView.classList.toggle("hidden", state.adminView !== "interactions");
   if (documentsView) documentsView.classList.toggle("hidden", state.adminView !== "documents");
+  if (usersView) usersView.classList.toggle("hidden", state.adminView !== "users");
   if (viewInteractionsButton) viewInteractionsButton.classList.toggle("active", state.adminView === "interactions");
   if (viewDocumentsButton) viewDocumentsButton.classList.toggle("active", state.adminView === "documents");
+  if (viewUsersButton) viewUsersButton.classList.toggle("active", state.adminView === "users");
   const toolbarSub = document.querySelector(".toolbar-subtitle");
   if (toolbarSub) {
-    toolbarSub.textContent =
-      state.adminView === "documents"
-        ? "Corpus RAG, import et enregistrement sur le disque."
-        : "Filtrer les interactions et consulter le détail.";
+    if (state.adminView === "documents") {
+      toolbarSub.textContent = "Corpus RAG, import et enregistrement sur le disque.";
+    } else if (state.adminView === "users") {
+      toolbarSub.textContent = "Gérer les comptes, rôles et mots de passe.";
+    } else {
+      toolbarSub.textContent = "Filtrer les interactions et consulter le détail.";
+    }
   }
+}
+
+function showUsersError(message) {
+  if (!usersError) return;
+  usersError.textContent = message;
+  usersError.classList.remove("hidden");
+}
+
+function clearUsersError() {
+  if (!usersError) return;
+  usersError.textContent = "";
+  usersError.classList.add("hidden");
+}
+
+async function loadUsersList() {
+  clearUsersError();
+  if (!isAdministratorRole(state.session?.role)) return;
+  try {
+    const res = await apiFetch("/api/admin/users");
+    const data = await res.json();
+    state.usersList = data.users || [];
+    renderUsersTable();
+  } catch (error) {
+    showUsersError(error.message || "Impossible de charger les utilisateurs.");
+  }
+}
+
+function renderUsersTable() {
+  if (!usersTableWrap) return;
+  const users = state.usersList || [];
+  const esc = (s) =>
+    String(s)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/"/g, "&quot;");
+  if (!users.length) {
+    usersTableWrap.innerHTML = '<p class="users-lead">Aucun compte.</p>';
+    return;
+  }
+  let html =
+    '<table class="users-table"><thead><tr><th>Identifiant</th><th>Rôle</th><th>Créé</th><th>Mot de passe</th></tr></thead><tbody>';
+  for (const u of users) {
+    const id = Number(u.id);
+    html += `<tr data-user-id="${id}"><td>${esc(u.username)}</td><td>`;
+    html += `<select class="users-field users-select js-user-role" data-user-id="${id}" aria-label="Rôle ${esc(u.username)}">`;
+    const opts = [
+      ["user", "Utilisateur"],
+      ["manager", "Gestionnaire"],
+      ["administrator", "Administrateur"],
+    ];
+    for (const [val, lab] of opts) {
+      const sel = u.role === val ? " selected" : "";
+      html += `<option value="${val}"${sel}>${lab}</option>`;
+    }
+    html += "</select></td>";
+    html += `<td class="users-created-cell">${esc(u.created_at || "—")}</td>`;
+    html += "<td><div class=\"users-pw-cell\">";
+    html += `<input type="password" class="users-field js-user-pw" data-user-id="${id}" placeholder="Nouveau" autocomplete="new-password" />`;
+    html += `<button type="button" class="toolbar-button secondary js-user-pw-save" data-user-id="${id}">Enregistrer</button>`;
+    html += "</div></td></tr>";
+  }
+  html += "</tbody></table>";
+  usersTableWrap.innerHTML = html;
+
+  usersTableWrap.querySelectorAll(".js-user-role").forEach((sel) => {
+    sel.addEventListener("change", async () => {
+      const uid = Number(sel.dataset.userId);
+      const role = sel.value;
+      clearUsersError();
+      try {
+        await apiFetch(`/api/admin/users/${uid}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role }),
+        });
+        await loadUsersList();
+      } catch (error) {
+        showUsersError(error.message || "Mise à jour du rôle impossible.");
+        await loadUsersList();
+      }
+    });
+  });
+
+  usersTableWrap.querySelectorAll(".js-user-pw-save").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const uid = Number(btn.dataset.userId);
+      const input = usersTableWrap.querySelector(`.js-user-pw[data-user-id="${uid}"]`);
+      const pw = (input?.value || "").trim();
+      if (pw.length < 4) {
+        showUsersError("Mot de passe : au moins 4 caractères.");
+        return;
+      }
+      clearUsersError();
+      try {
+        await apiFetch(`/api/admin/users/${uid}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password: pw }),
+        });
+        if (input) input.value = "";
+        await loadUsersList();
+      } catch (error) {
+        showUsersError(error.message || "Mise à jour du mot de passe impossible.");
+      }
+    });
+  });
 }
 
 async function handleLogin(event) {
@@ -269,6 +398,9 @@ async function handleLogout() {
   state.items = [];
   state.selectedId = null;
   state.docsOverview = null;
+  state.usersList = [];
+  if (usersTableWrap) usersTableWrap.innerHTML = "";
+  clearUsersError();
   renderSession();
   renderList();
   renderDetail(null);
@@ -1570,6 +1702,46 @@ if (viewDocumentsButton) {
   viewDocumentsButton.addEventListener("click", () => {
     setAdminView("documents");
     loadDocumentsOverview().catch((error) => showDocError(error.message));
+  });
+}
+if (viewUsersButton) {
+  viewUsersButton.addEventListener("click", () => {
+    setAdminView("users");
+    loadUsersList().catch(() => {});
+  });
+}
+if (usersRefreshButton) {
+  usersRefreshButton.addEventListener("click", () => {
+    loadUsersList().catch(() => {});
+  });
+}
+if (usersCreateButton) {
+  usersCreateButton.addEventListener("click", async () => {
+    const username = (usersNewUsername?.value || "").trim();
+    const password = usersNewPassword?.value || "";
+    const role = usersNewRole?.value || "user";
+    if (username.length < 2) {
+      showUsersError("Identifiant trop court (min. 2).");
+      return;
+    }
+    if (password.length < 4) {
+      showUsersError("Mot de passe : au moins 4 caractères.");
+      return;
+    }
+    clearUsersError();
+    try {
+      await apiFetch("/api/admin/users", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username, password, role }),
+      });
+      if (usersNewUsername) usersNewUsername.value = "";
+      if (usersNewPassword) usersNewPassword.value = "";
+      if (usersNewRole) usersNewRole.value = "user";
+      await loadUsersList();
+    } catch (error) {
+      showUsersError(error.message || "Création impossible.");
+    }
   });
 }
 if (docAddFolderButton) {
