@@ -27,6 +27,7 @@ const sessionRole = document.getElementById("session-role");
 const logoutButton = document.getElementById("logout-button");
 const refreshButton = document.getElementById("refresh-button");
 const gitRefreshButton = document.getElementById("git-refresh-button");
+const ragReloadButton = document.getElementById("rag-reload-button");
 const evalToggle = document.getElementById("eval-toggle");
 const gatedContent = document.getElementById("gated-content");
 const preAuthPanel = document.getElementById("admin-pre-auth");
@@ -1792,9 +1793,9 @@ if (docRefreshButton) {
 if (gitRefreshButton) {
   gitRefreshButton.addEventListener("click", async () => {
     const ok = confirm(
-      "Télécharger la dernière version depuis Git (origin) et recharger l’index RAG ?\n\n" +
-        "Les changements de documents seront pris en compte sans redémarrer l’API. " +
-        "Les changements de code Python peuvent encore exiger un redémarrage du serveur (tmux).",
+      "Télécharger la dernière version depuis Git (origin) et reconstruire web_test/dist ?\n\n" +
+        "Cela ne recharge pas l’index RAG seul — utilisez « Index RAG » après un changement de documents si besoin. " +
+        "Un redémarrage API peut être nécessaire pour servir les nouveaux fichiers JS.",
     );
     if (!ok) return;
     setToggleLoading(gitRefreshButton, "Git...", true);
@@ -1803,9 +1804,26 @@ if (gitRefreshButton) {
       const data = await response.json();
       alert(`Branche ${data.branch} @ ${data.commit}\n\n${data.note || "OK"}`);
     } catch (error) {
-      alert("Échec Git / RAG: " + error.message);
+      alert("Échec Git / build web: " + error.message);
     } finally {
       setToggleLoading(gitRefreshButton, "Git...", false);
+    }
+  });
+}
+
+if (ragReloadButton) {
+  ragReloadButton.addEventListener("click", async () => {
+    setToggleLoading(ragReloadButton, "RAG...", true);
+    try {
+      const response = await apiFetch("/admin/rag-reload", { method: "POST" });
+      const data = await response.json();
+      const n = Array.isArray(data.rag_categories) ? data.rag_categories.length : 0;
+      alert((data.note || "OK") + (n ? `\n\n${n} catégorie(s) dans l’index.` : ""));
+      loadDocumentsOverview().catch((error) => showDocError(error.message));
+    } catch (error) {
+      alert("Échec rechargement index RAG: " + error.message);
+    } finally {
+      setToggleLoading(ragReloadButton, "RAG...", false);
     }
   });
 }

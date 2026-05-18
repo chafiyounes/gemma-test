@@ -55,6 +55,11 @@ Ports and IPs **change** when the pod is recreated — update your notes/SSH con
 
 ## 3. Deploy / refresh code
 
+### Git vs index RAG
+
+- **`POST /admin/git-refresh`** (administrator): `git pull` + `web_test` build only. Does **not** call `reload_document_store`.
+- **`POST /admin/rag-reload`** (manager or administrator): reload BM25 / DocStore from disk only — use after changing files under `data/documents*` on the pod, or after a git pull that updated those files.
+
 ### One-click (from your laptop; gateway + PTY)
 
 ```powershell

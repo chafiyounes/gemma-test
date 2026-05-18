@@ -1,9 +1,29 @@
 import { useState, useRef, useEffect } from "react";
 import { useChat } from "../context/ChatContext";
-import { sendChat, submitFeedback, isPrivilegedChatRole, sessionRoleLabel } from "../services/api";
+import {
+  sendChat,
+  submitFeedback,
+  isPrivilegedChatRole,
+  sessionRoleLabel,
+  fetchDocumentCategories,
+} from "../services/api";
 import MessageBubble from "./MessageBubble";
 import TypingIndicator from "./TypingIndicator";
 import "./ChatArea.css";
+
+const RAG_SCOPE_STORAGE_KEY = "sendbot_rag_scope";
+/** Default: search all indexed categories (mirrors API `resolve_rag_scope`). */
+const DEFAULT_RAG_SCOPE = "all";
+
+function readInitialRagScope() {
+  try {
+    const v = localStorage.getItem(RAG_SCOPE_STORAGE_KEY);
+    if (v != null && v !== "") return v;
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_RAG_SCOPE;
+}
 
 const SAMPLES = [
   "Comment postuler pour un poste de livreur chez SENDIT ?",
@@ -16,8 +36,40 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
   const { activeConversation, apiHistory, addMessage, updateMessage, setConversationLoading } =
     useChat();
   const [input, setInput] = useState("");
+  const [ragScope, setRagScope] = useState(readInitialRagScope);
+  const [categoryOptions, setCategoryOptions] = useState([]);
   const bottomRef = useRef(null);
   const textareaRef = useRef(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await fetchDocumentCategories();
+        if (!cancelled) setCategoryOptions(data.categories || []);
+      } catch {
+        if (!cancelled) setCategoryOptions([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!categoryOptions.length) return;
+    const names = new Set(categoryOptions.map((c) => c.name));
+    setRagScope((prev) => {
+      if (prev === "all") return prev;
+      if (names.has(prev)) return prev;
+      try {
+        localStorage.setItem(RAG_SCOPE_STORAGE_KEY, DEFAULT_RAG_SCOPE);
+      } catch {
+        /* ignore */
+      }
+      return DEFAULT_RAG_SCOPE;
+    });
+  }, [categoryOptions]);
 
   const messages = activeConversation.messages;
   const loading = !!activeConversation.loading;
@@ -36,8 +88,6 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
     }
   }, [input]);
 
-  // After a reply finishes, focus returns to the textarea (avoids "caret
-  // blinking" / focus traps where the UI looks ready but keys go nowhere).
   useEffect(() => {
     if (prevLoadingRef.current && !loading) {
       textareaRef.current?.focus({ preventScroll: true });
@@ -62,6 +112,7 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
         message: text,
         sessionId,
         history: [...historyAtSend, { role: "user", content: text }],
+        category: ragScope,
       });
       addMessage(
         {
@@ -108,6 +159,20 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
     }
   };
 
+  const setScope = (id) => {
+    setRagScope(id);
+    try {
+      localStorage.setItem(RAG_SCOPE_STORAGE_KEY, id);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  const selectValue =
+    ragScope === "all" || categoryOptions.some((c) => c.name === ragScope)
+      ? ragScope
+      : DEFAULT_RAG_SCOPE;
+
   return (
     <div className="chat-area">
       <header className="chat-topbar">
@@ -116,7 +181,23 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
             <path d="M3 12h18M3 6h18M3 18h18" />
           </svg>
         </button>
-        <span className="topbar-title">SendBot</span>
+        <label className="rag-scope-select-wrap">
+          <span className="rag-scope-select-label">Documents</span>
+          <select
+            className="rag-doc-select"
+            value={selectValue}
+            onChange={(e) => setScope(e.target.value)}
+            aria-label="Portée des documents RAG"
+          >
+            <option value="all">Tous les documents</option>
+            {categoryOptions.map((c) => (
+              <option key={c.name} value={c.name}>
+                {c.name}
+                {typeof c.doc_count === "number" ? ` (${c.doc_count})` : ""}
+              </option>
+            ))}
+          </select>
+        </label>
         <div className="topbar-right">
           <div className="topbar-badge">
             Accès{" "}
