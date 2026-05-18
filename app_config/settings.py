@@ -28,9 +28,15 @@ class Settings(BaseSettings):
     # retrieval (English queries stay English-only).
     RAG_FULL_CATEGORY_MAX_CHARS: int = 72_000
     RAG_FULL_CATEGORY_MAX_FILES: int = 10
-    # Hard cap per inject pass — keep headroom inside vLLM --max-model-len (often
-    # 8192–12288) for instructions + chat template + completion (see start_vllm.sh).
-    RAG_INJECT_MAX_CHARS: int = 60_000
+    # Hard ceiling per inject pass (effective budget is usually **lower** — see
+    # ``_compute_rag_inject_limit_chars`` in core/llm.py using LLM_MAX_CONTEXT_TOKENS).
+    RAG_INJECT_MAX_CHARS: int = 28_000
+    # Must match vLLM ``--max-model-len`` on the pod (4096 / 8192 / 16384 / …).
+    LLM_MAX_CONTEXT_TOKENS: int = 16_384
+    # Rough chars-per-token for budgeting mixed FR/Darija/EN (conservative).
+    RAG_BUDGET_CHARS_PER_TOKEN: float = 3.0
+    # Extra tokens reserved for chat template, special tokens, JSON overhead — not doc text.
+    RAG_BUDGET_OVERHEAD_TOKENS: int = 450
     # Reserve part of the prompt budget for conversation history so long chats keep coherence.
     RAG_CHAT_HISTORY_RESERVE_CHARS: int = 12_000
     RAG_BM25_K: int = 12

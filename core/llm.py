@@ -79,6 +79,8 @@ def _vllm_body_suggests_context_overflow(body: str) -> bool:
         "model's maximum",
         "total length of",
         "input + max_tokens",
+        "total tokens",
+        "maximum token",
         "max_tokens is too large",
         "model length",
         "decoder prompt",
@@ -107,6 +109,40 @@ def _vllm_user_hint_from_400_body(body: str) -> str:
     if one_line:
         return f"Détail : {one_line[:280]}{'…' if len(one_line) > 280 else ''}"
     return "Le serveur d’inférence a refusé la requête. Consultez les logs vLLM ou réessayez."
+
+
+def _compute_rag_inject_limit_chars(
+    *,
+    system_prompt_base: str,
+    history: list[dict],
+    message: str,
+    max_new_tokens: int,
+) -> int:
+    """Upper bound for RAG document text so system+docs+history+user fits in vLLM context.
+
+    vLLM rejects with HTTP 400 when prompt tokens + max_new_tokens exceed --max-model-len.
+    We estimate token load from character counts (conservative for mixed languages).
+    """
+    cpt = max(2.2, float(settings.RAG_BUDGET_CHARS_PER_TOKEN))
+    sys_len = len((system_prompt_base or "").strip())
+    hist_chars = sum(
+        len((t.get("content") or ""))
+        for t in (history or [])
+        if t.get("role") in ("user", "assistant")
+    )
+    msg_len = len(message or "")
+    # Wrappers around DOCUMENTS DE RÉFÉRENCE / FIN DES DOCUMENTS
+    doc_shell_chars = 120
+    non_document_chars = sys_len + doc_shell_chars + hist_chars + msg_len
+    non_document_tokens_est = non_document_chars / cpt + float(settings.RAG_BUDGET_OVERHEAD_TOKENS)
+
+    room_tokens = float(settings.LLM_MAX_CONTEXT_TOKENS) - float(max_new_tokens) - non_document_tokens_est
+    if room_tokens < 400.0:
+        room_tokens = 400.0
+
+    # ~92% of the room goes to document bytes (greedy inject may still trim).
+    doc_chars = int(room_tokens * cpt * 0.92)
+    return max(2500, min(int(settings.RAG_INJECT_MAX_CHARS), doc_chars))
 
 
 def _vllm_unavailable_message(base_url: str, bucket: str, *, after_retries: bool) -> str:
@@ -286,6 +322,13 @@ class GemmaModel:
             return LLMGenerateResult(text=wrong_lang, rag=rag_meta)
 
         sys_prompt = (system_prompt or SYSTEM_PROMPT).strip()
+        mt_for_budget = max_tokens if max_tokens is not None else settings.MAX_NEW_TOKENS
+        inject_cap = _compute_rag_inject_limit_chars(
+            system_prompt_base=sys_prompt,
+            history=hist,
+            message=message,
+            max_new_tokens=int(mt_for_budget),
+        )
 
         try:
             ctx = None
@@ -294,6 +337,7 @@ class GemmaModel:
             req = (category or "").strip()
             rag_meta["category"] = req if req else "all"
             rag_meta["categories_used"] = cats
+            rag_meta["rag_inject_budget_chars"] = inject_cap
             if cats:
                 rq = retrieval_anchor_query(message, hist)
                 corpus = store.category_corpus_chars_multi(cats)
@@ -306,7 +350,7 @@ class GemmaModel:
                         rq,
                         categories=cats,
                         k=k,
-                        max_chars=settings.RAG_INJECT_MAX_CHARS,
+                        max_chars=inject_cap,
                         expand_fr_darija_hints=expand_hints,
                         condense=settings.RAG_CONDENSE_DOCUMENTS,
                     )
@@ -595,6 +639,13 @@ class GemmaModel:
         messages_router.append({"role": "user", "content": message})
 
         mt = max_tokens or settings.MAX_NEW_TOKENS
+        inject_cap = _compute_rag_inject_limit_chars(
+            system_prompt_base=SYSTEM_PROMPT.strip(),
+            history=hist,
+            message=message,
+            max_new_tokens=int(mt),
+        )
+        rag_meta["rag_inject_budget_chars"] = inject_cap
         temp = (
             temperature
             if temperature is not None
@@ -635,7 +686,7 @@ class GemmaModel:
                     category=tool_cat,
                     id_to_text=retrieved,
                     ordered_ids=list(retrieved.keys()),
-                    max_chars=settings.RAG_INJECT_MAX_CHARS,
+                    max_chars=inject_cap,
                     condense=settings.RAG_CONDENSE_DOCUMENTS,
                     anchor_query=rq,
                     expand_fr_darija_hints=expand_hints,
