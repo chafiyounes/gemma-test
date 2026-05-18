@@ -4,8 +4,10 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 DEST="data/documents_md/help_md"
+STUB="data/documents/help_md"
 COMMIT="${HELP_MD_BOOTSTRAP_COMMIT:-8229874}"
 mkdir -p "$DEST"
+mkdir -p "$STUB"
 if [[ -n "$(find "$DEST" -maxdepth 1 -name '*.md' -print -quit 2>/dev/null)" ]] && [[ "${HELP_MD_BOOTSTRAP_FORCE:-}" != "1" ]]; then
   echo "help_md already has .md files; set HELP_MD_BOOTSTRAP_FORCE=1 to overwrite."
   exit 0
