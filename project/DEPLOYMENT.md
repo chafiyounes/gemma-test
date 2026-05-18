@@ -1,6 +1,6 @@
 # Deployment — gemma-test (RunPod + local)
 
-**See also:** [`ARCHITECTURE.md`](ARCHITECTURE.md) (RAG, agentic, modules), [`ROADMAP.md`](ROADMAP.md) (product focus, future actions).
+**See also:** [`ARCHITECTURE.md`](ARCHITECTURE.md) (RAG, agentic, modules), [`DATA_LAYOUT.md`](DATA_LAYOUT.md) (source tree vs `documents_md`), [`ROADMAP.md`](ROADMAP.md) (product focus, future actions).
 
 ---
 
@@ -25,6 +25,19 @@
 - **What works:** interactive SSH, or **Paramiko + PTY** from the repo:
   - `python scripts/pod_cmd.py "cd /workspace/gemma-test && git pull origin main"`
   - `python scripts/deploy_runner.py` (uses the gateway user/host **inside the script** — edit `HOST`/`USER` there if your pod identity changes).
+
+### Pulling `data/documents/procedures/` from the pod
+
+Gateway **`scp` often fails**; non-interactive `exec` is rejected (“doesn’t support PTY”). Use the repo helper (Paramiko **PTY shell** + base64):
+
+```powershell
+cd "...\gemma-test"
+python scripts/fetch_pod_tar.py
+# Backup clone on disk:
+python scripts/fetch_pod_tar.py --remote /workspace/gemma-test-backup-202605051228/data/documents/procedures
+```
+
+See [`DATA_LAYOUT.md`](DATA_LAYOUT.md).
 
 ### Direct pod SSH (if RunPod exposes it)
 

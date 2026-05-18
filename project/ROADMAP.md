@@ -1,6 +1,6 @@
 # Roadmap & product context — gemma-test
 
-**Companion docs:** [`ARCHITECTURE.md`](ARCHITECTURE.md) (how it works), [`DEPLOYMENT.md`](DEPLOYMENT.md) (SSH, pod, deploy).
+**Companion docs:** [`ARCHITECTURE.md`](ARCHITECTURE.md) (how it works), [`DATA_LAYOUT.md`](DATA_LAYOUT.md) (document folders, pod vs git), [`DEPLOYMENT.md`](DEPLOYMENT.md) (SSH, pod, deploy).
 
 Security hardening (strong passwords, secret rotation) is **explicitly secondary for now**; focus is **answer quality** and **RAG transparency**.
 

@@ -1,6 +1,6 @@
 # Architecture — gemma-test (SENDIT internal chatbot)
 
-**Stack:** FastAPI (`:8000`), React (`web_test` → `dist/`), category-aware **RAG**, **OpenAI-compatible** inference (**vLLM** `:8002`; optional `serve_gemma4.py`). SQLite for interactions. Companion: [`DEPLOYMENT.md`](DEPLOYMENT.md) (SSH, pod, glitches), [`ROADMAP.md`](ROADMAP.md) (priorities, actions beyond chat).
+**Stack:** FastAPI (`:8000`), React (`web_test` → `dist/`), category-aware **RAG**, **OpenAI-compatible** inference (**vLLM** `:8002`; optional `serve_gemma4.py`). SQLite for interactions. Companion: [`DATA_LAYOUT.md`](DATA_LAYOUT.md) (where corpus files live), [`DEPLOYMENT.md`](DEPLOYMENT.md) (SSH, pod, glitches), [`ROADMAP.md`](ROADMAP.md) (priorities, actions beyond chat).
 
 ---
 
@@ -24,9 +24,9 @@ flowchart TB
     SGV["serve_gemma4.py"]
   end
   subgraph Data
-    MD[data/documents_md/…]
+    MD[data/documents_md/… pod mirrors]
     TXT[data/documents_txt/…]
-    DOCX["data/documents/… .docx pdf/"]
+    SRC["data/documents/<cat>/ — source .docx .md pdf"]
   end
   B --> M
   M --> POL
@@ -37,7 +37,7 @@ flowchart TB
   PL --> DOC
   DOC --> MD
   DOC --> TXT
-  DOC --> DOCX
+  DOC --> SRC
   M --> DB
 ```
 
@@ -59,6 +59,8 @@ flowchart TB
 ---
 
 ## 3. RAG: full category vs BM25
+
+**Where files live (source of truth):** see [`DATA_LAYOUT.md`](DATA_LAYOUT.md) — canonical tree is `data/documents/<category>/`; **`documents_md`** may exist **only on the pod** as generated output from `.docx` pipelines; native `.md` sources stay under `data/documents/`.
 
 Sources: prefer `data/documents_md/<category>/`, else `documents_txt`, else `.docx` / `pdf/*.pdf` (**pypdf**).
 
