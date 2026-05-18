@@ -122,6 +122,26 @@ _NON_SERVICE_LATIN_HINTS = re.compile(
 )
 
 
+def answer_language_instruction_suffix(bucket: str) -> str:
+    """Short suffix appended to the last user message so the model matches answer language.
+
+    The main SYSTEM_PROMPT is French-heavy; models often drift to French without this nudge.
+    """
+    b = (bucket or "fr").lower()
+    if b == "darija":
+        return (
+            "\n\n[Consigne langue] Réponds **entièrement en darija marocaine** (même registre que la question). "
+            "Pas d’intro ni d’explication en français administratif."
+        )
+    if b == "ar":
+        return "\n\n[Language] أجب بالكامل بالعربية وفق أسلوب السؤال (فصحى أو دارجة)."
+    if b == "en":
+        return "\n\n[Language] Answer **entirely in English**, matching the user’s question."
+    if b == "es":
+        return "\n\n[Language] Réponds en **français** (langue de service du guichet)."
+    return "\n\n[Consigne langue] Réponds **entièrement en français**."
+
+
 def detect_lang_bucket(text: str) -> str:
     """Bucket for templated replies: 'fr' | 'en' | 'ar' | 'darija' | 'es'."""
     t = text or ""
