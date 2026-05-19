@@ -29,6 +29,7 @@ from api.schemas import (
     CategoriesResponse,
     CategoryInfo,
     ChatRequest,
+    DocumentPreviewResponse,
     ChatResponse,
     FeedbackRequest,
     HealthResponse,
@@ -45,6 +46,7 @@ from core.documents_admin import (
     move_document,
     upload_document,
 )
+from core.document_preview import build_preview_payload, validate_file_request
 from core.documents import DOCS_MD_DIR, get_store as get_doc_store, reload_document_store
 from core.pipeline import GemmaPipeline
 from core.persistence import InteractionStore
@@ -558,6 +560,38 @@ async def list_categories():
     return CategoriesResponse(
         categories=[CategoryInfo(**c) for c in cats]
     )
+
+
+@app.get("/api/documents/preview", response_model=DocumentPreviewResponse)
+async def document_preview(
+    name: str,
+    category: Optional[str] = None,
+    _session: dict = Depends(_require_user),
+):
+    if not (name or "").strip():
+        raise HTTPException(400, "Parameter 'name' is required")
+    store = get_doc_store()
+    try:
+        payload = build_preview_payload(store, name.strip(), category)
+    except LookupError:
+        raise HTTPException(404, "Document introuvable")
+    return DocumentPreviewResponse(**payload)
+
+
+@app.get("/api/documents/file/{category}/{filename}")
+async def document_file(
+    category: str,
+    filename: str,
+    _session: dict = Depends(_require_user),
+):
+    store = get_doc_store()
+    try:
+        path, media_type = validate_file_request(category, filename, store)
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    except LookupError:
+        raise HTTPException(404, "Fichier introuvable")
+    return FileResponse(path, media_type=media_type, filename=filename)
 
 
 # ── Chat endpoint ─────────────────────────────────────────────────────────────

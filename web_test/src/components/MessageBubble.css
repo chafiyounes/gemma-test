@@ -135,6 +135,30 @@
   color: #f5c18a;
 }
 
+.msg-source-btn {
+  display: inline;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  color: #f5c18a;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  text-align: inherit;
+}
+
+.msg-source-btn:hover {
+  color: #ffe0b8;
+}
+
+.msg-source-btn:focus-visible {
+  outline: 2px solid #f5c18a;
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
 .feedback-section {
   margin-top: 14px;
 }

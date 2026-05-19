@@ -1,0 +1,121 @@
+.doc-preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.62);
+  padding: 16px;
+}
+
+.doc-preview-panel {
+  width: 80vw;
+  height: 80vh;
+  max-width: 1200px;
+  display: flex;
+  flex-direction: column;
+  background: #1e1e24;
+  border: 1px solid rgba(245, 193, 138, 0.25);
+  border-radius: 12px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.doc-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  flex-shrink: 0;
+}
+
+.doc-preview-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #f5f0ea;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.doc-preview-close {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: #f5f0ea;
+  font-size: 1.5rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.doc-preview-close:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.doc-preview-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 10px 18px 0;
+  flex-shrink: 0;
+}
+
+.doc-preview-tab {
+  border: none;
+  border-radius: 8px 8px 0 0;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #c8c0b6;
+  cursor: pointer;
+  font-size: 0.9rem;
+}
+
+.doc-preview-tab.active {
+  background: rgba(245, 193, 138, 0.18);
+  color: #f5c18a;
+}
+
+.doc-preview-body {
+  flex: 1;
+  overflow: auto;
+  padding: 16px 18px 18px;
+  color: #e8e2da;
+}
+
+.doc-preview-status {
+  margin: 0;
+  color: #b8b0a6;
+}
+
+.doc-preview-error {
+  color: #f0a8a0;
+}
+
+.doc-preview-markdown {
+  max-width: 900px;
+}
+
+.doc-preview-docx {
+  min-height: 100%;
+  background: #fff;
+  color: #111;
+  padding: 12px;
+  border-radius: 8px;
+}
+
+.doc-preview-docx .docx-wrapper {
+  background: #fff;
+}
+
+@media (max-width: 640px) {
+  .doc-preview-panel {
+    width: 96vw;
+    height: 90vh;
+  }
+}

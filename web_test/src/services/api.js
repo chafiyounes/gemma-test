@@ -146,3 +146,27 @@ export async function fetchDocumentCategories() {
   const res = await apiFetch("/categories", { signal: AbortSignal.timeout(15_000) });
   return res.json();
 }
+
+/** @returns {Promise<{ resolved_stem: string, resolved_category: string, title: string, has_docx: boolean, has_md: boolean, markdown: string, docx_url?: string }>} */
+export async function fetchDocumentPreview({ name, category }) {
+  const params = new URLSearchParams({ name });
+  if (category) params.set("category", category);
+  const res = await apiFetch(`/api/documents/preview?${params.toString()}`, {
+    signal: AbortSignal.timeout(60_000),
+  });
+  return res.json();
+}
+
+export async function fetchDocumentFileBlob(urlPath) {
+  const response = await fetch(buildUrl(urlPath), {
+    credentials: "include",
+    signal: AbortSignal.timeout(120_000),
+  });
+  if (!response.ok) {
+    const errorPayload = await response.json().catch(() => ({}));
+    const error = new Error(errorPayload.detail || `HTTP ${response.status}`);
+    error.status = response.status;
+    throw error;
+  }
+  return response.blob();
+}

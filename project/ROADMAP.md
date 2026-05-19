@@ -88,4 +88,6 @@ Goals: **safe** (policy + approvals + audit), **observable** tool logging, **rev
 | `core/agentic_rag.py` | Catalog, router tools, formatting |
 | `api/main.py` | `/chat`, category resolution, admin |
 | `core/persistence.py` | SQLite shape for admin |
+| `project/DOCUMENT_PREVIEW.md` | **Source:** click → modal (`.docx` / MD); isolated from `/chat` |
+| `core/document_preview.py` | Preview API resolve + trailing-link strip (display only) |
 | `admin_site/` | Admin static UI |

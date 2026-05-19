@@ -185,6 +185,9 @@ Optional map/e5 scripts are **not** required for the **catalog + request_documen
 | API down after **`restart_api.sh`** | Wait for tmux **api** pane to bind **8000**; read `logs/api.log` |
 | Blank SPA | `npm run build` in `web_test` |
 | vLLM OOM | Lower `VLLM_MAX_MODEL_LEN` / `VLLM_GPU_MEMORY_UTILIZATION` in `start_vllm.sh` |
+| **Source preview modal 404** | See [`DOCUMENT_PREVIEW.md`](DOCUMENT_PREVIEW.md); corpus file must exist under `data/documents/` or `data/documents_md/`; click only affects preview routes, not `/chat` |
+
+**Document preview (Source line):** isolated subsystem — [`DOCUMENT_PREVIEW.md`](DOCUMENT_PREVIEW.md). Deploy preview changes separately from `core/llm.py` / RAG prompt edits when possible.
 
 ---
 

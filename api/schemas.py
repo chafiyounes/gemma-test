@@ -142,3 +142,13 @@ class CategoryInfo(BaseModel):
 
 class CategoriesResponse(BaseModel):
     categories: List[CategoryInfo]
+
+
+class DocumentPreviewResponse(BaseModel):
+    resolved_stem: str
+    resolved_category: str
+    title: str
+    has_docx: bool
+    has_md: bool
+    markdown: str = ""
+    docx_url: Optional[str] = None
