@@ -49,6 +49,14 @@ sequenceDiagram
   end
 ```
 
+### Source name resolution
+
+The model often cites a **document title** (e.g. `Gestion de la modification d'adresse e-mail`), not the on-disk stem (e.g. `Gestion de la modification d_adresse e-mail _3_.docx`). Preview resolves by:
+
+1. Token overlap against indexed **stem**, **filename**, and **first heading / title line** in the body.
+2. Fuzzy scan of `data/documents/<cat>/*.docx` and `data/documents_md/<cat>/**/*.md` when the index match is weak.
+3. URL-encoded download paths for stems with spaces, accents, or subfolders (`{filename:path}`).
+
 ### Endpoints (authenticated, same session as chat)
 
 | Method | Path | Notes |

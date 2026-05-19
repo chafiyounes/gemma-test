@@ -578,7 +578,7 @@ async def document_preview(
     return DocumentPreviewResponse(**payload)
 
 
-@app.get("/api/documents/file/{category}/{filename}")
+@app.get("/api/documents/file/{category}/{filename:path}")
 async def document_file(
     category: str,
     filename: str,
