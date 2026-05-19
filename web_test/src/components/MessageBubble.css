@@ -1,10 +1,11 @@
 .msg-inline-img {
   max-width: min(100%, 520px);
   height: auto;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   display: block;
   margin: 8px 0;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.12);
+  box-shadow: var(--shadow-sm);
+  border: 1px solid var(--border);
 }
 
 .msg-img-wrap {
@@ -41,12 +42,13 @@
 
 .bot-avatar {
   background: var(--accent);
-  color: white;
+  color: #fff;
 }
 
 .user-avatar {
-  background: var(--bg-tertiary);
+  background: var(--bg-elevated);
   color: var(--text-secondary);
+  border: 1px solid var(--border);
 }
 
 .msg-bubble {
@@ -61,27 +63,26 @@
 
 .user-bubble {
   background: var(--accent);
-  color: white;
+  color: #fff;
   border-bottom-right-radius: 6px;
 }
 
 .bot-bubble {
-  background: var(--bg-tertiary);
+  background: var(--bg-surface);
   color: var(--text-primary);
+  border: 1px solid var(--border);
   border-bottom-left-radius: 6px;
+  box-shadow: var(--shadow-sm);
 }
 
 .error-bubble {
   border: 1px solid var(--error);
   color: var(--error);
+  background: rgba(220, 38, 38, 0.06);
 }
 
 .msg-text {
   word-break: break-word;
-  /* Isolate embedded opposite-direction runs (Latin brand names, URLs, numbers)
-     inside the paragraph's base direction, which is set per-message via the
-     `dir` attribute based on dominant script. Prevents SENDIT / FR words from
-     flipping an Arabic paragraph's layout. */
   unicode-bidi: isolate;
 }
 
@@ -98,14 +99,14 @@
 }
 
 .msg-text a {
-  color: #f5c18a;
+  color: var(--secondary);
   text-decoration: underline;
 }
 
 .msg-section-title {
   margin: 10px 0 8px;
   font-weight: 700;
-  color: #f5c18a;
+  color: var(--text-primary);
 }
 
 .msg-list {
@@ -124,15 +125,15 @@
 .msg-source {
   margin-top: 12px;
   padding: 8px 10px;
-  border-inline-start: 3px solid rgba(245, 193, 138, 0.65);
-  background: rgba(245, 193, 138, 0.08);
-  border-radius: 8px;
-  color: #efd8bf;
+  border-inline-start: 3px solid var(--accent);
+  background: var(--accent-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
 }
 
 .msg-source-label {
   font-weight: 700;
-  color: #f5c18a;
+  color: var(--text-primary);
 }
 
 .msg-source-btn {
@@ -142,7 +143,7 @@
   border: none;
   background: none;
   font: inherit;
-  color: #f5c18a;
+  color: var(--accent);
   text-decoration: underline;
   text-underline-offset: 2px;
   cursor: pointer;
@@ -150,11 +151,11 @@
 }
 
 .msg-source-btn:hover {
-  color: #ffe0b8;
+  color: var(--accent-hover);
 }
 
 .msg-source-btn:focus-visible {
-  outline: 2px solid #f5c18a;
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
   border-radius: 4px;
 }
@@ -182,14 +183,16 @@
 .feedback-btn {
   padding: 7px 12px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 12px;
 }
 
 .feedback-btn.active {
-  background: rgba(230, 122, 62, 0.16);
-  color: #f5c18a;
+  background: var(--accent-subtle);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .feedback-status {
@@ -200,9 +203,9 @@
 .feedback-composer {
   margin-top: 12px;
   padding: 12px;
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
 }
 
 .feedback-label {
@@ -222,14 +225,16 @@
 .feedback-reason {
   padding: 8px 10px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.05);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
   font-size: 12px;
 }
 
 .feedback-reason.selected {
-  background: rgba(230, 122, 62, 0.18);
-  color: #f5c18a;
+  background: var(--accent-subtle);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .feedback-comment {
@@ -237,11 +242,17 @@
   resize: vertical;
   min-height: 84px;
   padding: 10px 12px;
-  border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.12);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
   color: var(--text-primary);
   outline: none;
+}
+
+.feedback-comment:focus-visible {
+  border-color: var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .feedback-composer-actions {
@@ -254,54 +265,49 @@
 .feedback-secondary,
 .feedback-primary {
   padding: 8px 12px;
-  border-radius: 12px;
+  border-radius: var(--radius-sm);
   font-size: 12px;
 }
 
 .feedback-secondary {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   color: var(--text-secondary);
 }
 
 .feedback-primary {
-  background: linear-gradient(135deg, #e67a3e 0%, #c24c1e 100%);
-  color: white;
+  background: var(--accent);
+  color: #fff;
+}
+
+.feedback-primary:hover {
+  background: var(--accent-hover);
 }
 
 .feedback-error {
   margin-top: 10px;
   font-size: 12px;
-  color: #fca5a5;
+  color: var(--error);
 }
 
 .msg-rag-hint {
   margin-top: 10px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   line-height: 1.35;
-  color: var(--text-muted, #8a8a8a);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: var(--text-muted);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   display: flex;
   flex-direction: column;
   gap: 4px;
 }
 
 .msg-rag-hint-warn {
-  border-color: rgba(250, 204, 21, 0.35);
-  background: rgba(250, 204, 21, 0.08);
-  color: #fde68a;
-}
-
-.msg-rag-scope,
-.msg-rag-stats {
-  display: block;
-}
-
-.msg-rag-note {
-  font-size: 10px;
-  opacity: 0.85;
+  border-color: rgba(217, 119, 6, 0.35);
+  background: rgba(217, 119, 6, 0.08);
+  color: var(--warning);
 }
 
 @media (max-width: 767px) {

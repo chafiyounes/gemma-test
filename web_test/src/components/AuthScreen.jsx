@@ -1,4 +1,5 @@
 import { useState } from "react";
+import ThemeToggle from "./ThemeToggle";
 import "./AuthScreen.css";
 
 export default function AuthScreen({ onLogin, loading, error }) {
@@ -15,6 +16,7 @@ export default function AuthScreen({ onLogin, loading, error }) {
 
   return (
     <div className="auth-shell">
+      <ThemeToggle className="theme-toggle--auth" />
       <div className="auth-aurora auth-aurora-one" />
       <div className="auth-aurora auth-aurora-two" />
       <section className="auth-card">

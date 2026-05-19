@@ -1,15 +1,4 @@
-:root {
-  color-scheme: dark;
-  --bg: #071019;
-  --panel: #0f1f2b;
-  --panel-alt: #132738;
-  --line: #264157;
-  --text: #edf2f7;
-  --muted: #9db0c2;
-  --accent: #d97745;
-  --accent-soft: rgba(217, 119, 69, 0.18);
-  --danger: #f87171;
-}
+/* Tokens: theme-tokens.css (shared with chat) */
 
 * {
   box-sizing: border-box;
@@ -18,10 +7,8 @@
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: "Trebuchet MS", "Segoe UI", sans-serif;
-  background:
-    radial-gradient(circle at top right, rgba(217, 119, 69, 0.12), transparent 24%),
-    linear-gradient(180deg, #071019 0%, #0a1721 100%);
+  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--bg-page);
   color: var(--text);
 }
 
@@ -33,19 +20,32 @@ body {
 
 .admin-sidebar {
   padding: 28px;
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(7, 16, 25, 0.88);
+  border-right: 1px solid var(--border);
+  background: var(--bg-sidebar);
   display: flex;
   flex-direction: column;
   gap: 22px;
 }
 
+.admin-sidebar-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.admin-sidebar-top .admin-kicker {
+  margin-bottom: 0;
+}
+
 .admin-kicker {
   margin-bottom: 12px;
-  color: #f7c798;
+  color: var(--accent);
   font-size: 11px;
   letter-spacing: 0.16em;
   text-transform: uppercase;
+  font-weight: 600;
 }
 
 .admin-sidebar h1 {
@@ -62,9 +62,10 @@ body {
 .admin-login-card,
 .session-card,
 .panel {
-  border-radius: 22px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.04);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
 }
 
 .admin-login-card {
@@ -88,9 +89,9 @@ body {
 .comment-box {
   width: 100%;
   padding: 12px 14px;
-  border-radius: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  background: rgba(0, 0, 0, 0.16);
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-page);
   color: var(--text);
 }
 
@@ -99,22 +100,30 @@ body {
 .session-card button {
   padding: 12px 14px;
   border: none;
-  border-radius: 14px;
-  background: linear-gradient(135deg, #d97745 0%, #bb5a2a 100%);
-  color: white;
+  border-radius: 12px;
+  background: var(--accent);
+  color: #fff;
   font-weight: 600;
   cursor: pointer;
+  transition: background 0.15s;
+}
+
+.admin-login-card button:hover,
+.toolbar-button:hover:not(.secondary),
+.session-card button:hover {
+  background: var(--accent-hover);
 }
 
 .toolbar-button.secondary {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-surface);
   color: var(--text);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--border);
 }
 
 .toolbar-button.secondary.active {
   background: var(--accent-soft);
-  border-color: rgba(217, 119, 69, 0.45);
+  border-color: var(--accent);
+  color: var(--accent);
 }
 
 .login-error {
@@ -157,8 +166,8 @@ body {
   max-width: 540px;
   padding: 28px 32px;
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
 }
 
 .pre-auth-title {
@@ -183,7 +192,7 @@ body {
   font-size: 0.85em;
   padding: 2px 6px;
   border-radius: 6px;
-  background: rgba(0, 0, 0, 0.35);
+  background: var(--bg-elevated);
 }
 
 .pre-auth-warning {
@@ -211,8 +220,8 @@ body {
 .toolbar {
   padding: 20px 22px;
   border-radius: 24px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -242,8 +251,8 @@ body {
 .filter-row {
   padding: 18px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
 }
 
 .filter-row input {
@@ -279,8 +288,8 @@ body {
   text-align: left;
   padding: 16px;
   border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
   color: var(--text);
   cursor: pointer;
 }
@@ -318,7 +327,7 @@ body {
 .pill {
   padding: 5px 9px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-hover);
 }
 
 .pill.bad {
@@ -339,8 +348,8 @@ body {
 .detail-block {
   padding: 16px;
   border-radius: 18px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
 }
 
 .detail-block h3 {
@@ -506,8 +515,8 @@ body {
 /* Conversation groups in list */
 .conversation-group {
   border-radius: 18px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
   overflow: hidden;
 }
 .conversation-group.active {
@@ -523,7 +532,7 @@ body {
   cursor: pointer;
 }
 .conversation-header:hover {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-elevated);
 }
 .conversation-items {
   display: none;
@@ -540,7 +549,7 @@ body {
 }
 .conv-pill {
   background: rgba(217, 119, 69, 0.18) !important;
-  color: #f7c798;
+  color: var(--accent-light);
 }
 
 /* Conversation context in detail */
@@ -553,8 +562,8 @@ body {
 .conv-message {
   padding: 10px 12px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.04);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   font-size: 0.88em;
 }
 .conv-message.conv-current {
@@ -621,8 +630,8 @@ body {
   margin-bottom: 12px;
   padding: 10px 12px;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   line-height: 1.45;
   font-size: 12px;
 }
@@ -647,10 +656,10 @@ body {
 }
 
 .doc-category {
-  border: 1px solid rgba(255, 255, 255, 0.09);
+  border: 1px solid var(--border);
   border-radius: 16px;
   overflow: hidden;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-elevated);
 }
 
 .doc-category.overflow {
@@ -672,7 +681,7 @@ body {
 .doc-cat-delete {
   flex: 0 0 auto;
   border: none;
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 1px solid var(--border);
   background: rgba(255, 80, 80, 0.12);
   color: inherit;
   padding: 8px 12px;
@@ -718,7 +727,7 @@ body {
   align-items: stretch;
   min-height: 34px;
   gap: 0;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
   background: rgba(0, 0, 0, 0.22);
@@ -751,9 +760,9 @@ body {
 .doc-move-select {
   min-width: 0;
   border: none;
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 1px solid var(--border);
   border-radius: 0;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-surface);
   padding: 0 8px;
   font-size: 12px;
 }
@@ -765,7 +774,7 @@ body {
   border-radius: 0;
   border: none;
   border-left: 1px solid rgba(255, 255, 255, 0.1);
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-surface);
   color: var(--text);
   cursor: pointer;
   font-size: 12px;
@@ -808,33 +817,31 @@ body {
   }
 }
 
-/* ── Documents: dark explorer shell (rows + emoji actions styled below) ── */
+/* ── Documents explorer (theme-aware) ── */
 .doc-explorer-shell {
-  background: linear-gradient(165deg, #13151c 0%, #1b2030 55%, #151a24 100%);
-  border: 1px solid rgba(255, 255, 255, 0.07);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
   border-radius: 16px;
-  color: #e7eaf0;
-  box-shadow:
-    0 16px 48px rgba(0, 0, 0, 0.45),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  box-shadow: var(--shadow-md);
   transition: box-shadow 0.35s ease;
 }
 
 .doc-explorer-shell .panel-header h2 {
-  color: #f5f7fc;
+  color: var(--text);
   letter-spacing: 0.02em;
 }
 
 .doc-explorer-shell #documents-budget {
-  color: #9aa3b5;
+  color: var(--muted);
   font-size: 0.88rem;
 }
 
 .doc-explorer-shell .doc-workflow-help {
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-surface);
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  color: #c5cad6;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
 }
 
 .doc-explorer-shell .documents-actions {
@@ -843,15 +850,15 @@ body {
 }
 
 .doc-explorer-shell .documents-actions input[type="text"] {
-  background: rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  color: #f0f2f6;
+  background: var(--bg-page);
+  border: 1px solid var(--border);
+  color: var(--text);
   border-radius: 8px;
 }
 
 .doc-explorer-shell .doc-category {
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   border-radius: 12px;
   margin-bottom: 14px;
   overflow: hidden;
@@ -867,7 +874,7 @@ body {
 }
 
 .doc-explorer-shell .doc-category-head {
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-elevated);
   transition: background 0.2s ease;
 }
 
@@ -883,8 +890,8 @@ body {
   flex-wrap: unset;
   padding: 0.65rem 0.85rem;
   margin: 0.5rem 0;
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
   border-radius: 10px;
   transition:
     background 0.2s ease,
@@ -921,7 +928,7 @@ body {
 .doc-explorer-shell .doc-file button {
   border-radius: 8px;
   border: 1px solid rgba(255, 255, 255, 0.12);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-hover);
   color: #f8fafc;
   transition:
     background 0.18s ease,
@@ -1086,7 +1093,7 @@ table.users-table th {
 
 .doc-help-panel {
   border-radius: 12px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  border: 1px solid var(--border);
   background: rgba(0, 0, 0, 0.2);
   overflow: hidden;
 }
@@ -1127,7 +1134,7 @@ table.users-table th {
   margin: 0;
   padding-left: 1.15rem;
   line-height: 1.55;
-  color: #c5cad6;
+  color: var(--text-secondary);
 }
 
 .doc-help-list li + li {
@@ -1184,7 +1191,7 @@ table.users-table th {
   padding: 1.25rem 1.35rem;
   border-radius: 14px;
   border: 1px dashed rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-elevated);
   cursor: pointer;
   outline: none;
   transition:
@@ -1283,8 +1290,8 @@ table.users-table th {
   color: var(--muted);
   padding: 0.65rem 0.85rem;
   border-radius: 10px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
 }
 
 .doc-draft-status--dirty {
@@ -1372,7 +1379,7 @@ table.users-table th {
   padding: 0.5rem 0.6rem;
   border-radius: 10px;
   background: rgba(0, 0, 0, 0.2);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border);
 }
 
 .doc-conflict-name {

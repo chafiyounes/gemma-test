@@ -8,6 +8,7 @@ import {
   fetchDocumentCategories,
 } from "../services/api";
 import MessageBubble from "./MessageBubble";
+import ThemeToggle from "./ThemeToggle";
 import TypingIndicator from "./TypingIndicator";
 import "./ChatArea.css";
 
@@ -199,6 +200,7 @@ export default function ChatArea({ onOpenSidebar, onLogout, session }) {
           </select>
         </label>
         <div className="topbar-right">
+          <ThemeToggle />
           <div className="topbar-badge">
             Accès{" "}
             {isPrivilegedChatRole(session?.role)

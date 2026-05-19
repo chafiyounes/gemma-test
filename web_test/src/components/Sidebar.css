@@ -2,7 +2,7 @@
   display: none;
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, 0.5);
+  background: var(--overlay);
   z-index: 40;
 }
 
@@ -149,9 +149,9 @@
 
 .sidebar-session-card {
   padding: 12px;
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
 }
 
 .sidebar-session-label {
@@ -189,10 +189,10 @@
 }
 
 .sidebar-footer-btn.logout {
-  color: #f3b176;
+  color: var(--text-secondary);
 }
 
 .sidebar-footer-btn.logout:hover {
-  background: rgba(230, 122, 62, 0.12);
-  color: #ffd0a7;
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--error);
 }

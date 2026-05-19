@@ -1,16 +1,34 @@
 <!doctype html>
-<html lang="fr">
+<html lang="fr" data-theme="light">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Darija Chatbot Admin</title>
-    <link rel="stylesheet" href="/admin-static/admin.css?v=20260518b" />
+    <script>
+      (function () {
+        try {
+          var t = localStorage.getItem("sendbot_theme");
+          document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
+        } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
+        }
+      })();
+    </script>
+    <link rel="stylesheet" href="/admin-static/theme-tokens.css?v=20260519a" />
+    <link rel="stylesheet" href="/admin-static/admin.css?v=20260519a" />
   </head>
   <body>
     <div class="admin-shell">
       <aside class="admin-sidebar">
         <div>
-          <div class="admin-kicker">Administration</div>
+          <div class="admin-sidebar-top">
+            <div class="admin-kicker">Administration</div>
+            <button type="button" id="theme-toggle" class="theme-toggle" aria-label="Mode sombre" title="Mode sombre">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+              </svg>
+            </button>
+          </div>
           <h1>Darija Chatbot</h1>
           <p class="admin-subtitle">Audit des interactions, des prompts et du feedback.</p>
         </div>

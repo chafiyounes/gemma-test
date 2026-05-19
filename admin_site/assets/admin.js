@@ -1,3 +1,42 @@
+/** Theme (shared with chat — sendbot_theme). */
+(function initSendbotTheme() {
+  const KEY = "sendbot_theme";
+  function getTheme() {
+    try {
+      return localStorage.getItem(KEY) === "dark" ? "dark" : "light";
+    } catch {
+      return "light";
+    }
+  }
+  function applyTheme(theme) {
+    const next = theme === "dark" ? "dark" : "light";
+    document.documentElement.setAttribute("data-theme", next);
+    try {
+      localStorage.setItem(KEY, next);
+    } catch {
+      /* ignore */
+    }
+    const btn = document.getElementById("theme-toggle");
+    if (btn) {
+      const dark = next === "dark";
+      btn.setAttribute("aria-label", dark ? "Mode clair" : "Mode sombre");
+      btn.setAttribute("title", dark ? "Mode clair" : "Mode sombre");
+      btn.innerHTML = dark
+        ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>'
+        : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+    }
+  }
+  applyTheme(getTheme());
+  document.addEventListener("DOMContentLoaded", () => {
+    const btn = document.getElementById("theme-toggle");
+    if (btn) {
+      btn.addEventListener("click", () => {
+        applyTheme(getTheme() === "dark" ? "light" : "dark");
+      });
+    }
+  });
+})();
+
 /** Document admin JSON + multipart API (also under /admin/documents/* for compatibility). */
 const DOCS_API_BASE = "/api/admin/documents";
 
