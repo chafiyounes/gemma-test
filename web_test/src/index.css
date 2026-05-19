@@ -46,6 +46,9 @@ input,
 textarea,
 select {
   font-family: inherit;
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  border-color: var(--border);
 }
 
 .session-boot {

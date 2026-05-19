@@ -5,6 +5,8 @@ Shared visual language for **web_test** (chat) and **admin_site** (console).
 **Tokens:** [`../shared/theme/theme-tokens.css`](../shared/theme/theme-tokens.css)  
 **Theme key:** `localStorage.sendbot_theme` → `light` | `dark` (default **light**)
 
+**OS / browser:** Theme does **not** follow `prefers-color-scheme`. Only `data-theme` on `<html>` and the toggle control appearance. First visit uses the **light** preset until the user switches (stored in `localStorage`).
+
 ---
 
 ## Principles

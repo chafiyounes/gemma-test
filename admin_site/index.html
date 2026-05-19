@@ -6,16 +6,18 @@
     <title>Darija Chatbot Admin</title>
     <script>
       (function () {
+        var root = document.documentElement;
+        var theme = "light";
         try {
           var t = localStorage.getItem("sendbot_theme");
-          document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
-        } catch (e) {
-          document.documentElement.setAttribute("data-theme", "light");
-        }
+          if (t === "dark" || t === "light") theme = t;
+        } catch (e) { /* ignore */ }
+        root.setAttribute("data-theme", theme);
+        root.style.colorScheme = theme;
       })();
     </script>
-    <link rel="stylesheet" href="/admin-static/theme-tokens.css?v=20260519a" />
-    <link rel="stylesheet" href="/admin-static/admin.css?v=20260519a" />
+    <link rel="stylesheet" href="/admin-static/theme-tokens.css?v=20260519b" />
+    <link rel="stylesheet" href="/admin-static/admin.css?v=20260519b" />
   </head>
   <body>
     <div class="admin-shell">

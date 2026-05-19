@@ -1,8 +1,7 @@
-/* SendBot shared design tokens — light default, dark via [data-theme="dark"] */
+/* SendBot shared design tokens — theme is ONLY [data-theme], never prefers-color-scheme */
 
-:root,
-[data-theme="light"] {
-  color-scheme: light;
+html[data-theme="light"] {
+  color-scheme: only light;
 
   --bg-page: #f4f6f9;
   --bg-surface: #ffffff;
@@ -62,8 +61,8 @@
   --danger: var(--error);
 }
 
-[data-theme="dark"] {
-  color-scheme: dark;
+html[data-theme="dark"] {
+  color-scheme: only dark;
 
   --bg-page: #0f1419;
   --bg-surface: #1a2332;

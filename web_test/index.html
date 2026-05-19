@@ -4,12 +4,14 @@
     <meta charset="UTF-8" />
     <script>
       (function () {
+        var root = document.documentElement;
+        var theme = "light";
         try {
           var t = localStorage.getItem("sendbot_theme");
-          document.documentElement.setAttribute("data-theme", t === "dark" ? "dark" : "light");
-        } catch (e) {
-          document.documentElement.setAttribute("data-theme", "light");
-        }
+          if (t === "dark" || t === "light") theme = t;
+        } catch (e) { /* ignore */ }
+        root.setAttribute("data-theme", theme);
+        root.style.colorScheme = theme;
       })();
     </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

@@ -3,14 +3,18 @@
   const KEY = "sendbot_theme";
   function getTheme() {
     try {
-      return localStorage.getItem(KEY) === "dark" ? "dark" : "light";
+      const stored = localStorage.getItem(KEY);
+      if (stored === "dark" || stored === "light") return stored;
     } catch {
-      return "light";
+      /* ignore */
     }
+    return "light";
   }
   function applyTheme(theme) {
     const next = theme === "dark" ? "dark" : "light";
-    document.documentElement.setAttribute("data-theme", next);
+    const root = document.documentElement;
+    root.setAttribute("data-theme", next);
+    root.style.colorScheme = next;
     try {
       localStorage.setItem(KEY, next);
     } catch {
