@@ -24,8 +24,10 @@ if [ -z "$DOC" ]; then
 fi
 
 echo "doc=$DOC"
-curl -sS -b /tmp/cj_preview.txt \
-  "http://127.0.0.1:8000/api/documents/preview?name=${DOC}&category=procedures" \
+curl -sS -g -b /tmp/cj_preview.txt \
+  --get "http://127.0.0.1:8000/api/documents/preview" \
+  --data-urlencode "name=${DOC}" \
+  --data-urlencode "category=procedures" \
   | python3 -c "import sys,json; d=json.load(sys.stdin); print('has_docx',d.get('has_docx'),'has_md',d.get('has_md'),'md_len',len(d.get('markdown') or ''))"
 
 echo "preview routes OK"
