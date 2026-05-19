@@ -11,10 +11,12 @@
     return "light";
   }
   function applyTheme(theme) {
-    const next = theme === "dark" ? "dark" : "light";
-    const root = document.documentElement;
-    root.setAttribute("data-theme", next);
-    root.style.colorScheme = next;
+    const next =
+      typeof window.sendbotSyncTheme !== "undefined"
+        ? window.sendbotSyncTheme.syncThemeToDocument(theme)
+        : theme === "dark"
+          ? "dark"
+          : "light";
     try {
       localStorage.setItem(KEY, next);
     } catch {

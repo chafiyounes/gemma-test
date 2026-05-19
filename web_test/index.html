@@ -2,16 +2,31 @@
 <html lang="fr" data-theme="light">
   <head>
     <meta charset="UTF-8" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f4f6f9" />
     <script>
       (function () {
-        var root = document.documentElement;
+        var PAGE_BG = { light: "#f4f6f9", dark: "#0f1419" };
         var theme = "light";
         try {
           var t = localStorage.getItem("sendbot_theme");
           if (t === "dark" || t === "light") theme = t;
         } catch (e) { /* ignore */ }
-        root.setAttribute("data-theme", theme);
-        root.style.colorScheme = theme;
+        var html = document.documentElement;
+        html.setAttribute("data-theme", theme);
+        html.style.colorScheme = theme;
+        html.style.backgroundColor = PAGE_BG[theme];
+        function meta(name, content) {
+          var el = document.querySelector('meta[name="' + name + '"]');
+          if (!el) {
+            el = document.createElement("meta");
+            el.setAttribute("name", name);
+            document.head.appendChild(el);
+          }
+          el.setAttribute("content", content);
+        }
+        meta("color-scheme", theme);
+        meta("theme-color", PAGE_BG[theme]);
       })();
     </script>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />

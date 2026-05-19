@@ -3,21 +3,22 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <meta name="theme-color" content="#f4f6f9" />
     <title>Darija Chatbot Admin</title>
+    <script src="/admin-static/theme-sync.js?v=20260519c"></script>
     <script>
       (function () {
-        var root = document.documentElement;
         var theme = "light";
         try {
           var t = localStorage.getItem("sendbot_theme");
           if (t === "dark" || t === "light") theme = t;
         } catch (e) { /* ignore */ }
-        root.setAttribute("data-theme", theme);
-        root.style.colorScheme = theme;
+        if (window.sendbotSyncTheme) sendbotSyncTheme.syncThemeToDocument(theme);
       })();
     </script>
-    <link rel="stylesheet" href="/admin-static/theme-tokens.css?v=20260519b" />
-    <link rel="stylesheet" href="/admin-static/admin.css?v=20260519b" />
+    <link rel="stylesheet" href="/admin-static/theme-tokens.css?v=20260519c" />
+    <link rel="stylesheet" href="/admin-static/admin.css?v=20260519c" />
   </head>
   <body>
     <div class="admin-shell">

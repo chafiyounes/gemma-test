@@ -2,6 +2,34 @@ const STORAGE_KEY = "sendbot_theme";
 /** First visit only — never read prefers-color-scheme after that. */
 const DEFAULT_THEME = "light";
 
+const PAGE_BG = { light: "#f4f6f9", dark: "#0f1419" };
+
+function upsertMeta(name, content) {
+  let el = document.querySelector(`meta[name="${name}"]`);
+  if (!el) {
+    el = document.createElement("meta");
+    el.setAttribute("name", name);
+    document.head.appendChild(el);
+  }
+  el.setAttribute("content", content);
+}
+
+/** Lock html + meta tags so Chromium/Brave do not apply OS “forced” colors. */
+export function syncThemeToDocument(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  const root = document.documentElement;
+  root.setAttribute("data-theme", next);
+  root.style.colorScheme = next;
+  root.style.backgroundColor = PAGE_BG[next];
+  upsertMeta("color-scheme", next);
+  upsertMeta("theme-color", PAGE_BG[next]);
+  if (document.body) {
+    document.body.style.backgroundColor = PAGE_BG[next];
+    document.body.style.colorScheme = next;
+  }
+  return next;
+}
+
 export function getTheme() {
   try {
     const stored = localStorage.getItem(STORAGE_KEY);
@@ -13,11 +41,7 @@ export function getTheme() {
 }
 
 export function applyTheme(theme) {
-  const next = theme === "dark" ? "dark" : "light";
-  const root = document.documentElement;
-  root.setAttribute("data-theme", next);
-  // Lock native UI (scrollbars, inputs) to app theme — ignore OS color scheme.
-  root.style.colorScheme = next;
+  const next = syncThemeToDocument(theme);
   try {
     localStorage.setItem(STORAGE_KEY, next);
   } catch {

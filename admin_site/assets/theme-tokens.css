@@ -1,7 +1,8 @@
 /* SendBot shared design tokens — theme is ONLY [data-theme], never prefers-color-scheme */
 
 html[data-theme="light"] {
-  color-scheme: only light;
+  color-scheme: only light !important;
+  background-color: #f4f6f9 !important;
 
   --bg-page: #f4f6f9;
   --bg-surface: #ffffff;
@@ -62,7 +63,8 @@ html[data-theme="light"] {
 }
 
 html[data-theme="dark"] {
-  color-scheme: only dark;
+  color-scheme: only dark !important;
+  background-color: #0f1419 !important;
 
   --bg-page: #0f1419;
   --bg-surface: #1a2332;
@@ -152,4 +154,10 @@ html[data-theme="dark"] {
   top: 20px;
   right: 20px;
   z-index: 10;
+}
+
+html[data-theme="light"] body,
+html[data-theme="dark"] body {
+  color-scheme: inherit;
+  background-color: var(--bg-page) !important;
 }
