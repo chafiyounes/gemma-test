@@ -69,7 +69,27 @@ Record scores in the report markdown or a follow-up note.
 
 ---
 
-## Gate for web integration
+## Evaluation results (2026-05-21, pod)
+
+Run: 3 procedures × 3 trials × 6 formats (54 generations). Report on pod:
+`outputs/logigramme_eval/report_20260521T163814Z.json` (+ `.md`).
+
+| Format | Valid | Total | Valid % |
+|--------|-------|-------|---------|
+| **mermaid** | 9 | 9 | **100%** |
+| **dot** | 9 | 9 | **100%** |
+| **plantuml** | 9 | 9 | **100%** |
+| svg | 3 | 9 | 33% |
+| **html** | 9 | 9 | **100%** |
+| **json_graph** | 9 | 9 | **100%** |
+
+**Syntax winners:** mermaid, dot, plantuml, html, json_graph (all ≥80%).
+
+**SVG** failed often on first pass (`invalid svg output`); retries recovered some trials.
+
+**Next:** Manual fidelity review (1–5) on saved artifacts for mermaid vs html vs json_graph before picking a web renderer. **Chat integration remains OFF.**
+
+---
 
 Re-enable chat/UI only when **all** are true:
 
