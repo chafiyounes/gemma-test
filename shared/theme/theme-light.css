@@ -1,6 +1,7 @@
 /* SendBot LIGHT — loaded alone via <link title="sendbot-theme"> (disabled swap). */
 
-html {
+html,
+.sendbot-theme-island {
   color-scheme: only light !important;
   background-color: #f4f6f9 !important;
 

@@ -5,7 +5,22 @@
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#f4f6f9" />
     <script>
-      window.SENDBOT_THEME_CSS_V = "?v=20260620";
+      window.SENDBOT_THEME_CSS_V = "?v=20260621";
+    </script>
+    <link
+      rel="stylesheet"
+      href="/theme-light.css?v=20260621"
+      id="sendbot-theme-light"
+      title="sendbot-theme"
+    />
+    <link
+      rel="stylesheet"
+      href="/theme-dark.css?v=20260621"
+      id="sendbot-theme-dark"
+      title="sendbot-theme"
+      disabled
+    />
+    <script>
       (function () {
         var PAGE_BG = { light: "#f4f6f9", dark: "#0f1419" };
         var theme = "light";
@@ -13,19 +28,10 @@
           var t = localStorage.getItem("sendbot_theme");
           if (t === "dark" || t === "light") theme = t;
         } catch (e) { /* ignore */ }
-        var v = window.SENDBOT_THEME_CSS_V || "";
-        ["light", "dark"].forEach(function (mode) {
-          var link = document.getElementById("sendbot-theme-" + mode);
-          if (!link) {
-            link = document.createElement("link");
-            link.id = "sendbot-theme-" + mode;
-            link.rel = "stylesheet";
-            link.title = "sendbot-theme";
-            link.href = "/theme-" + mode + ".css" + v;
-            document.head.appendChild(link);
-          }
-          link.disabled = mode !== theme;
-        });
+        var light = document.getElementById("sendbot-theme-light");
+        var dark = document.getElementById("sendbot-theme-dark");
+        if (light) light.disabled = theme !== "light";
+        if (dark) dark.disabled = theme !== "dark";
         var html = document.documentElement;
         html.setAttribute("data-theme", theme);
         html.style.colorScheme = theme;

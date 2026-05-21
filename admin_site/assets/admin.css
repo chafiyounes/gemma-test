@@ -374,16 +374,17 @@ body {
 }
 
 .toolbar-button.rag-reload {
-  background: rgba(37, 99, 235, 0.2);
-  border: 1px solid rgba(96, 165, 250, 0.45);
-  color: #bfdbfe;
+  background: var(--secondary-subtle);
+  border: 1px solid var(--secondary);
+  color: var(--secondary);
   font-size: 12px;
   font-weight: 700;
 }
 
 .toolbar-button.rag-reload:hover {
-  border-color: rgba(147, 197, 253, 0.75);
-  color: #e0f2fe;
+  background: var(--bg-hover);
+  border-color: var(--secondary);
+  color: var(--text-primary);
 }
 
 /* Toolbar actions row */
@@ -919,16 +920,16 @@ body {
 
 .doc-explorer-shell .doc-move-select {
   background: var(--bg-page);
-  color: #e8eaef;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: var(--text);
+  border: 1px solid var(--border);
   border-radius: 8px;
 }
 
 .doc-explorer-shell .doc-file button {
   border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  background: var(--bg-hover);
-  color: #f8fafc;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text);
   transition:
     background 0.18s ease,
     transform 0.15s ease;

@@ -1,6 +1,7 @@
 /* SendBot DARK — loaded alone via <link title="sendbot-theme"> (disabled swap). */
 
-html {
+html,
+.sendbot-theme-island {
   color-scheme: only dark !important;
   background-color: #0f1419 !important;
 

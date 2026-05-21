@@ -38,10 +38,8 @@
   z-index: 10;
 }
 
-/* Compositor island — limits browser-wide forced recolor (Brave Colors, etc.) */
+/* Layout wrapper (do not use contain:style — it breaks CSS variable inheritance). */
 .sendbot-theme-island {
-  isolation: isolate;
-  contain: layout style paint;
   position: relative;
   min-height: 100%;
   width: 100%;
