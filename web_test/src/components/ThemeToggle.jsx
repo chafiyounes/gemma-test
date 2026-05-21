@@ -23,9 +23,12 @@ export default function ThemeToggle({ className = "" }) {
 
   useEffect(() => {
     const root = document.documentElement;
-    const observer = new MutationObserver(() => {
-      setTheme(root.getAttribute("data-theme") === "dark" ? "dark" : "light");
-    });
+    const sync = () => {
+      const next = root.getAttribute("data-theme") === "dark" ? "dark" : "light";
+      setTheme(next);
+    };
+    sync();
+    const observer = new MutationObserver(sync);
     observer.observe(root, { attributes: true, attributeFilter: ["data-theme"] });
     return () => observer.disconnect();
   }, []);

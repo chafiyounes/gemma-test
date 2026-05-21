@@ -65,6 +65,7 @@
   background: var(--accent);
   color: #fff;
   border-bottom-right-radius: 6px;
+  box-shadow: var(--shadow-sm);
 }
 
 .bot-bubble {
