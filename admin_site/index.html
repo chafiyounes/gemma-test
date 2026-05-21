@@ -37,7 +37,10 @@
         var dark = document.getElementById("sendbot-theme-dark");
         if (light) light.disabled = theme !== "light";
         if (dark) dark.disabled = theme !== "dark";
-        if (window.sendbotSyncTheme) sendbotSyncTheme.syncThemeToDocument(theme);
+        if (window.sendbotSyncTheme) {
+          sendbotSyncTheme.syncThemeToDocument(theme);
+          sendbotSyncTheme.updateThemeToggleIcon();
+        }
       })();
     </script>
   </head>

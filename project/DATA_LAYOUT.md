@@ -63,3 +63,15 @@ Categories are **organizational**; retrieval scope is controlled by the API/clie
 ## 6. Admin uploads
 
 Staff can upload/replace files via **`/admin`**; the running API reloads `DocStore` after changes. Large binaries should still be avoided in git—prefer pod storage and admin UI or scripted sync.
+
+---
+
+## 7. Screenshots referenced from Markdown (`/api/rag-media`)
+
+Markdown under **`data/documents_md/<category>/`** can embed UI captures as **`![](chemin/relatif.png)`** next to procedural text. The SPA loads them via **`GET /api/rag-media/<path>`**, where **`path`** is resolved **relative to the `data/documents_md` root** (FastAPI **`StaticFiles`** mount in `api/main.py`).
+
+- **Operational rule:** Store **`.png`** / **`.webp`** / etc. beside the referencing **`.md`** file or in a subdirectory of the same category tree so the excerpt path resolves to an on-disk file.
+- **Converted `.docx`:** If pipelines emit Markdown that points at `./media/image1.png`, those files must exist under the mirrored tree on the pod; otherwise the reply may show Alt text only or a broken `<img>` (same as any missing static asset).
+- **Sizing:** Prefer reasonable resolution; **`data:`** URIs inside sources are stripped for the LLM context by **`core/sop_text_clean.py`** so prompts stay bounded.
+
+Related: [`ARCHITECTURE.md`](ARCHITECTURE.md) §7.2 (« où cliquer »).

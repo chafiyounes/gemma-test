@@ -32,6 +32,46 @@ If theme counters are all **0**, the topic may be absent; if **> 0**, check admi
 - **`/admin`** — same origin as API; static assets under **`/admin-static/`**.
 - Useful for **feedbacks**, filters, conversation/thread views, **rag** metadata per turn.
 
+### 3.1 UI theme redesign (in progress — May 2026)
+
+**Goal:** Shared **light** (default) / **dark** design for **chat** (`web_test`) and **admin** (`admin_site`), SENDIT copper accent only, manual sun/moon toggle (`localStorage.sendbot_theme`). Design-only — no RAG/API changes.
+
+| Area | Status | Notes |
+|------|--------|--------|
+| Shared tokens | Done | `shared/theme/theme-light.css`, `theme-dark.css`, `theme-base.css`; logic in `theme-core.js` / `theme-sync.js` |
+| Chat (`web_test`) | Mostly OK | Light/dark toggle, surfaces aligned with admin; file-swap stylesheets + static `<link>` in `index.html` |
+| Document preview modal | Done | Word tab stays paper-white; modal chrome follows theme — see [`DOCUMENT_PREVIEW.md`](DOCUMENT_PREVIEW.md) |
+| Admin (`admin_site`) | **Fixed (May 2026)** | Hardcoded dark-era colors migrated to `var(--*)` tokens in `admin.css`; toggle icon updates on inline boot + `DOMContentLoaded`. Hard-refresh `/admin` after deploy. |
+| Browser forced colors | Partial | File-swap + `color-scheme: only light\|dark` helps Chrome; Brave “Colors for all websites” can still override — user must disable in browser settings |
+
+**Recent commits (theme):** `8aaa11f` (initial light/dark), `83a1417` (OS decouple), `4113d44` (Brave hardening), `cda102c` (file-swap), `b520258` (unify toggle), `5bc3dec` (static admin CSS load order — **admin still reported broken**).
+
+**Next steps (admin):** Optional UX polish — “Charger plus” button if infinite scroll is unreliable; persist list scroll position when returning from detail.
+
+### 3.2 Admin performance (May 2026)
+
+- List endpoint: `GET /admin/interactions?summary=1&limit=30&offset=N` — lightweight rows (no `response`/`metadata`).
+- Frontend: infinite scroll, debounced search (300ms), lazy RAG reconstruction (`?reconstruct_rag=1` on demand).
+- Result count: `"30 sur 847"` while paginating.
+
+**Docs:** [`DESIGN_SYSTEM.md`](DESIGN_SYSTEM.md)
+
+---
+
+## 3.3 Logigrammes (May 2026)
+
+Procedure → Mermaid flowchart via Gemma. See [`LOGIGRAMME.md`](LOGIGRAMME.md).
+
+| Piece | Status |
+|-------|--------|
+| `core/logigramme_llm.py` | Done |
+| `scripts/prototype_logigramme.py` | Done — run on pod to validate quality |
+| Classic chat intent (`logigramme` / `flowchart` / …) | Done |
+| Agentic tool `generate_logigramme` | Done |
+| Chat Mermaid renderer | Done (`mermaid` npm, lazy-loaded) |
+
+**Next:** Run prototype on 2–3 diverse procedures on the pod; tune prompt if branches are missing or invented.
+
 ---
 
 ## 4. Inference targets (which “Gemma” is MoE?)
@@ -91,3 +131,6 @@ Goals: **safe** (policy + approvals + audit), **observable** tool logging, **rev
 | `project/DOCUMENT_PREVIEW.md` | **Source:** click → modal (`.docx` / MD); isolated from `/chat` |
 | `core/document_preview.py` | Preview API resolve + trailing-link strip (display only) |
 | `admin_site/` | Admin static UI |
+| `shared/theme/` | Light/dark CSS + `theme-core.js` (chat/admin theme) |
+| `core/logigramme_llm.py` | Mermaid logigramme generation from procedures |
+| `project/LOGIGRAMME.md` | Logigramme prototype, chat triggers, quality checklist |

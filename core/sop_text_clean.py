@@ -29,27 +29,35 @@ _RE_HTML_SRC = re.compile(r"\bsrc\s*=\s*[\"']([^\"']+)[\"']", re.IGNORECASE)
 
 
 def normalize_markdown_images_for_llm(text: str) -> str:
-    """Turn `![alt](url)` into non-embedding `[Figure — alt](url)`; drop huge/data URLs."""
+    """Strip only embedded binary images; keep `![alt](url)` for real URLs (tokens, not pixels).
+
+    The chat UI renders `![alt](path)` as screenshots. Base64/data: URIs are removed
+    so they do not bloat prompts. Non-data URLs are kept as Markdown image syntax.
+    """
 
     def repl(m: re.Match[str]) -> str:
         alt = (m.group("alt") or "").strip() or "image"
         url = (m.group("url") or "").strip()
         low = url.lower()
         if low.startswith("data:"):
-            return f"[Figure - {alt}](inline-image-omitted)"
+            return f"(Image omise — données intégrées non incluses dans le contexte)"
         if len(url) > 480:
             url = url[:240] + "..." + url[-120:]
-        return f"[Figure - {alt}]({url})"
+        return f"![{alt}]({url})"
 
     return _RE_MD_IMAGE.sub(repl, text)
 
 
 def replace_html_img_tags_with_placeholders(text: str) -> str:
-    """Remove `<img>` tags; never pass embedded image data into the RAG prompt."""
+    """Turn `<img>` into Markdown image lines for the UI; drop data: blobs."""
 
     def one_tag(tag: str) -> str:
         sm = _RE_HTML_SRC.search(tag)
         src = (sm.group(1) or "").strip() if sm else ""
+        at = re.search(r"\balt\s*=\s*[\"']([^\"']*)[\"']", tag, re.IGNORECASE)
+        alt = (at.group(1) or "").strip() if at else ""
+        if not alt:
+            alt = "Capture"
         if not src:
             return "(image)"
         low = src.lower()
@@ -57,7 +65,7 @@ def replace_html_img_tags_with_placeholders(text: str) -> str:
             return "(image inline omise)"
         if len(src) > 180:
             src = src[:177] + "..."
-        return f"(image : {src})"
+        return f"![{alt}]({src})"
 
     return _RE_HTML_IMG_OPEN.sub(lambda m: one_tag(m.group(0)), text)
 

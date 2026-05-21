@@ -14,6 +14,7 @@ import httpx
 
 from app_config.settings import settings
 
+from core.logigramme_llm import format_logigramme_response, generate_logigramme_mermaid_async
 from core.documents import (
     DOCS_DIR,
     DOCS_MD_DIR,
@@ -38,9 +39,12 @@ Documents are in French. Users may write in French, Darija (Arabic/Arabizi), or 
 
 You MUST answer ONLY from retrieved documents. Never answer from memory.
 
-You have one tool:
+You have two tools:
 - request_documents(ids: string[])
   It returns full text chunks for the requested document IDs.
+- generate_logigramme(document_id: string)
+  Use when the user asks for a logigramme, flowchart, or diagram of a procedure.
+  It returns Mermaid flowchart TD code for that document.
 
 Workflow rules:
 1) Read the document catalog below (each row has id, path, objective, section_1).
@@ -67,6 +71,7 @@ without calling `request_documents` when documents might help, you fail the task
 
 Tool:
 - `request_documents(ids: string[])` — returns the **full** text body for each document `id` listed in the catalog.
+- `generate_logigramme(document_id: string)` — returns Mermaid flowchart code when the user wants a logigramme.
 
 Rules:
 1) Read the JSON catalog. Each item has: `id`, `path`, `objective` (procedure goal when detected), `section_1` (first section slice).
@@ -295,6 +300,26 @@ REQUEST_DOCUMENTS_TOOL = {
     },
 }
 
+GENERATE_LOGIGRAMME_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "generate_logigramme",
+        "description": "Generate a Mermaid flowchart (logigramme) from a procedure document id.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "document_id": {
+                    "type": "string",
+                    "description": "Catalog document id (e.g. procedures/Gestion des colis endommag_)",
+                }
+            },
+            "required": ["document_id"],
+        },
+    },
+}
+
+AGENTIC_TOOLS = [REQUEST_DOCUMENTS_TOOL, GENERATE_LOGIGRAMME_TOOL]
+
 
 def _parse_tool_args(arguments: Optional[str]) -> Dict[str, Any]:
     if not arguments or not str(arguments).strip():
@@ -339,6 +364,55 @@ def _request_documents(
             continue
         found.append({"id": doc_id, "content": txt})
     return {"found": found, "not_found": not_found}
+
+
+async def _handle_tool_call_async(
+    *,
+    name: str,
+    args: Dict[str, Any],
+    store: DocStore,
+    category: str,
+    max_ids_per_round: int,
+    client: Any,
+    per_round_cap: int | None = None,
+) -> str:
+    if name == "request_documents":
+        ids = args.get("ids") or []
+        if not isinstance(ids, list):
+            ids = [str(ids)]
+        cap = max_ids_per_round if per_round_cap is None else per_round_cap
+        if cap <= 0:
+            result: Dict[str, Any] = {"found": [], "not_found": [str(x) for x in ids]}
+        else:
+            result = _request_documents(
+                store,
+                category,
+                [str(x) for x in ids],
+                max_ids_per_round=cap,
+            )
+        return json.dumps(result, ensure_ascii=False)
+
+    if name == "generate_logigramme":
+        doc_id = str(args.get("document_id") or "").strip()
+        if not doc_id:
+            return json.dumps({"error": "missing document_id"}, ensure_ascii=False)
+        text = store.get_document_by_catalog_id(doc_id, category)
+        if not text:
+            stem = doc_id.split("/")[-1]
+            text = store.get_document_by_stem(category, stem)
+        if not text:
+            return json.dumps({"error": f"document_not_found:{doc_id}"}, ensure_ascii=False)
+        mermaid = await generate_logigramme_mermaid_async(document_text=text, client=client)
+        return json.dumps(
+            {
+                "document_id": doc_id,
+                "mermaid": mermaid,
+                "formatted": format_logigramme_response(mermaid),
+            },
+            ensure_ascii=False,
+        )
+
+    return json.dumps({"error": f"unknown_tool:{name}"}, ensure_ascii=False)
 
 
 async def _post_chat_completions_with_retries(client: Any, payload: Dict[str, Any]) -> Any:
@@ -397,7 +471,7 @@ async def run_agentic_tool_loop(
             "max_tokens": max_tokens,
             "temperature": temperature,
             "top_p": top_p,
-            "tools": [REQUEST_DOCUMENTS_TOOL],
+            "tools": AGENTIC_TOOLS,
             "tool_choice": "auto",
         }
         resp = await _post_chat_completions_with_retries(client, payload)
@@ -426,22 +500,22 @@ async def run_agentic_tool_loop(
             fn = tc.get("function") or {}
             name = fn.get("name") or ""
             args = _parse_tool_args(fn.get("arguments"))
-            if name != "request_documents":
-                content = json.dumps({"error": f"unknown_tool:{name}"}, ensure_ascii=False)
-            else:
-                ids = args.get("ids") or []
-                if not isinstance(ids, list):
-                    ids = [str(ids)]
-                result = _request_documents(
-                    store,
-                    category,
-                    [str(x) for x in ids],
-                    max_ids_per_round=max_ids_per_round,
-                )
-                for row in result["found"]:
-                    meta["context_chars"] = int(meta["context_chars"]) + len(row["content"])
-                    meta["documents_in_prompt"] = int(meta["documents_in_prompt"]) + 1
-                content = json.dumps(result, ensure_ascii=False)
+            content = await _handle_tool_call_async(
+                name=name,
+                args=args,
+                store=store,
+                category=category,
+                max_ids_per_round=max_ids_per_round,
+                client=client,
+            )
+            if name == "request_documents":
+                try:
+                    parsed = json.loads(content)
+                    for row in parsed.get("found") or []:
+                        meta["context_chars"] = int(meta["context_chars"]) + len(row.get("content") or "")
+                        meta["documents_in_prompt"] = int(meta["documents_in_prompt"]) + 1
+                except json.JSONDecodeError:
+                    pass
             messages.append({"role": "tool", "tool_call_id": tid, "content": content})
 
     return AGENTIC_NOT_FOUND, meta
@@ -481,7 +555,7 @@ async def run_agentic_router_phase(
             "max_tokens": max_tokens,
             "temperature": temperature,
             "top_p": top_p,
-            "tools": [REQUEST_DOCUMENTS_TOOL],
+            "tools": AGENTIC_TOOLS,
             "tool_choice": (
                 {"type": "function", "function": {"name": "request_documents"}}
                 if round_i == 0
@@ -515,21 +589,20 @@ async def run_agentic_router_phase(
             fn = tc.get("function") or {}
             name = fn.get("name") or ""
             args = _parse_tool_args(fn.get("arguments"))
-            if name != "request_documents":
-                content = json.dumps({"error": f"unknown_tool:{name}"}, ensure_ascii=False)
-            else:
-                ids = args.get("ids") or []
-                if not isinstance(ids, list):
-                    ids = [str(ids)]
-                if per_round_cap <= 0:
-                    result: Dict[str, Any] = {"found": [], "not_found": [str(x) for x in ids]}
-                else:
-                    result = _request_documents(
-                        store,
-                        category,
-                        [str(x) for x in ids],
-                        max_ids_per_round=per_round_cap,
-                    )
+            content = await _handle_tool_call_async(
+                name=name,
+                args=args,
+                store=store,
+                category=category,
+                max_ids_per_round=max_ids_per_round,
+                client=client,
+                per_round_cap=per_round_cap,
+            )
+            if name == "request_documents":
+                try:
+                    result = json.loads(content)
+                except json.JSONDecodeError:
+                    result = {"found": [], "not_found": []}
                 for row in result.get("found") or []:
                     doc_id = row.get("id") or ""
                     body = row.get("content") or ""
@@ -539,7 +612,6 @@ async def run_agentic_router_phase(
                             break
                 meta["context_chars"] = sum(len(t) for t in retrieved.values())
                 meta["documents_in_prompt"] = len(retrieved)
-                content = json.dumps(result, ensure_ascii=False)
             messages.append({"role": "tool", "tool_call_id": tid, "content": content})
 
         if len(retrieved) >= cap:

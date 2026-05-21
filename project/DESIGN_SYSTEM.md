@@ -2,25 +2,52 @@
 
 Shared visual language for **web_test** (chat) and **admin_site** (console).
 
-**Tokens:** [`../shared/theme/theme-tokens.css`](../shared/theme/theme-tokens.css)  
-**Theme key:** `localStorage.sendbot_theme` → `light` | `dark` (default **light**)
-
-**Code:** [`shared/theme/theme-core.js`](../shared/theme/theme-core.js) (chat ESM) and [`shared/theme/theme-sync.js`](../shared/theme/theme-sync.js) (admin UMD copy — keep in sync).
-
-**OS / browser:** Theme does **not** follow `prefers-color-scheme`. First visit uses the **light** preset until the user switches (stored in `localStorage`).
-
-**File swap (anti–forced-color):** Light and dark are separate physical stylesheets (`theme-light.css`, `theme-dark.css`). The toggle enables one `<link title="sendbot-theme">` and **disables** the other (classic alternate stylesheet pattern). This is harder for browsers to treat as a single “page theme” to recolor than one file with CSS variables. UI is wrapped in `.sendbot-theme-island` (`isolation` + `contain`) for compositor isolation.
-
-**Brave:** If colors are still wrong, disable **Settings → Appearance → “Use Brave colors for all websites”**. No site code can guarantee override of Brave’s compositor filter.
+**Status (May 2026):** Chat and admin share the same light/dark tokens. Admin `admin.css` uses theme variables (no hardcoded light-on-dark borders/pills). Hard-refresh after deploy if styles look stale.
 
 ---
 
-## Principles
+## Theme storage
 
-1. **Neutrals first** — page and panels use slate greys; SENDIT orange is accent only (~10–15% of visible UI).
-2. **No heavy orange glow** — avoid large radial gradients; use flat or very subtle backgrounds.
-3. **Consistent chrome** — same borders, radii, and button styles in chat and admin.
-4. **Document preview** — Word tab always uses paper white (`--doc-paper-*`); modal chrome follows theme.
+| Item | Value |
+|------|--------|
+| Key | `localStorage.sendbot_theme` → `light` \| `dark` |
+| Default | **light** |
+| HTML attribute | `data-theme` on `<html>` |
+| Toggle | Moon in light (→ dark), sun in dark (→ light) |
+
+Theme does **not** follow `prefers-color-scheme`. OS/browser must not drive the active preset after first visit (only the in-app toggle + stored value).
+
+---
+
+## File layout (source of truth)
+
+| File | Role |
+|------|------|
+| [`shared/theme/theme-light.css`](../shared/theme/theme-light.css) | Full light palette on `html` + `.sendbot-theme-island` |
+| [`shared/theme/theme-dark.css`](../shared/theme/theme-dark.css) | Full dark palette |
+| [`shared/theme/theme-base.css`](../shared/theme/theme-base.css) | Toggle, panel harmonization, `.sendbot-theme-island` wrapper |
+| [`shared/theme/theme-core.js`](../shared/theme/theme-core.js) | Chat (ESM): apply, toggle, file-swap |
+| [`shared/theme/theme-sync.js`](../shared/theme/theme-sync.js) | Admin (UMD) — **keep in sync** with `theme-core.js` |
+| [`shared/theme/theme-tokens.css`](../shared/theme/theme-tokens.css) | Legacy shim → imports `theme-base.css` only |
+
+**Chat:** Vite imports `theme-base` via `web_test/src/index.css`; `theme-light.css` / `theme-dark.css` served from `web_test/public/` with static `<link title="sendbot-theme">` in `index.html`.
+
+**Admin:** Copy `theme-*.css` + `theme-sync.js` to `admin_site/assets/`. `index.html` must load **`theme-light.css` / `theme-dark.css` before `theme-base.css` and `admin.css`** so `var(--*)` resolves.
+
+---
+
+## File-swap pattern
+
+Two physical stylesheets; exactly one enabled via `<link disabled>`:
+
+```html
+<link id="sendbot-theme-light" title="sendbot-theme" href=".../theme-light.css" />
+<link id="sendbot-theme-dark" title="sendbot-theme" href=".../theme-dark.css" disabled />
+```
+
+`applyTheme()` / `swapThemeStylesheets()` flips `disabled` and updates meta `color-scheme` / `theme-color`.
+
+**Do not** use `contain: style` on `.sendbot-theme-island` — it breaks CSS variable inheritance into admin/chat layout.
 
 ---
 
@@ -33,16 +60,34 @@ Shared visual language for **web_test** (chat) and **admin_site** (console).
 | `--accent` | `#d97745` | `#e8956a` |
 | `--secondary` | `#2b9bab` | `#3db4c4` |
 
+Accent ~10–15% of visible UI; neutrals carry surfaces.
+
 ---
 
-## Theme toggle
+## Document preview
 
-- **Light mode:** moon icon → switches to dark.
-- **Dark mode:** sun icon → switches to light.
-- Placed in chat top bar and admin sidebar; also on login screen.
+Word tab always uses paper white (`--doc-paper-*`). Modal chrome follows active theme. See [`DOCUMENT_PREVIEW.md`](DOCUMENT_PREVIEW.md).
+
+---
+
+## Brave / forced colors
+
+If the page still looks tinted wrong: **Settings → Appearance → disable “Use Brave colors for all websites”**. No site CSS can fully override Brave’s compositor recolor.
 
 ---
 
 ## Maintenance
 
-When changing colors, edit **only** `shared/theme/theme-tokens.css`, then copy to `admin_site/assets/theme-tokens.css` (or keep files in sync). Chat imports tokens via `web_test/src/index.css`.
+1. Edit palettes in `shared/theme/theme-light.css` and `theme-dark.css`.
+2. Copy to `admin_site/assets/` and `web_test/public/`.
+3. Bump `?v=` query strings in `admin_site/index.html` and `web_test/index.html` after deploy.
+4. `cd web_test && npm run build` when chat CSS/JS changes.
+
+---
+
+## Known issues (admin)
+
+- Brave “Use Brave colors for all websites” can still override site theme — disable in browser settings.
+- Bump `?v=` in `admin_site/index.html` after CSS deploy if CDN/browser cache persists.
+
+Track progress in [`ROADMAP.md`](ROADMAP.md) §3.

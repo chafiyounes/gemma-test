@@ -790,6 +790,7 @@ async def admin_interactions(
     search: Optional[str] = None,
     feedback_value: Optional[str] = None,
     feedback_reason: Optional[str] = None,
+    summary: bool = False,
     db: InteractionStore = Depends(_get_store),
     _admin: dict = Depends(_require_administrator),
 ):
@@ -798,7 +799,8 @@ async def admin_interactions(
         feedback_value=feedback_value,
         feedback_reason=feedback_reason,
     )
-    items = await db.list_interactions(
+    list_fn = db.list_interactions_summary if summary else db.list_interactions
+    items = await list_fn(
         limit=limit,
         offset=offset,
         search=search,
@@ -811,6 +813,7 @@ async def admin_interactions(
 @app.get("/admin/interactions/{interaction_id}")
 async def admin_interaction_detail(
     interaction_id: str,
+    reconstruct_rag: bool = False,
     db: InteractionStore = Depends(_get_store),
     _admin: dict = Depends(_require_administrator),
 ):
@@ -818,9 +821,9 @@ async def admin_interaction_detail(
     if item is None:
         raise HTTPException(404, "Interaction not found")
     meta = item.get("metadata") if isinstance(item, dict) else None
-    if isinstance(meta, dict):
+    if isinstance(meta, dict) and reconstruct_rag:
         rag = meta.get("rag")
-        # Legacy rows can have metadata={"role": "..."} only; reconstruct for visibility.
+        # Legacy rows can have metadata={"role": "..."} only; reconstruct on demand.
         if not isinstance(rag, dict) or not rag:
             category = meta.get("category_used")
             msg = item.get("message", "")

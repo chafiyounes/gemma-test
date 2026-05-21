@@ -9,7 +9,7 @@
 ```mermaid
 flowchart TB
   subgraph Client
-    B[Browser]
+    B["Browser (+ chat renders ![…](…) screenshots)"]
   end
   subgraph API["FastAPI :8000"]
     M[api/main.py]
@@ -39,6 +39,7 @@ flowchart TB
   DOC --> TXT
   DOC --> SRC
   M --> DB
+  B -->|"GET /api/rag-media/… (files under data/documents_md)"| M
 ```
 
 ---
@@ -51,6 +52,8 @@ flowchart TB
 
 1. **Router** — English system prompt + JSON **catalog** per indexed doc: `id`, `path`, `objective`, `section_1` (heuristic extract from SOP body). Model calls tool **`request_documents(ids)`**; backend returns **full** bodies from `DocStore`. First vLLM round uses a **forced** `tool_choice` for `request_documents` so the router cannot “finish” without a tool call. Up to **`AGENTIC_RAG_ROUTER_MAX_ROUNDS`** rounds; **`AGENTIC_RAG_ROUTER_MAX_IDS_PER_ROUND`** ids per call; **`AGENTIC_RAG_ROUTER_MAX_TOTAL_IDS`** unique docs cap (default aim **~5**, max **10** via settings + prompts).
 2. **Answer** — Second completion: normal **`SYSTEM_PROMPT`** + same **DOCUMENTS DE RÉFÉRENCE** block formatting as classic RAG (`format_retrieved_documents_for_prompt`, greedy inject / query windows). **No tools.** Metadata must keep **`tool_rounds`** from the router (answer phase must not overwrite it with `0`).
+
+**Optional tool (agentic):** `generate_logigramme(document_id)` — returns Mermaid `flowchart TD` for a catalog procedure. See [`LOGIGRAMME.md`](LOGIGRAMME.md).
 
 **Not-found:** If the router retrieves nothing, response uses the configured agentic not-found string; `normalize_not_found_response` applies as in classic RAG.
 
@@ -107,7 +110,10 @@ Agentic mode needs vLLM started with **Gemma 4 tooling** (see `scripts/start_vll
 | Documents | `core/documents.py` | Load index, BM25, greedy inject, `_best_window_for_query` |
 | Agentic | `core/agentic_rag.py` | Catalog, router, `request_documents`, formatting |
 | Settings | `app_config/settings.py` | Env-backed knobs |
-| UI | `web_test/` | Vite/React |
+| UI | `web_test/` | Vite/React; chat markdown + screenshots; light/dark theme (`shared/theme/`) |
+| Admin UI | `admin_site/` | Vanilla HTML/JS; paginated interaction list (`summary=1`); lazy RAG rebuild; theme tokens |
+| Logigramme | `core/logigramme_llm.py` | Procedure → Mermaid; classic intent + agentic tool — see [`LOGIGRAMME.md`](LOGIGRAMME.md) |
+| SOP sanitise | `core/sop_text_clean.py` | Strips destructive/binary image data; preserves `![](path)` for non-data URLs |
 
 ---
 
@@ -120,9 +126,18 @@ Backend only calls **`VLLM_BASE_URL`**; it does not load weights.
 
 ---
 
-## 7. Language and prompts
+## 7. Language, prompts, and UI screenshots
 
-Detection and rules in `core/chat_policy.py` and **`SYSTEM_PROMPT`** in `core/llm.py`. **DOCUMENTS DE RÉFÉRENCE** appended when a category applies.
+### 7.1 Language and retrieval behaviour
+
+Detection and rules in `core/chat_policy.py` and **`SYSTEM_PROMPT`** in `core/llm.py`. **DOCUMENTS DE RÉFÉRENCE** is appended when a category applies.
+
+### 7.2 Screenshots (« où cliquer »)
+
+- **Corpus:** SOP/help Markdown often includes **`![description](relative/path.ext)`** (or `<img>` in HTML sources). **`core/sop_text_clean.py`** removes **`data:`** embedded blobs (prompt bloat); it **keeps** normal HTTP(S) URLs and **relative paths** as Markdown images so excerpts still carry copy-pastable screenshot lines where possible.
+- **Model:** **`SYSTEM_PROMPT`** asks the assistant to reuse those image lines verbatim for hyper-specific navigation questions (**where to click**), only when they appear in the injected documents — **no invented paths**.
+- **Serving files:** **`GET /api/rag-media/<path>`** is a **StaticFiles** mount on **`data/documents_md`** (see `DOCS_MD_DIR` in `core/documents.py`, mount in `api/main.py`). Image paths in answers should resolve under that tree (example: **`help_md/captures/step.png`**).
+- **Chat UI:** **`web_test/src/components/MessageBubble.jsx`** turns standalone lines and **inline** `![](…)`, plus **`[label](*.png)`**-style links, into `<img src="…">`; relative URLs are prefixed with the API base + **`/api/rag-media/`**. See **`DATA_LAYOUT.md`** for placing assets next to mirrored `.md`.
 
 ---
 

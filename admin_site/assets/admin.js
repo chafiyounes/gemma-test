@@ -14,11 +14,13 @@
 
 /** Document admin JSON + multipart API (also under /admin/documents/* for compatibility). */
 const DOCS_API_BASE = "/api/admin/documents";
+const LIST_PAGE_SIZE = 30;
 
 const state = {
   session: null,
   items: [],
   selectedId: null,
+  selectedDetail: null,
   search: "",
   feedbackValue: "",
   feedbackReason: "",
@@ -30,7 +32,14 @@ const state = {
   docsPinnedExpandCategory: null,
   docsRevealScrollKeys: null,
   usersList: [],
+  listOffset: 0,
+  listTotal: 0,
+  listLoading: false,
+  listHasMore: true,
 };
+
+let listScrollObserver = null;
+let searchDebounceTimer = null;
 
 const loginForm = document.getElementById("login-form");
 const adminUsernameInput = document.getElementById("admin-username");
@@ -397,7 +406,11 @@ async function handleLogin(event) {
     passwordInput.value = "";
     state.session = session;
     renderSession();
-    await Promise.allSettled([loadInteractions(), loadEvalStatus(), loadDocumentsOverview()]);
+    await Promise.allSettled([
+      loadInteractions({ reset: true }),
+      loadEvalStatus(),
+      loadDocumentsOverview(),
+    ]);
   } catch (error) {
     loginError.textContent = error.message;
     loginError.classList.remove("hidden");
@@ -421,13 +434,123 @@ async function handleLogout() {
   renderDetail(null);
 }
 
-function buildListQuery() {
+function buildListQuery(offset = state.listOffset) {
   const params = new URLSearchParams();
-  params.set("limit", "40");
+  params.set("limit", String(LIST_PAGE_SIZE));
+  params.set("offset", String(offset));
+  params.set("summary", "1");
   if (state.search) params.set("search", state.search);
   if (state.feedbackValue) params.set("feedback_value", state.feedbackValue);
   if (state.feedbackReason) params.set("feedback_reason", state.feedbackReason);
   return params.toString();
+}
+
+function updateResultsCount() {
+  if (!resultsCount) return;
+  const loaded = state.items.length;
+  const total = state.listTotal;
+  if (total > loaded) {
+    resultsCount.textContent = `${loaded} sur ${total} resultat(s)`;
+  } else {
+    resultsCount.textContent = `${total} resultat(s)`;
+  }
+}
+
+function mergeInteractionItems(existing, incoming) {
+  const seen = new Set(existing.map((item) => item.id));
+  const merged = [...existing];
+  for (const item of incoming) {
+    if (!seen.has(item.id)) {
+      seen.add(item.id);
+      merged.push(item);
+    }
+  }
+  return merged;
+}
+
+function setupListScrollObserver() {
+  if (!interactionList) return;
+  if (listScrollObserver) {
+    listScrollObserver.disconnect();
+    listScrollObserver = null;
+  }
+  const sentinel = interactionList.querySelector(".interaction-list-sentinel");
+  if (!sentinel) return;
+  listScrollObserver = new IntersectionObserver(
+    (entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) {
+        loadMoreInteractions().catch(handleLoadError);
+      }
+    },
+    { root: interactionList, rootMargin: "120px" },
+  );
+  listScrollObserver.observe(sentinel);
+}
+
+async function fetchInteractionPage(offset) {
+  const response = await apiFetch(`/admin/interactions?${buildListQuery(offset)}`);
+  const payload = await response.json();
+  return payload;
+}
+
+async function loadInteractions({ reset = true } = {}) {
+  if (state.listLoading) return;
+  state.listLoading = true;
+  if (reset) {
+    state.listOffset = 0;
+    state.listHasMore = true;
+    if (!state.selectedId) {
+      state.selectedDetail = null;
+    }
+  }
+  try {
+    const payload = await fetchInteractionPage(state.listOffset);
+    state.listTotal = payload.total ?? payload.count ?? 0;
+    const pageItems = payload.items || [];
+    state.items = reset ? pageItems : mergeInteractionItems(state.items, pageItems);
+    state.listOffset = state.items.length;
+    state.listHasMore = state.items.length < state.listTotal;
+    updateResultsCount();
+    renderList();
+
+    if (state.selectedId) {
+      const stillExists = state.items.some((item) => item.id === state.selectedId);
+      if (!stillExists && reset) {
+        renderDetail(null);
+      }
+    }
+  } finally {
+    state.listLoading = false;
+  }
+}
+
+async function loadMoreInteractions() {
+  if (state.listLoading || !state.listHasMore) return;
+  state.listLoading = true;
+  try {
+    const payload = await fetchInteractionPage(state.listOffset);
+    state.listTotal = payload.total ?? state.listTotal;
+    const pageItems = payload.items || [];
+    if (!pageItems.length) {
+      state.listHasMore = false;
+      renderList();
+      return;
+    }
+    state.items = mergeInteractionItems(state.items, pageItems);
+    state.listOffset = state.items.length;
+    state.listHasMore = state.items.length < state.listTotal;
+    updateResultsCount();
+    renderList();
+  } finally {
+    state.listLoading = false;
+  }
+}
+
+function scheduleInteractionReload() {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    loadInteractions({ reset: true }).catch(handleLoadError);
+  }, 300);
 }
 
 function showDocError(message) {
@@ -1310,25 +1433,6 @@ async function saveDraftChanges() {
   }
 }
 
-async function loadInteractions() {
-  const response = await apiFetch(`/admin/interactions?${buildListQuery()}`);
-  const payload = await response.json();
-  state.items = payload.items;
-  resultsCount.textContent = `${payload.total ?? payload.count ?? 0} resultat(s)`;
-  renderList();
-
-  if (!state.selectedId && payload.items.length) {
-    await loadInteractionDetail(payload.items[0].id);
-  } else if (state.selectedId) {
-    const stillExists = payload.items.some((item) => item.id === state.selectedId);
-    if (stillExists) {
-      await loadInteractionDetail(state.selectedId);
-    } else {
-      renderDetail(null);
-    }
-  }
-}
-
 function renderList() {
   if (!state.items.length) {
     interactionList.innerHTML = '<div class="detail-empty">Aucune interaction pour ce filtre.</div>';
@@ -1349,7 +1453,7 @@ function renderList() {
     }
   }
 
-  interactionList.innerHTML = groups
+  const groupsHtml = groups
     .map((group) => {
       if (!group.session_id || group.items.length === 1) {
         // Single interaction — render flat card
@@ -1384,6 +1488,12 @@ function renderList() {
     })
     .join("");
 
+  const loadMoreHtml = state.listHasMore
+    ? `<div class="interaction-list-sentinel">${state.listLoading ? "Chargement…" : ""}</div>`
+    : "";
+
+  interactionList.innerHTML = groupsHtml + loadMoreHtml;
+
   interactionList.querySelectorAll(".interaction-card").forEach((button) => {
     button.addEventListener("click", () => loadInteractionDetail(button.dataset.id));
   });
@@ -1394,6 +1504,8 @@ function renderList() {
       group.classList.toggle("expanded");
     });
   });
+
+  setupListScrollObserver();
 }
 
 function renderInteractionCard(item, nested = false) {
@@ -1411,11 +1523,13 @@ function renderInteractionCard(item, nested = false) {
     </button>`;
 }
 
-async function loadInteractionDetail(interactionId) {
+async function loadInteractionDetail(interactionId, { reconstructRag = false } = {}) {
   state.selectedId = interactionId;
   renderList();
-  const response = await apiFetch(`/admin/interactions/${interactionId}`);
+  const query = reconstructRag ? "?reconstruct_rag=1" : "";
+  const response = await apiFetch(`/admin/interactions/${interactionId}${query}`);
   const payload = await response.json();
+  state.selectedDetail = payload;
   renderDetail(payload);
 
   // Load conversation context if session_id exists
@@ -1482,23 +1596,32 @@ function renderRagMetadata(item) {
   const note = rag.note || rag.retrieval_error;
   const preview = rag.context_preview || "";
   const full = rag.context_full || "";
+  const hasStoredRag = Boolean(rag && (preview || full || chars || note));
   const empty =
-    (chars === 0 || chars === undefined) && !preview && !full && (note === undefined || note === null);
+    !hasStoredRag &&
+    (chars === 0 || chars === undefined) &&
+    !preview &&
+    !full &&
+    (note === undefined || note === null);
 
   if (empty) {
-    return `<section class="detail-block">
+    return `<section class="detail-block" id="rag-metadata-block">
       <div class="detail-label">RAG (contexte documents)</div>
-      <div class="detail-text eval-warn">Aucun bloc DOCUMENTS injecté dans le prompt pour cet appel.</div>
+      <div class="detail-text eval-warn">Aucun bloc DOCUMENTS enregistré pour cet appel.</div>
       <div class="detail-text">Catégorie résolue : <strong>${escapeHtml(String(cat))}</strong></div>
+      <button type="button" class="toolbar-button secondary rag-reconstruct-button" data-rag-id="${escapeHtml(item.id)}">
+        Reconstruire le contexte RAG
+      </button>
     </section>`;
   }
 
-  return `<section class="detail-block">
+  return `<section class="detail-block" id="rag-metadata-block">
     <div class="detail-label">RAG (contexte documents)</div>
     <div class="detail-text">Catégorie : <strong>${escapeHtml(String(cat))}</strong> · caractères injectés : ${escapeHtml(String(chars ?? "—"))} · sections document : ${escapeHtml(String(docs ?? "—"))}</div>
     ${note ? `<div class="detail-text eval-warn">${escapeHtml(String(note))}</div>` : ""}
     ${full ? `<details class="rag-full-wrap" open><summary>Contexte complet injecté (${escapeHtml(String(full.length))} caractères)</summary><pre class="rag-preview rag-full">${escapeHtml(full)}</pre></details>` : ""}
     ${!full && preview ? `<pre class="rag-preview">${escapeHtml(preview)}</pre>` : ""}
+    ${!hasStoredRag ? `<button type="button" class="toolbar-button secondary rag-reconstruct-button" data-rag-id="${escapeHtml(item.id)}">Reconstruire le contexte RAG</button>` : ""}
   </section>`;
 }
 
@@ -1559,6 +1682,20 @@ function renderDetail(item) {
       handleRunEval(e.target.dataset.evalId);
     });
   }
+
+  interactionDetail.querySelectorAll(".rag-reconstruct-button").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      button.textContent = "Reconstruction…";
+      try {
+        await loadInteractionDetail(button.dataset.ragId, { reconstructRag: true });
+      } catch (error) {
+        button.disabled = false;
+        button.textContent = "Reconstruire le contexte RAG";
+        alert(error.message || "Échec de reconstruction RAG.");
+      }
+    });
+  });
 }
 
 async function handleRunEval(interactionId) {
@@ -1707,7 +1844,7 @@ if (logoutButton) logoutButton.addEventListener("click", handleLogout);
 if (refreshButton) {
   refreshButton.addEventListener("click", () => {
     state.conversationCache = {};
-    loadInteractions().catch(handleLoadError);
+    loadInteractions({ reset: true }).catch(handleLoadError);
   });
 }
 if (viewInteractionsButton) {
@@ -1845,19 +1982,19 @@ if (evalToggle) evalToggle.addEventListener("click", handleEvalToggle);
 if (searchInput) {
   searchInput.addEventListener("input", (event) => {
     state.search = event.target.value.trim();
-    loadInteractions().catch(handleLoadError);
+    scheduleInteractionReload();
   });
 }
 if (feedbackFilter) {
   feedbackFilter.addEventListener("change", (event) => {
     state.feedbackValue = event.target.value;
-    loadInteractions().catch(handleLoadError);
+    loadInteractions({ reset: true }).catch(handleLoadError);
   });
 }
 if (reasonFilter) {
   reasonFilter.addEventListener("change", (event) => {
     state.feedbackReason = event.target.value;
-    loadInteractions().catch(handleLoadError);
+    loadInteractions({ reset: true }).catch(handleLoadError);
   });
 }
 
@@ -1870,7 +2007,11 @@ loadSession()
   .then(() => {
     if (!canUseStaffConsole(state.session?.role)) return null;
     if (isAdministratorRole(state.session.role)) {
-      return Promise.allSettled([loadInteractions(), loadEvalStatus(), loadDocumentsOverview()]);
+      return Promise.allSettled([
+        loadInteractions({ reset: true }),
+        loadEvalStatus(),
+        loadDocumentsOverview(),
+      ]);
     }
     return loadDocumentsOverview();
   })

@@ -21,6 +21,7 @@ from core.chat_policy import (
     retrieval_anchor_query,
     unsupported_latin_language_message,
 )
+from core.logigramme_llm import answer_logigramme, is_logigramme_request
 from core.agentic_rag import (
     AGENTIC_NOT_FOUND,
     build_document_catalog_for_categories,
@@ -242,6 +243,10 @@ Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu
 - À la fin, si tu t’appuies sur un document : une ligne **Source : [nom exact du fichier / titre du document]**.
 - Si l’utilisateur demande une **liste** présente dans les docs, donne la liste **complète** telle qu’indiquée.
 
+## Captures d’écran (où cliquer dans l’interface)
+- Pour les questions **hyper précises** du type *où est le menu*, *quel bouton*, *quel écran*, *entrée de stock*, etc., si les **DOCUMENTS DE RÉFÉRENCE** contiennent des lignes d’image en Markdown `![texte descriptif](chemin_fichier.png)` ou une URL d’image, **recopie ces lignes dans ta réponse** (une ligne `![…](…)` par capture, chemins **inchangés**). Place-les **juste après** l’étape ou le passage qu’elles illustrent.
+- **N’invente jamais** de chemin ou de fichier : seulement ce qui figure dans les extraits. S’il n’y a aucune image dans le contexte, explique en texte sans fabriquer de lien image.
+
 ## Information absente des documents
 - **Uniquement** si aucun extrait ne permet de répondre **même partiellement** au thème (après avoir cherché une procédure voisine, voir ci-dessus).
 - **Interdit** si la section DOCUMENTS DE RÉFÉRENCE est **non vide** : réponses du type « absent des documents » **sans** avoir d’abord exploité une **procédure voisine du même domaine** que la question (pas seulement téléphone/livraison : tout angle métier pertinent dans les textes), avec **étapes numérotées tirées des extraits** et une ligne **Source : …** quand tu t’appuies sur un document. Si les textes ne couvrent vraiment pas le sujet posé, indique **quels titres** tu as parcourus et **quel angle** manque.
@@ -351,6 +356,16 @@ class GemmaModel:
         wrong_lang = unsupported_latin_language_message(message)
         if wrong_lang:
             return LLMGenerateResult(text=wrong_lang, rag=rag_meta)
+
+        if is_logigramme_request(message):
+            logi = await answer_logigramme(
+                message=message,
+                category=category,
+                client=self._client,
+            )
+            if logi:
+                merged_rag = {**rag_meta, **logi.rag}
+                return LLMGenerateResult(text=logi.text, rag=merged_rag)
 
         user_msg = _user_message_for_model(message, bucket)
 

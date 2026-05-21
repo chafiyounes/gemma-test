@@ -137,6 +137,11 @@
   color: var(--text-primary);
 }
 
+.msg-source-sep {
+  color: var(--text-secondary);
+  text-decoration: none;
+}
+
 .msg-source-btn {
   display: inline;
   margin: 0;

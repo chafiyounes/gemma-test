@@ -1,5 +1,5 @@
 import { lazy, Suspense, useState } from "react";
-import { parseSourceHints, renderFormattedMessage } from "../lib/messageFormat";
+import { renderFormattedMessage } from "../lib/messageFormat";
 import "./MessageBubble.css";
 
 const DocumentPreviewModal = lazy(() => import("./DocumentPreviewModal"));
@@ -27,11 +27,10 @@ export default function MessageBubble({ message, onSubmitFeedback }) {
   const feedbackValue = message.feedback?.value;
   const categoryHint = message.metadata?.category_used;
 
-  const handleSourceClick = (sourceText) => {
-    const hints = parseSourceHints(sourceText);
-    const name = hints[0] || sourceText.trim();
-    if (!name) return;
-    setPreview({ name, category: categoryHint });
+  const handleSourceClick = (name) => {
+    const trimmed = (name || "").trim();
+    if (!trimmed) return;
+    setPreview({ name: trimmed, category: categoryHint });
   };
 
   const handleLike = async () => {

@@ -127,7 +127,7 @@ body {
 }
 
 .login-error {
-  color: #fecaca;
+  color: var(--error);
   font-size: 13px;
 }
 
@@ -283,6 +283,13 @@ body {
   overflow: auto;
 }
 
+.interaction-list-sentinel {
+  padding: 12px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
 .interaction-card {
   width: 100%;
   text-align: left;
@@ -332,12 +339,12 @@ body {
 
 .pill.bad {
   background: rgba(248, 113, 113, 0.16);
-  color: #fecaca;
+  color: var(--error);
 }
 
 .pill.good {
   background: rgba(34, 197, 94, 0.16);
-  color: #bbf7d0;
+  color: var(--success);
 }
 
 .detail-grid {
@@ -497,19 +504,19 @@ body {
 }
 .eval-good {
   background: rgba(34, 197, 94, 0.16);
-  color: #bbf7d0;
+  color: var(--success);
 }
 .eval-warn {
   background: rgba(234, 179, 8, 0.16);
-  color: #fef08a;
+  color: var(--warning);
 }
 .eval-bad {
   background: rgba(248, 113, 113, 0.16);
-  color: #fecaca;
+  color: var(--error);
 }
 .eval-neutral {
   background: rgba(148, 163, 184, 0.16);
-  color: #cbd5e1;
+  color: var(--text-muted);
 }
 
 /* Conversation groups in list */
@@ -682,8 +689,8 @@ body {
   flex: 0 0 auto;
   border: none;
   border-left: 1px solid var(--border);
-  background: rgba(255, 80, 80, 0.12);
-  color: inherit;
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--error);
   padding: 8px 12px;
   cursor: pointer;
   font-size: 1.1rem;
@@ -691,7 +698,7 @@ body {
 }
 
 .doc-cat-delete:hover {
-  background: rgba(255, 80, 80, 0.22);
+  background: rgba(248, 113, 113, 0.22);
 }
 
 .doc-category-head {
@@ -773,7 +780,7 @@ body {
   padding: 0 8px;
   border-radius: 0;
   border: none;
-  border-left: 1px solid rgba(255, 255, 255, 0.1);
+  border-left: 1px solid var(--border);
   background: var(--bg-surface);
   color: var(--text);
   cursor: pointer;
@@ -782,7 +789,7 @@ body {
 
 .doc-file button.delete {
   background: rgba(248, 113, 113, 0.08);
-  color: #fecaca;
+  color: var(--error);
 }
 
 @media (max-width: 1100px) {
@@ -900,22 +907,22 @@ body {
 }
 
 .doc-explorer-shell .doc-file:hover {
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--bg-hover);
   transform: translateY(-1px);
-  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.28);
+  box-shadow: var(--shadow-md);
 }
 
 .doc-explorer-shell .doc-file-name {
   flex: unset;
   min-width: 0;
   font-weight: 500;
-  color: #f2f4f8;
+  color: var(--text-primary);
 }
 
 .doc-explorer-shell .pill {
-  background: rgba(59, 130, 246, 0.2);
-  color: #bfdbfe;
-  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: var(--secondary-subtle);
+  color: var(--secondary);
+  border: 1px solid var(--border);
 }
 
 .doc-explorer-shell .doc-move-select {
@@ -941,9 +948,9 @@ body {
 }
 
 .doc-explorer-shell .doc-file button.delete {
-  background: rgba(239, 68, 68, 0.15);
-  border-color: rgba(239, 68, 68, 0.35);
-  color: #fecaca;
+  background: rgba(248, 113, 113, 0.15);
+  border-color: rgba(248, 113, 113, 0.35);
+  color: var(--error);
 }
 
 /* Manager role: document tools only (no interactions / git / eval / full refresh). */
@@ -1166,7 +1173,7 @@ table.users-table th {
   width: 100%;
   padding: 0.65rem 0.85rem;
   border-radius: 10px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--border);
   background: var(--bg-page);
   color: var(--text);
   font-size: 0.95rem;
@@ -1174,8 +1181,8 @@ table.users-table th {
 }
 
 .doc-field-input:focus {
-  border-color: rgba(217, 119, 69, 0.55);
-  box-shadow: 0 0 0 2px rgba(217, 119, 69, 0.2);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-glow);
 }
 
 .doc-field-hint {
@@ -1190,7 +1197,7 @@ table.users-table th {
   gap: 1rem;
   padding: 1.25rem 1.35rem;
   border-radius: 14px;
-  border: 1px dashed rgba(255, 255, 255, 0.22);
+  border: 1px dashed var(--border-hover);
   background: var(--bg-elevated);
   cursor: pointer;
   outline: none;
@@ -1202,20 +1209,20 @@ table.users-table th {
 
 .doc-dropzone:hover,
 .doc-dropzone:focus-visible {
-  border-color: rgba(217, 119, 69, 0.55);
-  background: rgba(217, 119, 69, 0.06);
-  box-shadow: 0 0 0 1px rgba(217, 119, 69, 0.15);
+  border-color: var(--accent);
+  background: var(--accent-subtle);
+  box-shadow: 0 0 0 1px var(--accent-glow);
 }
 
 .doc-dropzone-active {
   border-style: solid;
-  border-color: rgba(96, 165, 250, 0.65);
-  background: rgba(96, 165, 250, 0.08);
+  border-color: var(--secondary);
+  background: var(--secondary-subtle);
 }
 
 .doc-dropzone-icon {
   flex-shrink: 0;
-  color: rgba(255, 255, 255, 0.35);
+  color: var(--text-muted);
 }
 
 .doc-dropzone-text {
@@ -1295,9 +1302,9 @@ table.users-table th {
 }
 
 .doc-draft-status--dirty {
-  color: #fde68a;
-  border-color: rgba(251, 191, 36, 0.35);
-  background: rgba(251, 191, 36, 0.08);
+  color: var(--warning);
+  border-color: rgba(217, 119, 6, 0.35);
+  background: rgba(217, 119, 6, 0.08);
 }
 
 .doc-flash-error {
@@ -1307,7 +1314,7 @@ table.users-table th {
   line-height: 1.45;
   background: rgba(248, 113, 113, 0.12);
   border: 1px solid rgba(248, 113, 113, 0.35);
-  color: #fecaca;
+  color: var(--error);
 }
 
 .doc-flash-info {
@@ -1315,9 +1322,9 @@ table.users-table th {
   border-radius: 10px;
   font-size: 0.88rem;
   line-height: 1.45;
-  background: rgba(96, 165, 250, 0.1);
-  border: 1px solid rgba(96, 165, 250, 0.35);
-  color: #bfdbfe;
+  background: var(--secondary-subtle);
+  border: 1px solid var(--border);
+  color: var(--secondary);
 }
 
 .doc-modal-backdrop {
@@ -1336,9 +1343,9 @@ table.users-table th {
   max-height: min(90vh, 34rem);
   overflow: auto;
   border-radius: 16px;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border);
   background: var(--panel);
-  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+  box-shadow: var(--shadow-lg);
   padding: 1.25rem 1.35rem;
 }
 
@@ -1359,7 +1366,7 @@ table.users-table th {
   margin: 0 0 0.85rem;
   font-size: 0.9rem;
   font-weight: 600;
-  color: #fde68a;
+  color: var(--warning);
 }
 
 .doc-conflict-list {
@@ -1410,22 +1417,24 @@ table.users-table th {
   align-items: center;
   justify-content: flex-end;
   padding-top: 0.25rem;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  border-top: 1px solid var(--border);
 }
 
 .doc-modal-btn-primary {
-  background: rgba(96, 165, 250, 0.25) !important;
-  border: 1px solid rgba(96, 165, 250, 0.45) !important;
-  color: #e0f2fe !important;
+  background: var(--secondary-subtle) !important;
+  border: 1px solid var(--secondary) !important;
+  color: var(--secondary) !important;
 }
 
 body.doc-modal-open {
   overflow: hidden;
 }
+
+.doc-platform-empty {
   text-align: center;
   padding: 2.5rem 1.5rem;
   border-radius: 14px;
-  border: 1px dashed rgba(255, 255, 255, 0.12);
+  border: 1px dashed var(--border-hover);
   background: var(--bg-elevated);
 }
 
@@ -1520,9 +1529,9 @@ body.doc-modal-open {
   letter-spacing: 0.06em;
   padding: 0.3rem 0.4rem;
   border-radius: 6px;
-  background: rgba(59, 130, 246, 0.22);
-  color: #bfdbfe;
-  border: 1px solid rgba(59, 130, 246, 0.35);
+  background: var(--secondary-subtle);
+  color: var(--secondary);
+  border: 1px solid var(--border);
   flex-shrink: 0;
 }
 
@@ -1583,21 +1592,21 @@ body.doc-modal-open {
 }
 
 .doc-file-btn-accent {
-  background: rgba(96, 165, 250, 0.22) !important;
-  border: 1px solid rgba(96, 165, 250, 0.4) !important;
-  color: #e0f2fe !important;
+  background: var(--secondary-subtle) !important;
+  border: 1px solid var(--secondary) !important;
+  color: var(--secondary) !important;
 }
 
 .doc-file-btn-warn {
-  background: rgba(251, 191, 36, 0.12) !important;
-  border: 1px solid rgba(251, 191, 36, 0.45) !important;
-  color: #fde68a !important;
+  background: rgba(217, 119, 6, 0.12) !important;
+  border: 1px solid rgba(217, 119, 6, 0.45) !important;
+  color: var(--warning) !important;
 }
 
 .doc-file-btn-danger {
-  background: rgba(239, 68, 68, 0.15) !important;
-  border: 1px solid rgba(239, 68, 68, 0.4) !important;
-  color: #fecaca !important;
+  background: rgba(248, 113, 113, 0.15) !important;
+  border: 1px solid rgba(248, 113, 113, 0.4) !important;
+  color: var(--error) !important;
 }
 
 .doc-explorer-shell .doc-cat-delete {

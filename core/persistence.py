@@ -615,6 +615,23 @@ class InteractionStore:
             feedback_reason,
         )
 
+    async def list_interactions_summary(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+        search: Optional[str] = None,
+        feedback_value: Optional[str] = None,
+        feedback_reason: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        return await asyncio.to_thread(
+            self._list_interactions_summary,
+            limit,
+            offset,
+            search,
+            feedback_value,
+            feedback_reason,
+        )
+
     def _list_interactions(
         self,
         limit: int,
@@ -651,6 +668,40 @@ class InteractionStore:
             except Exception:
                 d["metadata"] = {}
             fin = self._finalize_interaction(d)
+            if fin:
+                result.append(fin)
+        return result
+
+    def _list_interactions_summary(
+        self,
+        limit: int,
+        offset: int,
+        search: Optional[str],
+        feedback_value: Optional[str],
+        feedback_reason: Optional[str],
+    ) -> List[Dict[str, Any]]:
+        where, params = self._filter_sql(search, feedback_value, feedback_reason)
+        join = "LEFT JOIN feedback f ON f.interaction_id = i.id"
+
+        query = f"""
+            SELECT
+                i.id, i.created_at, i.user_id, i.session_id, i.model,
+                SUBSTR(i.message, 1, 120) AS message,
+                f.value AS feedback_value, f.reason AS feedback_reason, f.comment AS feedback_comment
+            FROM interactions i
+            {join}
+            {where}
+            ORDER BY i.created_at DESC
+            LIMIT ? OFFSET ?
+        """
+        params = list(params) + [limit, offset]
+
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+
+        result = []
+        for row in rows:
+            fin = self._finalize_interaction(dict(row))
             if fin:
                 result.append(fin)
         return result

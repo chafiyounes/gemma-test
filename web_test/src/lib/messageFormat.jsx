@@ -1,4 +1,7 @@
+import { Fragment, lazy, Suspense } from "react";
 import { getApiUrl } from "../services/api";
+
+const MermaidDiagram = lazy(() => import("../components/MermaidDiagram"));
 
 export function resolveDocImageSrc(src) {
   if (!src) return src;
@@ -22,12 +25,21 @@ export function isImagePath(href) {
   return /\.(png|jpe?g|gif|webp|svg)(\?|#|$)/i.test(href.trim());
 }
 
+/** Normalize a single source hint for display (strip brackets and citation numbers). */
+export function formatSourceHint(text) {
+  if (!text) return "";
+  let s = text.trim();
+  s = s.replace(/^[\[\(]+|[\]\)]+$/g, "").trim();
+  s = s.replace(/^\d+\s+/, "").trim();
+  return s;
+}
+
 /** Split Source-line text into document name hints (first is tried first). */
 export function parseSourceHints(text) {
   if (!text) return [];
   return text
     .split(/[,;]|\s+et\s+/i)
-    .map((s) => s.trim())
+    .map((s) => formatSourceHint(s))
     .filter(Boolean);
 }
 
@@ -106,11 +118,28 @@ function normalizeLine(line) {
   return normalized;
 }
 
-/**
- * @param {string} content
- * @param {{ onSourceClick?: (sourceText: string) => void }} [options]
- */
-export function renderFormattedMessage(content, options = {}) {
+const MERMAID_BLOCK_RE = /```mermaid\s*\n([\s\S]*?)```/gi;
+
+function splitContentSegments(content) {
+  const segments = [];
+  let last = 0;
+  let match = MERMAID_BLOCK_RE.exec(content);
+  while (match) {
+    if (match.index > last) {
+      segments.push({ type: "text", content: content.slice(last, match.index) });
+    }
+    segments.push({ type: "mermaid", content: (match[1] || "").trim() });
+    last = match.index + match[0].length;
+    match = MERMAID_BLOCK_RE.exec(content);
+  }
+  MERMAID_BLOCK_RE.lastIndex = 0;
+  if (last < content.length) {
+    segments.push({ type: "text", content: content.slice(last) });
+  }
+  return segments.length ? segments : [{ type: "text", content: content || "" }];
+}
+
+function renderFormattedTextBlocks(content, options = {}, keyPrefix = "txt") {
   const { onSourceClick } = options;
   const lines = content.split(/\r?\n/).map(normalizeLine);
   const blocks = [];
@@ -223,10 +252,11 @@ export function renderFormattedMessage(content, options = {}) {
   flushList();
 
   return blocks.map((block, blockIndex) => {
+    const blockKey = `${keyPrefix}-${blockIndex}`;
     if (block.type === "img") {
       const src = resolveDocImageSrc(block.src);
       return (
-        <div key={`img-${blockIndex}`} className="msg-img-wrap">
+        <div key={`img-${blockKey}`} className="msg-img-wrap">
           <img
             src={src}
             alt={block.alt || ""}
@@ -272,27 +302,52 @@ export function renderFormattedMessage(content, options = {}) {
       );
     }
     if (block.type === "source") {
-      const label = parseInline(block.text, `source-${blockIndex}`);
-      if (onSourceClick) {
+      const hints = parseSourceHints(block.text);
+      if (onSourceClick && hints.length) {
         return (
           <p key={`source-${blockIndex}`} className="msg-source">
             <span className="msg-source-label">Source:</span>{" "}
-            <button
-              type="button"
-              className="msg-source-btn"
-              onClick={() => onSourceClick(block.text)}
-            >
-              {label}
-            </button>
+            {hints.map((hint, hintIndex) => (
+              <Fragment key={`source-${blockIndex}-${hintIndex}`}>
+                {hintIndex > 0 ? <span className="msg-source-sep">, </span> : null}
+                <button
+                  type="button"
+                  className="msg-source-btn"
+                  onClick={() => onSourceClick(hint)}
+                >
+                  {hint}
+                </button>
+              </Fragment>
+            ))}
           </p>
         );
       }
+      const label = parseInline(block.text, `source-${blockIndex}`);
       return (
         <p key={`source-${blockIndex}`} className="msg-source">
           <span className="msg-source-label">Source:</span> {label}
         </p>
       );
     }
-    return <p key={`p-${blockIndex}`}>{parseInline(block.text, `p-${blockIndex}`)}</p>;
+    return <p key={`p-${blockKey}`}>{parseInline(block.text, `p-${blockKey}`)}</p>;
+  });
+}
+
+/**
+ * @param {string} content
+ * @param {{ onSourceClick?: (sourceText: string) => void }} [options]
+ */
+export function renderFormattedMessage(content, options = {}) {
+  const segments = splitContentSegments(content);
+  return segments.flatMap((segment, segmentIndex) => {
+    if (segment.type === "mermaid" && segment.content) {
+      return [
+        <Suspense key={`mmd-${segmentIndex}`} fallback={<div className="msg-mermaid-loading">Chargement du diagramme…</div>}>
+          <MermaidDiagram code={segment.content} />
+        </Suspense>,
+      ];
+    }
+    if (!segment.content.trim()) return [];
+    return renderFormattedTextBlocks(segment.content, options, `seg-${segmentIndex}`);
   });
 }
