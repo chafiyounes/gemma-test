@@ -6,17 +6,21 @@
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#f4f6f9" />
     <title>Darija Chatbot Admin</title>
-    <script src="/admin-static/theme-sync.js?v=20260619a"></script>
+    <script>
+      window.SENDBOT_THEME_CSS_PREFIX = "/admin-static/";
+      window.SENDBOT_THEME_CSS_V = "?v=20260620";
+    </script>
+    <script src="/admin-static/theme-sync.js?v=20260620"></script>
     <script>
       (function () {
         if (window.sendbotSyncTheme) sendbotSyncTheme.initTheme();
       })();
     </script>
-    <link rel="stylesheet" href="/admin-static/theme-tokens.css?v=20260619a" />
-    <link rel="stylesheet" href="/admin-static/admin.css?v=20260619a" />
+    <link rel="stylesheet" href="/admin-static/theme-base.css?v=20260620" />
+    <link rel="stylesheet" href="/admin-static/admin.css?v=20260620" />
   </head>
   <body>
-    <div class="admin-shell">
+    <div class="sendbot-theme-island admin-shell">
       <aside class="admin-sidebar">
         <div>
           <div class="admin-sidebar-top">
@@ -296,6 +300,6 @@
       </main>
     </div>
 
-    <script src="/admin-static/admin.js?v=20260619a" defer></script>
+    <script src="/admin-static/admin.js?v=20260620" defer></script>
   </body>
   </html>

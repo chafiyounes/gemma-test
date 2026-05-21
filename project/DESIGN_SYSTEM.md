@@ -7,9 +7,11 @@ Shared visual language for **web_test** (chat) and **admin_site** (console).
 
 **Code:** [`shared/theme/theme-core.js`](../shared/theme/theme-core.js) (chat ESM) and [`shared/theme/theme-sync.js`](../shared/theme/theme-sync.js) (admin UMD copy — keep in sync).
 
-**OS / browser:** Theme does **not** follow `prefers-color-scheme`. Only `data-theme` on `<html>`, `color-scheme` / `theme-color` meta tags, and the toggle control appearance. First visit uses the **light** preset until the user switches (stored in `localStorage`).
+**OS / browser:** Theme does **not** follow `prefers-color-scheme`. First visit uses the **light** preset until the user switches (stored in `localStorage`).
 
-**Brave:** If the page still follows Brave’s global colors, disable **Settings → Appearance → “Use Brave colors for all websites”** (or add a Shields exception for this site). Brave can apply a compositor-level recolor that no site CSS can fully override.
+**File swap (anti–forced-color):** Light and dark are separate physical stylesheets (`theme-light.css`, `theme-dark.css`). The toggle enables one `<link title="sendbot-theme">` and **disables** the other (classic alternate stylesheet pattern). This is harder for browsers to treat as a single “page theme” to recolor than one file with CSS variables. UI is wrapped in `.sendbot-theme-island` (`isolation` + `contain`) for compositor isolation.
+
+**Brave:** If colors are still wrong, disable **Settings → Appearance → “Use Brave colors for all websites”**. No site code can guarantee override of Brave’s compositor filter.
 
 ---
 

@@ -1,0 +1,66 @@
+/* SendBot shared chrome — always on; palette comes from theme-light.css OR theme-dark.css */
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.theme-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+.theme-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.theme-toggle svg {
+  width: 20px;
+  height: 20px;
+}
+
+.theme-toggle--auth {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 10;
+}
+
+/* Compositor island — limits browser-wide forced recolor (Brave Colors, etc.) */
+.sendbot-theme-island {
+  isolation: isolate;
+  contain: layout style paint;
+  position: relative;
+  min-height: 100%;
+  width: 100%;
+  background-color: var(--bg-page);
+  color: var(--text-primary);
+}
+
+.admin-login-card,
+.session-card,
+.panel,
+.toolbar,
+.filter-row,
+.pre-auth-card,
+.interaction-card,
+.detail-block,
+.doc-explorer-shell,
+.doc-explorer-shell .doc-category,
+.doc-explorer-shell .doc-file {
+  background: var(--bg-surface);
+  border-color: var(--border);
+  color: var(--text);
+}

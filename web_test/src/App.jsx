@@ -63,14 +63,23 @@ export default function App() {
   };
 
   if (loadingSession) {
-    return <div className="session-boot">Chargement...</div>;
+    return (
+      <div className="sendbot-theme-island">
+        <div className="session-boot">Chargement...</div>
+      </div>
+    );
   }
 
   if (!session?.authenticated) {
-    return <AuthScreen onLogin={handleLogin} loading={authBusy} error={authError} />;
+    return (
+      <div className="sendbot-theme-island">
+        <AuthScreen onLogin={handleLogin} loading={authBusy} error={authError} />
+      </div>
+    );
   }
 
   return (
+    <div className="sendbot-theme-island">
     <ChatProvider session={session}>
       <div className="app-layout">
         <Sidebar
@@ -86,5 +95,6 @@ export default function App() {
         />
       </div>
     </ChatProvider>
+    </div>
   );
 }

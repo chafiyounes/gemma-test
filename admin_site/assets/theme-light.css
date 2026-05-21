@@ -1,0 +1,67 @@
+/* SendBot LIGHT — loaded alone via <link title="sendbot-theme"> (disabled swap). */
+
+html {
+  color-scheme: only light !important;
+  background-color: #f4f6f9 !important;
+
+  --bg-page: #f4f6f9;
+  --bg-surface: #ffffff;
+  --bg-elevated: #eef1f6;
+  --bg-sidebar: #eef1f6;
+  --bg-hover: rgba(26, 35, 50, 0.05);
+  --bg-active: rgba(217, 119, 69, 0.1);
+
+  --text-primary: #1a2332;
+  --text-secondary: #3d4f63;
+  --text-muted: #5c6b7a;
+
+  --border: #d8dee6;
+  --border-hover: #b8c4d0;
+
+  --accent: #d97745;
+  --accent-hover: #c4683a;
+  --accent-light: #e8956a;
+  --accent-subtle: rgba(217, 119, 69, 0.1);
+  --accent-glow: rgba(217, 119, 69, 0.2);
+
+  --secondary: #2b9bab;
+  --secondary-subtle: rgba(43, 155, 171, 0.12);
+
+  --error: #dc2626;
+  --success: #16a34a;
+  --warning: #d97706;
+
+  --shadow-sm: 0 1px 2px rgba(26, 35, 50, 0.06);
+  --shadow-md: 0 8px 24px rgba(26, 35, 50, 0.08);
+  --shadow-lg: 0 16px 40px rgba(26, 35, 50, 0.12);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 20px;
+
+  --doc-paper-bg: #ffffff;
+  --doc-paper-text: #1a2332;
+  --doc-paper-border: #e2e8f0;
+
+  --overlay: rgba(15, 20, 25, 0.45);
+
+  --bg-primary: var(--bg-page);
+  --bg-secondary: var(--bg-surface);
+  --bg-tertiary: var(--bg-elevated);
+
+  --bg: var(--bg-page);
+  --panel: var(--bg-surface);
+  --panel-alt: var(--bg-elevated);
+  --line: var(--border);
+  --text: var(--text-primary);
+  --muted: var(--text-muted);
+  --accent-soft: var(--accent-subtle);
+  --danger: var(--error);
+}
+
+html body {
+  color-scheme: only light !important;
+  background-color: #f4f6f9 !important;
+  color: #1a2332;
+}

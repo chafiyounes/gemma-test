@@ -1,11 +1,13 @@
 /**
- * SendBot theme — single source for chat (ESM) and admin (UMD via theme-sync.js).
- * Theme is ONLY data-theme + localStorage; never prefers-color-scheme.
+ * SendBot theme — file-swap stylesheets (alternate <link disabled>) + data-theme.
+ * Browsers that force-recolor variable themes often respect disabled stylesheet swaps.
  */
 
 export const STORAGE_KEY = "sendbot_theme";
 export const DEFAULT_THEME = "light";
 export const PAGE_BG = { light: "#f4f6f9", dark: "#0f1419" };
+export const THEME_LINK_TITLE = "sendbot-theme";
+export const THEME_LINK_IDS = { light: "sendbot-theme-light", dark: "sendbot-theme-dark" };
 
 export const ICONS = {
   moon:
@@ -13,6 +15,14 @@ export const ICONS = {
   sun:
     '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>',
 };
+
+/** @returns {string} CSS directory prefix, e.g. "/" or "/admin-static/" */
+export function getThemeCssPrefix() {
+  if (typeof window !== "undefined" && window.SENDBOT_THEME_CSS_PREFIX) {
+    return String(window.SENDBOT_THEME_CSS_PREFIX).replace(/\/?$/, "/");
+  }
+  return "/";
+}
 
 function upsertMeta(name, content) {
   let el = document.querySelector(`meta[name="${name}"]`);
@@ -24,9 +34,32 @@ function upsertMeta(name, content) {
   el.setAttribute("content", content);
 }
 
+/** Ensure two alternate stylesheets exist; enable exactly one. */
+export function swapThemeStylesheets(theme) {
+  const next = theme === "dark" ? "dark" : "light";
+  const prefix = getThemeCssPrefix();
+  const v = typeof window !== "undefined" && window.SENDBOT_THEME_CSS_V ? window.SENDBOT_THEME_CSS_V : "";
+
+  (["light", "dark"]).forEach((mode) => {
+    let link = document.getElementById(THEME_LINK_IDS[mode]);
+    if (!link) {
+      link = document.createElement("link");
+      link.id = THEME_LINK_IDS[mode];
+      link.rel = "stylesheet";
+      link.title = THEME_LINK_TITLE;
+      link.href = `${prefix}theme-${mode}.css${v}`;
+      document.head.appendChild(link);
+    }
+    link.disabled = mode !== next;
+    link.media = "all";
+  });
+
+  return next;
+}
+
 /** @param {"light"|"dark"|string} theme */
 export function syncThemeToDocument(theme) {
-  const next = theme === "dark" ? "dark" : "light";
+  const next = swapThemeStylesheets(theme);
   const root = document.documentElement;
   root.setAttribute("data-theme", next);
   root.style.colorScheme = next;
@@ -40,7 +73,6 @@ export function syncThemeToDocument(theme) {
   return next;
 }
 
-/** Sync moon/sun icon with current theme (light → moon, dark → sun). */
 export function updateThemeToggleIcon() {
   const btn = document.getElementById("theme-toggle");
   if (!btn) return;
