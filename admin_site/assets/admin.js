@@ -4,11 +4,11 @@
   if (!api) return;
 
   document.addEventListener("DOMContentLoaded", () => {
-    api.initTheme();
     const btn = document.getElementById("theme-toggle");
     if (btn) {
       btn.addEventListener("click", () => api.toggleTheme());
     }
+    api.updateThemeToggleIcon();
   });
 })();
 

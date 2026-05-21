@@ -1,11 +1,17 @@
-"""Generate Mermaid flowcharts (logigrammes) from procedure documents via vLLM."""
+"""Generate logigrammes from procedure documents via vLLM (SSH/prototype only)."""
 
 from __future__ import annotations
 
+import json
 import logging
 import re
-from dataclasses import dataclass
-from typing import Any, Dict, Optional
+import subprocess
+import tempfile
+import time
+import xml.etree.ElementTree as ET
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import httpx
 
@@ -16,44 +22,82 @@ logger = logging.getLogger(__name__)
 
 MAX_DOC_CHARS = 12_000
 
-LOGIGRAMME_KEYWORDS = re.compile(
-    r"\blogigramme\b|\bflowchart\b|\bdiagramme\b|\bdiagram\b",
-    re.IGNORECASE,
-)
+SUPPORTED_FORMATS = ("mermaid", "dot", "plantuml", "svg", "html", "json_graph")
 
-LOGIGRAMME_PROMPT = """Tu es un expert en logigrammes SENDIT (logistique Maroc).
-À partir de la procédure ci-dessous, produis UNIQUEMENT un diagramme Mermaid `flowchart TD` en français.
-
-Règles:
-- Nœuds rectangulaires pour les étapes: A[Étape]
-- Nœuds losange pour les décisions: B{{Question ?}}
-- Début/fin: ([Début]) ou ([Fin])
-- Fidèle au texte source; n'invente pas d'étapes absentes
-- Labels courts (max ~8 mots par nœud)
-- Pas de markdown fence, pas d'explication, pas de commentaire Mermaid (%%, %%)
+FORMAT_PROMPTS: Dict[str, str] = {
+    "mermaid": """Tu es un expert en logigrammes SENDIT.
+Produis UNIQUEMENT un diagramme Mermaid `flowchart TD` en français.
+Règles: étapes rectangulaires A[Étape], décisions B{{Question ?}}, fidèle au texte, pas de markdown fence.
 
 Procédure:
-{document_text}
-"""
+{document_text}""",
+    "dot": """Tu es un expert en logigrammes SENDIT.
+Produis UNIQUEMENT du Graphviz DOT (digraph) en français pour cette procédure.
+Format: digraph G {{ node [shape=box]; A -> B; ... }}
+Fidèle au texte, pas d'explication.
 
-LOGIGRAMME_RETRY_SUFFIX = (
-    "\n\nTa réponse précédente n'était pas du Mermaid valide. "
-    "Réponds UNIQUEMENT avec `flowchart TD` suivi des nœuds et flèches."
-)
+Procédure:
+{document_text}""",
+    "plantuml": """Tu es un expert en logigrammes SENDIT.
+Produis UNIQUEMENT du PlantUML activity diagram entre @startuml et @enduml, en français.
+Fidèle au texte, pas de markdown fence.
+
+Procédure:
+{document_text}""",
+    "svg": """Tu es un expert en logigrammes SENDIT.
+Produis UNIQUEMENT un SVG minimal (rectangles + texte + flèches) représentant la procédure en français.
+Balise racine <svg xmlns="http://www.w3.org/2000/svg">. Pas d'explication.
+
+Procédure:
+{document_text}""",
+    "html": """Tu es un expert en logigrammes SENDIT.
+Produis UNIQUEMENT du HTML sémantique pour un flux de procédure:
+<div class="flow"><div class="step">...</div>...</div>
+Utilise des flèches textuelles ou &rarr; entre étapes. Français. Pas de markdown fence.
+
+Procédure:
+{document_text}""",
+    "json_graph": """Tu es un expert en logigrammes SENDIT.
+Produis UNIQUEMENT un JSON avec cette structure exacte:
+{{"nodes":[{{"id":"a","label":"..."}}],"edges":[{{"from":"a","to":"b"}}]}}
+Labels en français. Fidèle au texte. Pas de markdown fence.
+
+Procédure:
+{document_text}""",
+}
+
+FORMAT_RETRY: Dict[str, str] = {
+    "mermaid": "Réponds UNIQUEMENT avec flowchart TD valide.",
+    "dot": "Réponds UNIQUEMENT avec digraph {{ ... }} valide.",
+    "plantuml": "Réponds UNIQUEMENT avec @startuml ... @enduml.",
+    "svg": "Réponds UNIQUEMENT avec <svg>...</svg> valide.",
+    "html": "Réponds UNIQUEMENT avec <div class=\"flow\">...</div>.",
+    "json_graph": "Réponds UNIQUEMENT avec un objet JSON nodes/edges.",
+}
+
+FORMAT_SYSTEM: Dict[str, str] = {
+    "mermaid": "Tu génères uniquement du code Mermaid valide.",
+    "dot": "Tu génères uniquement du Graphviz DOT valide.",
+    "plantuml": "Tu génères uniquement du PlantUML valide.",
+    "svg": "Tu génères uniquement du SVG valide.",
+    "html": "Tu génères uniquement du HTML de flux valide.",
+    "json_graph": "Tu génères uniquement du JSON valide.",
+}
 
 
 @dataclass
-class LogigrammeResult:
-    text: str
-    rag: Dict[str, Any]
-    document_id: str = ""
+class GenerationOutcome:
+    format: str
+    raw: str
+    cleaned: str
+    syntax_valid: bool
+    structure_count: int
+    retried: bool
+    latency_ms: int
+    error: str = ""
 
 
-def is_logigramme_request(message: str) -> bool:
-    return bool(LOGIGRAMME_KEYWORDS.search(message or ""))
-
-
-def strip_mermaid_fence(raw: str) -> str:
+def strip_code_fence(raw: str) -> str:
     s = (raw or "").strip()
     if s.startswith("```"):
         s = re.sub(r"^```[a-zA-Z]*\s*", "", s)
@@ -62,55 +106,200 @@ def strip_mermaid_fence(raw: str) -> str:
 
 
 def validate_mermaid(text: str) -> bool:
-    s = strip_mermaid_fence(text)
+    s = strip_code_fence(text)
     if not s:
         return False
     first = s.splitlines()[0].strip().lower()
     return first.startswith("flowchart") or first.startswith("graph ")
 
 
-def format_logigramme_response(mermaid: str) -> str:
-    body = strip_mermaid_fence(mermaid)
-    return f"Voici le logigramme de la procédure :\n\n```mermaid\n{body}\n```"
+def validate_dot(text: str) -> bool:
+    s = strip_code_fence(text).lower()
+    if "digraph" not in s and "graph " not in s:
+        return False
+    return "{" in s and "}" in s
 
 
-def resolve_document_for_logigramme(
-    store: DocStore,
-    message: str,
-    category: Optional[str],
-) -> tuple[Optional[str], Optional[str]]:
-    """Return (document_id, document_text) best matching the user message."""
-    cats = store.resolve_rag_scope(category)
-    if not cats:
-        return None, None
+def validate_plantuml(text: str) -> bool:
+    s = strip_code_fence(text).lower()
+    return "@startuml" in s and "@enduml" in s
 
-    query = (message or "").strip()
-    ctx = store.build_context(
-        query,
-        categories=cats,
-        k=1,
-        max_chars=MAX_DOC_CHARS,
-        condense=True,
-    )
-    if not ctx:
-        return None, None
 
-    header_match = re.search(r"^### Document\s*:\s*(.+?)\s*(?:\(|$)", ctx, re.MULTILINE)
-    if not header_match:
-        return None, None
+def validate_svg(text: str) -> bool:
+    s = strip_code_fence(text)
+    try:
+        root = ET.fromstring(s)
+    except ET.ParseError:
+        return False
+    tag = (root.tag or "").lower()
+    return tag.endswith("svg")
 
-    stem = header_match.group(1).strip()
-    cat = cats[0] if len(cats) == 1 else None
-    if cat:
-        doc_id = f"{cat}/{stem}" if "/" not in stem else stem
-        text = store.get_document_by_stem(cat, stem.split("/")[-1])
-    else:
-        doc_id = stem
-        text = store.get_document_by_catalog_id(stem, cats[0])
 
+def validate_html(text: str) -> bool:
+    s = strip_code_fence(text).lower()
+    return "<div" in s and ("step" in s or "flow" in s)
+
+
+def validate_json_graph(text: str) -> bool:
+    s = strip_code_fence(text)
+    try:
+        obj = json.loads(s)
+    except json.JSONDecodeError:
+        m = re.search(r"\{[\s\S]*\}", s)
+        if not m:
+            return False
+        try:
+            obj = json.loads(m.group(0))
+        except json.JSONDecodeError:
+            return False
+    nodes = obj.get("nodes") if isinstance(obj, dict) else None
+    edges = obj.get("edges") if isinstance(obj, dict) else None
+    return isinstance(nodes, list) and isinstance(edges, list)
+
+
+VALIDATORS: Dict[str, Callable[[str], bool]] = {
+    "mermaid": validate_mermaid,
+    "dot": validate_dot,
+    "plantuml": validate_plantuml,
+    "svg": validate_svg,
+    "html": validate_html,
+    "json_graph": validate_json_graph,
+}
+
+
+def count_structure(fmt: str, text: str) -> int:
+    s = strip_code_fence(text)
+    if fmt == "mermaid":
+        return len(re.findall(r"-->|---|-\.->", s))
+    if fmt == "dot":
+        return len(re.findall(r"->|--", s))
+    if fmt == "plantuml":
+        return len(re.findall(r":|\bif\b|\bendif\b", s, re.I))
+    if fmt == "svg":
+        return len(re.findall(r"<rect|<text", s, re.I))
+    if fmt == "html":
+        return len(re.findall(r'class=["\']step["\']', s, re.I))
+    if fmt == "json_graph":
+        try:
+            obj = json.loads(s)
+            return len(obj.get("nodes") or [])
+        except Exception:
+            return 0
+    return 0
+
+
+def validate_dot_with_binary(text: str) -> bool:
+    if not validate_dot(text):
+        return False
+    s = strip_code_fence(text)
+    path = ""
+    try:
+        with tempfile.NamedTemporaryFile("w", suffix=".dot", delete=False, encoding="utf-8") as f:
+            f.write(s)
+            path = f.name
+        subprocess.run(
+            ["dot", "-Tsvg", path, "-o", "/dev/null"],
+            capture_output=True,
+            timeout=10,
+            check=True,
+        )
+        return True
+    except (FileNotFoundError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+        return validate_dot(text)
+    finally:
+        if path:
+            try:
+                Path(path).unlink()
+            except OSError:
+                pass
+
+
+def load_procedure_text(store: DocStore, category: str, stem: str) -> str:
+    text = store.get_document_by_stem(category, stem)
     if not text:
-        text = re.sub(r"^### Document[^\n]*\n", "", ctx, count=1).strip()
-    return doc_id, text
+        raise ValueError(f"document not found: {category}/{stem}")
+    return text
+
+
+def generate_logigramme(
+    *,
+    document_text: str,
+    fmt: str,
+    client: httpx.Client,
+    model: Optional[str] = None,
+    timeout: float = 120.0,
+) -> GenerationOutcome:
+    if fmt not in SUPPORTED_FORMATS:
+        raise ValueError(f"unsupported format: {fmt}")
+
+    body = (document_text or "")[:MAX_DOC_CHARS]
+    user_a = FORMAT_PROMPTS[fmt].format(document_text=body)
+    user_b = user_a + "\n\n" + FORMAT_RETRY[fmt]
+    mdl = model or settings.VLLM_MODEL_NAME
+    validator = VALIDATORS[fmt]
+    retried = False
+    last_error = ""
+
+    def one_call(user_content: str) -> str:
+        payload = {
+            "model": mdl,
+            "messages": [
+                {"role": "system", "content": FORMAT_SYSTEM[fmt]},
+                {"role": "user", "content": user_content},
+            ],
+            "max_tokens": 2048,
+            "temperature": 0.25,
+        }
+        t0 = time.perf_counter()
+        r = client.post("/v1/chat/completions", json=payload, timeout=timeout)
+        r.raise_for_status()
+        data = r.json()
+        latency = int((time.perf_counter() - t0) * 1000)
+        msg = data["choices"][0].get("message") or {}
+        raw = (msg.get("content") or "").strip()
+        cleaned = strip_code_fence(raw)
+        if not validator(cleaned):
+            raise ValueError(f"invalid {fmt} output")
+        return raw, cleaned, latency
+
+    try:
+        raw, cleaned, latency = one_call(user_a)
+    except Exception as exc:
+        last_error = str(exc)
+        logger.warning("Logigramme %s first pass failed: %s", fmt, exc)
+        retried = True
+        try:
+            raw, cleaned, latency = one_call(user_b)
+        except Exception as exc2:
+            return GenerationOutcome(
+                format=fmt,
+                raw="",
+                cleaned="",
+                syntax_valid=False,
+                structure_count=0,
+                retried=retried,
+                latency_ms=0,
+                error=str(exc2),
+            )
+
+    syntax = validator(cleaned)
+    if fmt == "dot" and syntax:
+        syntax = validate_dot_with_binary(cleaned)
+
+    return GenerationOutcome(
+        format=fmt,
+        raw=raw,
+        cleaned=cleaned,
+        syntax_valid=syntax,
+        structure_count=count_structure(fmt, cleaned),
+        retried=retried,
+        latency_ms=latency,
+        error=last_error if retried and not syntax else "",
+    )
+
+
+# Backward-compatible Mermaid helpers for prototype_logigramme.py
+strip_mermaid_fence = strip_code_fence
 
 
 def generate_logigramme_mermaid(
@@ -120,127 +309,13 @@ def generate_logigramme_mermaid(
     model: Optional[str] = None,
     timeout: float = 120.0,
 ) -> str:
-    """One vLLM call; retry once if output is not valid Mermaid."""
-    body = (document_text or "")[:MAX_DOC_CHARS]
-    sys_prompt = "Tu génères uniquement du code Mermaid valide (flowchart TD). Aucun texte autour."
-    user_a = LOGIGRAMME_PROMPT.format(document_text=body)
-    user_b = user_a + LOGIGRAMME_RETRY_SUFFIX
-    mdl = model or settings.VLLM_MODEL_NAME
-
-    def one_call(user_content: str) -> str:
-        payload = {
-            "model": mdl,
-            "messages": [
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            "max_tokens": 2048,
-            "temperature": 0.25,
-        }
-        r = client.post("/v1/chat/completions", json=payload, timeout=timeout)
-        r.raise_for_status()
-        data = r.json()
-        msg = data["choices"][0].get("message") or {}
-        raw = (msg.get("content") or "").strip()
-        cleaned = strip_mermaid_fence(raw)
-        if not validate_mermaid(cleaned):
-            raise ValueError("invalid mermaid output")
-        return cleaned
-
-    try:
-        return one_call(user_a)
-    except Exception as first:
-        logger.warning("Logigramme first pass failed: %s", first)
-        return one_call(user_b)
-
-
-async def generate_logigramme_mermaid_async(
-    *,
-    document_text: str,
-    client: httpx.AsyncClient,
-    model: Optional[str] = None,
-    timeout: float = 120.0,
-) -> str:
-    body = (document_text or "")[:MAX_DOC_CHARS]
-    sys_prompt = "Tu génères uniquement du code Mermaid valide (flowchart TD). Aucun texte autour."
-    user_a = LOGIGRAMME_PROMPT.format(document_text=body)
-    user_b = user_a + LOGIGRAMME_RETRY_SUFFIX
-    mdl = model or settings.VLLM_MODEL_NAME
-
-    async def one_call(user_content: str) -> str:
-        payload = {
-            "model": mdl,
-            "messages": [
-                {"role": "system", "content": sys_prompt},
-                {"role": "user", "content": user_content},
-            ],
-            "max_tokens": 2048,
-            "temperature": 0.25,
-        }
-        r = await client.post("/v1/chat/completions", json=payload, timeout=timeout)
-        r.raise_for_status()
-        data = r.json()
-        msg = data["choices"][0].get("message") or {}
-        raw = (msg.get("content") or "").strip()
-        cleaned = strip_mermaid_fence(raw)
-        if not validate_mermaid(cleaned):
-            raise ValueError("invalid mermaid output")
-        return cleaned
-
-    try:
-        return await one_call(user_a)
-    except Exception as first:
-        logger.warning("Logigramme async first pass failed: %s", first)
-        return await one_call(user_b)
-
-
-def generate_logigramme_for_document(
-    store: DocStore,
-    *,
-    category: str,
-    document_id: str,
-    client: httpx.Client,
-    model: Optional[str] = None,
-) -> str:
-    text = store.get_document_by_catalog_id(document_id, category)
-    if not text:
-        stem = document_id.split("/")[-1]
-        text = store.get_document_by_stem(category, stem)
-    if not text:
-        raise ValueError(f"document not found: {document_id}")
-    return generate_logigramme_mermaid(document_text=text, client=client, model=model)
-
-
-async def answer_logigramme(
-    *,
-    message: str,
-    category: Optional[str],
-    client: httpx.AsyncClient,
-    store: Optional[DocStore] = None,
-) -> Optional[LogigrammeResult]:
-    """Resolve a procedure and return a formatted Mermaid response, or None if not applicable."""
-    if not is_logigramme_request(message):
-        return None
-
-    doc_store = store or get_store()
-    doc_id, doc_text = resolve_document_for_logigramme(doc_store, message, category)
-    if not doc_text:
-        return LogigrammeResult(
-            text="Je n'ai pas trouvé de procédure correspondante pour générer un logigramme.",
-            rag={"mode": "logigramme", "note": "no_document"},
-            document_id=doc_id or "",
-        )
-
-    mermaid = await generate_logigramme_mermaid_async(
-        document_text=doc_text,
+    out = generate_logigramme(
+        document_text=document_text,
+        fmt="mermaid",
         client=client,
+        model=model,
+        timeout=timeout,
     )
-    return LogigrammeResult(
-        text=format_logigramme_response(mermaid),
-        rag={
-            "mode": "logigramme",
-            "document_id": doc_id or "",
-            "mermaid_lines": len(mermaid.splitlines()),
-        },
-        document_id=doc_id or "",
-    )
+    if not out.syntax_valid:
+        raise ValueError(out.error or "invalid mermaid output")
+    return out.cleaned

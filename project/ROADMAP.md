@@ -60,17 +60,18 @@ If theme counters are all **0**, the topic may be absent; if **> 0**, check admi
 
 ## 3.3 Logigrammes (May 2026)
 
-Procedure → Mermaid flowchart via Gemma. See [`LOGIGRAMME.md`](LOGIGRAMME.md).
+Procedure → flowchart via Gemma. **SSH evaluation only** — not in chat until format eval passes. See [`LOGIGRAMME.md`](LOGIGRAMME.md).
 
 | Piece | Status |
 |-------|--------|
-| `core/logigramme_llm.py` | Done |
-| `scripts/prototype_logigramme.py` | Done — run on pod to validate quality |
-| Classic chat intent (`logigramme` / `flowchart` / …) | Done |
-| Agentic tool `generate_logigramme` | Done |
-| Chat Mermaid renderer | Done (`mermaid` npm, lazy-loaded) |
+| `core/logigramme_llm.py` | Done — multi-format (Mermaid, DOT, PlantUML, SVG, HTML, JSON) |
+| `scripts/prototype_logigramme.py` | Done — single-format pod smoke test |
+| `scripts/eval_logigramme_formats.py` | Done — multi-format pod evaluation |
+| Classic chat intent (`logigramme` / `flowchart` / …) | **Removed** — pending eval gate |
+| Agentic tool `generate_logigramme` | **Removed** — pending eval gate |
+| Chat Mermaid renderer | **Removed** — pending eval gate |
 
-**Next:** Run prototype on 2–3 diverse procedures on the pod; tune prompt if branches are missing or invented.
+**Next:** Run `eval_logigramme_formats.py` on pod (3 procedures × 3 trials); pick winning format; manual fidelity review before re-enabling web.
 
 ---
 

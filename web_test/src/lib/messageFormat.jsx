@@ -1,7 +1,5 @@
-import { Fragment, lazy, Suspense } from "react";
+import { Fragment } from "react";
 import { getApiUrl } from "../services/api";
-
-const MermaidDiagram = lazy(() => import("../components/MermaidDiagram"));
 
 export function resolveDocImageSrc(src) {
   if (!src) return src;
@@ -118,25 +116,12 @@ function normalizeLine(line) {
   return normalized;
 }
 
-const MERMAID_BLOCK_RE = /```mermaid\s*\n([\s\S]*?)```/gi;
-
-function splitContentSegments(content) {
-  const segments = [];
-  let last = 0;
-  let match = MERMAID_BLOCK_RE.exec(content);
-  while (match) {
-    if (match.index > last) {
-      segments.push({ type: "text", content: content.slice(last, match.index) });
-    }
-    segments.push({ type: "mermaid", content: (match[1] || "").trim() });
-    last = match.index + match[0].length;
-    match = MERMAID_BLOCK_RE.exec(content);
-  }
-  MERMAID_BLOCK_RE.lastIndex = 0;
-  if (last < content.length) {
-    segments.push({ type: "text", content: content.slice(last) });
-  }
-  return segments.length ? segments : [{ type: "text", content: content || "" }];
+/**
+ * @param {string} content
+ * @param {{ onSourceClick?: (sourceText: string) => void }} [options]
+ */
+export function renderFormattedMessage(content, options = {}) {
+  return renderFormattedTextBlocks(content, options, "msg");
 }
 
 function renderFormattedTextBlocks(content, options = {}, keyPrefix = "txt") {
@@ -330,24 +315,5 @@ function renderFormattedTextBlocks(content, options = {}, keyPrefix = "txt") {
       );
     }
     return <p key={`p-${blockKey}`}>{parseInline(block.text, `p-${blockKey}`)}</p>;
-  });
-}
-
-/**
- * @param {string} content
- * @param {{ onSourceClick?: (sourceText: string) => void }} [options]
- */
-export function renderFormattedMessage(content, options = {}) {
-  const segments = splitContentSegments(content);
-  return segments.flatMap((segment, segmentIndex) => {
-    if (segment.type === "mermaid" && segment.content) {
-      return [
-        <Suspense key={`mmd-${segmentIndex}`} fallback={<div className="msg-mermaid-loading">Chargement du diagramme…</div>}>
-          <MermaidDiagram code={segment.content} />
-        </Suspense>,
-      ];
-    }
-    if (!segment.content.trim()) return [];
-    return renderFormattedTextBlocks(segment.content, options, `seg-${segmentIndex}`);
   });
 }

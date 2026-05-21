@@ -4,42 +4,32 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="light" />
-    <meta name="theme-color" content="#f4f6f9" />
+    <meta name="theme-color" content="#e8e4dc" />
     <title>Darija Chatbot Admin</title>
     <script>
       window.SENDBOT_THEME_CSS_PREFIX = "/admin-static/";
-      window.SENDBOT_THEME_CSS_V = "?v=20260621";
+      window.SENDBOT_THEME_CSS_V = "?v=20260522";
     </script>
     <link
       rel="stylesheet"
-      href="/admin-static/theme-light.css?v=20260621"
+      href="/admin-static/theme-light.css?v=20260522"
       id="sendbot-theme-light"
       title="sendbot-theme"
     />
     <link
       rel="stylesheet"
-      href="/admin-static/theme-dark.css?v=20260621"
+      href="/admin-static/theme-dark.css?v=20260522"
       id="sendbot-theme-dark"
       title="sendbot-theme"
       disabled
     />
-    <link rel="stylesheet" href="/admin-static/theme-base.css?v=20260621" />
-    <link rel="stylesheet" href="/admin-static/admin.css?v=20260621" />
-    <script src="/admin-static/theme-sync.js?v=20260621"></script>
+    <link rel="stylesheet" href="/admin-static/theme-base.css?v=20260522" />
+    <link rel="stylesheet" href="/admin-static/admin.css?v=20260522" />
+    <script src="/admin-static/theme-sync.js?v=20260522"></script>
     <script>
       (function () {
-        var theme = "light";
-        try {
-          var t = localStorage.getItem("sendbot_theme");
-          if (t === "dark" || t === "light") theme = t;
-        } catch (e) { /* ignore */ }
-        var light = document.getElementById("sendbot-theme-light");
-        var dark = document.getElementById("sendbot-theme-dark");
-        if (light) light.disabled = theme !== "light";
-        if (dark) dark.disabled = theme !== "dark";
         if (window.sendbotSyncTheme) {
-          sendbotSyncTheme.syncThemeToDocument(theme);
-          sendbotSyncTheme.updateThemeToggleIcon();
+          sendbotSyncTheme.applyTheme(sendbotSyncTheme.getTheme());
         }
       })();
     </script>

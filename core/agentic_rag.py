@@ -14,7 +14,6 @@ import httpx
 
 from app_config.settings import settings
 
-from core.logigramme_llm import format_logigramme_response, generate_logigramme_mermaid_async
 from core.documents import (
     DOCS_DIR,
     DOCS_MD_DIR,
@@ -39,12 +38,9 @@ Documents are in French. Users may write in French, Darija (Arabic/Arabizi), or 
 
 You MUST answer ONLY from retrieved documents. Never answer from memory.
 
-You have two tools:
+You have one tool:
 - request_documents(ids: string[])
   It returns full text chunks for the requested document IDs.
-- generate_logigramme(document_id: string)
-  Use when the user asks for a logigramme, flowchart, or diagram of a procedure.
-  It returns Mermaid flowchart TD code for that document.
 
 Workflow rules:
 1) Read the document catalog below (each row has id, path, objective, section_1).
@@ -71,7 +67,6 @@ without calling `request_documents` when documents might help, you fail the task
 
 Tool:
 - `request_documents(ids: string[])` — returns the **full** text body for each document `id` listed in the catalog.
-- `generate_logigramme(document_id: string)` — returns Mermaid flowchart code when the user wants a logigramme.
 
 Rules:
 1) Read the JSON catalog. Each item has: `id`, `path`, `objective` (procedure goal when detected), `section_1` (first section slice).
@@ -300,26 +295,6 @@ REQUEST_DOCUMENTS_TOOL = {
     },
 }
 
-GENERATE_LOGIGRAMME_TOOL = {
-    "type": "function",
-    "function": {
-        "name": "generate_logigramme",
-        "description": "Generate a Mermaid flowchart (logigramme) from a procedure document id.",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "document_id": {
-                    "type": "string",
-                    "description": "Catalog document id (e.g. procedures/Gestion des colis endommag_)",
-                }
-            },
-            "required": ["document_id"],
-        },
-    },
-}
-
-AGENTIC_TOOLS = [REQUEST_DOCUMENTS_TOOL, GENERATE_LOGIGRAMME_TOOL]
-
 
 def _parse_tool_args(arguments: Optional[str]) -> Dict[str, Any]:
     if not arguments or not str(arguments).strip():
@@ -392,26 +367,6 @@ async def _handle_tool_call_async(
             )
         return json.dumps(result, ensure_ascii=False)
 
-    if name == "generate_logigramme":
-        doc_id = str(args.get("document_id") or "").strip()
-        if not doc_id:
-            return json.dumps({"error": "missing document_id"}, ensure_ascii=False)
-        text = store.get_document_by_catalog_id(doc_id, category)
-        if not text:
-            stem = doc_id.split("/")[-1]
-            text = store.get_document_by_stem(category, stem)
-        if not text:
-            return json.dumps({"error": f"document_not_found:{doc_id}"}, ensure_ascii=False)
-        mermaid = await generate_logigramme_mermaid_async(document_text=text, client=client)
-        return json.dumps(
-            {
-                "document_id": doc_id,
-                "mermaid": mermaid,
-                "formatted": format_logigramme_response(mermaid),
-            },
-            ensure_ascii=False,
-        )
-
     return json.dumps({"error": f"unknown_tool:{name}"}, ensure_ascii=False)
 
 
@@ -471,7 +426,7 @@ async def run_agentic_tool_loop(
             "max_tokens": max_tokens,
             "temperature": temperature,
             "top_p": top_p,
-            "tools": AGENTIC_TOOLS,
+            "tools": [REQUEST_DOCUMENTS_TOOL],
             "tool_choice": "auto",
         }
         resp = await _post_chat_completions_with_retries(client, payload)
@@ -555,7 +510,7 @@ async def run_agentic_router_phase(
             "max_tokens": max_tokens,
             "temperature": temperature,
             "top_p": top_p,
-            "tools": AGENTIC_TOOLS,
+            "tools": [REQUEST_DOCUMENTS_TOOL],
             "tool_choice": (
                 {"type": "function", "function": {"name": "request_documents"}}
                 if round_i == 0

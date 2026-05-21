@@ -21,7 +21,6 @@ from core.chat_policy import (
     retrieval_anchor_query,
     unsupported_latin_language_message,
 )
-from core.logigramme_llm import answer_logigramme, is_logigramme_request
 from core.agentic_rag import (
     AGENTIC_NOT_FOUND,
     build_document_catalog_for_categories,
@@ -356,16 +355,6 @@ class GemmaModel:
         wrong_lang = unsupported_latin_language_message(message)
         if wrong_lang:
             return LLMGenerateResult(text=wrong_lang, rag=rag_meta)
-
-        if is_logigramme_request(message):
-            logi = await answer_logigramme(
-                message=message,
-                category=category,
-                client=self._client,
-            )
-            if logi:
-                merged_rag = {**rag_meta, **logi.rag}
-                return LLMGenerateResult(text=logi.text, rag=merged_rag)
 
         user_msg = _user_message_for_model(message, bucket)
 

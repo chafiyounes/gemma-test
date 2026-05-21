@@ -53,8 +53,6 @@ flowchart TB
 1. **Router** — English system prompt + JSON **catalog** per indexed doc: `id`, `path`, `objective`, `section_1` (heuristic extract from SOP body). Model calls tool **`request_documents(ids)`**; backend returns **full** bodies from `DocStore`. First vLLM round uses a **forced** `tool_choice` for `request_documents` so the router cannot “finish” without a tool call. Up to **`AGENTIC_RAG_ROUTER_MAX_ROUNDS`** rounds; **`AGENTIC_RAG_ROUTER_MAX_IDS_PER_ROUND`** ids per call; **`AGENTIC_RAG_ROUTER_MAX_TOTAL_IDS`** unique docs cap (default aim **~5**, max **10** via settings + prompts).
 2. **Answer** — Second completion: normal **`SYSTEM_PROMPT`** + same **DOCUMENTS DE RÉFÉRENCE** block formatting as classic RAG (`format_retrieved_documents_for_prompt`, greedy inject / query windows). **No tools.** Metadata must keep **`tool_rounds`** from the router (answer phase must not overwrite it with `0`).
 
-**Optional tool (agentic):** `generate_logigramme(document_id)` — returns Mermaid `flowchart TD` for a catalog procedure. See [`LOGIGRAMME.md`](LOGIGRAMME.md).
-
 **Not-found:** If the router retrieves nothing, response uses the configured agentic not-found string; `normalize_not_found_response` applies as in classic RAG.
 
 **Code:** `core/agentic_rag.py` (catalog, router, tools), `core/llm.py` (`generate_agentic_rag`), `api/main.py` (agentic branch), `app_config/settings.py` (`AGENTIC_*`).
@@ -112,7 +110,7 @@ Agentic mode needs vLLM started with **Gemma 4 tooling** (see `scripts/start_vll
 | Settings | `app_config/settings.py` | Env-backed knobs |
 | UI | `web_test/` | Vite/React; chat markdown + screenshots; light/dark theme (`shared/theme/`) |
 | Admin UI | `admin_site/` | Vanilla HTML/JS; paginated interaction list (`summary=1`); lazy RAG rebuild; theme tokens |
-| Logigramme | `core/logigramme_llm.py` | Procedure → Mermaid; classic intent + agentic tool — see [`LOGIGRAMME.md`](LOGIGRAMME.md) |
+| Logigramme | `core/logigramme_llm.py` | Procedure → diagram code (SSH eval only) — see [`LOGIGRAMME.md`](LOGIGRAMME.md) |
 | SOP sanitise | `core/sop_text_clean.py` | Strips destructive/binary image data; preserves `![](path)` for non-data URLs |
 
 ---

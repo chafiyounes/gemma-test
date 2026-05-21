@@ -10,7 +10,7 @@
 })(typeof globalThis !== "undefined" ? globalThis : window, function () {
   var STORAGE_KEY = "sendbot_theme";
   var DEFAULT_THEME = "light";
-  var PAGE_BG = { light: "#f4f6f9", dark: "#0f1419" };
+  var PAGE_BG = { light: "#e8e4dc", dark: "#0f1419" };
   var THEME_LINK_TITLE = "sendbot-theme";
   var THEME_LINK_IDS = { light: "sendbot-theme-light", dark: "sendbot-theme-dark" };
   var ICONS = {

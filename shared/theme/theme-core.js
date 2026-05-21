@@ -5,7 +5,7 @@
 
 export const STORAGE_KEY = "sendbot_theme";
 export const DEFAULT_THEME = "light";
-export const PAGE_BG = { light: "#f4f6f9", dark: "#0f1419" };
+export const PAGE_BG = { light: "#e8e4dc", dark: "#0f1419" };
 export const THEME_LINK_TITLE = "sendbot-theme";
 export const THEME_LINK_IDS = { light: "sendbot-theme-light", dark: "sendbot-theme-dark" };
 
