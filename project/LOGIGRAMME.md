@@ -21,13 +21,13 @@ Implementation: [`core/logigramme_llm.py`](../core/logigramme_llm.py), [`core/lo
 Sidecar files keyed by `(category, stem)`:
 
 ```
-data/logigrammes/procedures/<stem>.mmd          # published (chat + RAG)
-data/logigrammes/procedures/<stem>.draft.mmd    # admin draft only
+data/logigrammes/procedures/<stem>.mmd                        # published (chat + RAG, shared)
+data/logigrammes/procedures/drafts/<user_slug>/<stem>.mmd     # per-user admin draft
 ```
 
 Module: [`core/logigrammes_store.py`](../core/logigrammes_store.py)
 
-Only **published** `.mmd` files are merged into RAG. Drafts are for continuing work in admin.
+Only **published** `.mmd` files are merged into RAG. Drafts are per logged-in user (session username) and are not visible in chat/RAG until published.
 
 On DocStore load, when a sidecar exists, the procedure text is augmented with:
 
@@ -46,10 +46,10 @@ So RAG can retrieve diagram content with the parent procedure — without a sepa
 
 On **Documents** (`/admin`), each row in the **procedures** category shows:
 
-- Button: **Créer / Modifier logigramme** → modal with generate, refine, editable Mermaid, **Enregistrer brouillon**, **Publier** (confirmation)
-- Badge: **Publié ✓** / **Brouillon** / **Sans logigramme**
+- Button: **Créer / Modifier logigramme** → modal with generate, refine, editable Mermaid, live preview, **Publier** (confirmation)
+- Badge: **Publié ✓** / **Brouillon** (your draft only) / **Sans logigramme**
 
-Auth: `_require_docs_manager` (gestionnaires + administrateurs).
+Auth: `_require_docs_manager` (gestionnaires + administrateurs). Draft paths use the session username server-side.
 
 API:
 
@@ -63,10 +63,12 @@ API:
 
 Generation uses dedicated admin endpoints — **not** `POST /chat`.
 
-**Générer** reads the procedure automatically. **Affiner** is optional. The **Code Mermaid** textarea is editable.
+**Générer** reads the procedure automatically. **Affiner** is optional. The **Code Mermaid** textarea is editable with **real-time preview** (250 ms debounce). Invalid syntax keeps the last good render.
 
-- **Enregistrer brouillon** — saves `.draft.mmd` (admin only; not in chat/RAG)
-- **Publier** — confirms, then saves `.mmd`, reloads RAG, visible in chat preview
+- **Auto-save** — edits are saved to your draft (~1.5 s debounce); no manual draft button
+- **Annuler modifications** — restores your last auto-saved draft; clears Affiner input/history
+- **Publier** — sole explicit save to the shared `.mmd`; confirms overwrite when a published version already exists; reloads RAG; visible in chat preview
+- Close modal via **×** (draft already auto-saved)
 
 Goal: the diagram alone should let an operator follow the **entire** procedure (all steps, branches, lists). Generation prompts enforce exhaustive coverage; **Affiner** fixes gaps.
 

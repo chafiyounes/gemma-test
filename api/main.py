@@ -1082,7 +1082,7 @@ async def admin_cache_flush(_admin: dict = Depends(_require_administrator)):
 @app.get("/admin/documents/overview")
 @app.get("/api/admin/documents/overview")
 async def admin_documents_overview(_admin: dict = Depends(_require_docs_manager)):
-    return get_documents_overview()
+    return get_documents_overview(_admin["username"])
 
 
 @app.post("/admin/documents/upload")
@@ -1100,7 +1100,7 @@ async def admin_documents_upload(
     try:
         out = upload_document(category=category, filename=file.filename, data=data)
         reload_document_store()
-        return {"ok": True, **out, "overview": get_documents_overview()}
+        return {"ok": True, **out, "overview": get_documents_overview(_admin["username"])}
     except DocumentAdminError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -1122,7 +1122,7 @@ async def admin_documents_move(
             filename=body.filename,
         )
         reload_document_store()
-        return {"ok": True, **out, "overview": get_documents_overview()}
+        return {"ok": True, **out, "overview": get_documents_overview(_admin["username"])}
     except DocumentAdminError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -1143,7 +1143,7 @@ async def admin_documents_delete(
             filename=body.filename,
         )
         reload_document_store()
-        return {"ok": True, **out, "overview": get_documents_overview()}
+        return {"ok": True, **out, "overview": get_documents_overview(_admin["username"])}
     except DocumentAdminError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -1160,7 +1160,7 @@ async def admin_documents_delete_category(
     try:
         out = delete_document_category(body.category)
         reload_document_store()
-        return {"ok": True, **out, "overview": get_documents_overview()}
+        return {"ok": True, **out, "overview": get_documents_overview(_admin["username"])}
     except DocumentAdminError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
@@ -1229,7 +1229,7 @@ async def admin_logigramme_get(
     _mgr: dict = Depends(_require_docs_manager),
 ):
     try:
-        return LogigrammeStatusResponse(**get_status(category=category, stem=stem))
+        return LogigrammeStatusResponse(**get_status(category=category, stem=stem, username=_mgr["username"]))
     except LogigrammeServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -1260,8 +1260,13 @@ async def admin_logigramme_save_draft(
     _mgr: dict = Depends(_require_docs_manager),
 ):
     try:
-        out = save_logigramme_draft(category=body.category, stem=body.stem, mermaid=body.mermaid)
-        return {**out, "overview": get_documents_overview()}
+        out = save_logigramme_draft(
+            category=body.category,
+            stem=body.stem,
+            mermaid=body.mermaid,
+            username=_mgr["username"],
+        )
+        return {**out, "overview": get_documents_overview(_mgr["username"])}
     except LogigrammeServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -1275,9 +1280,14 @@ async def admin_logigramme_save(
     _mgr: dict = Depends(_require_docs_manager),
 ):
     try:
-        out = save_logigramme(category=body.category, stem=body.stem, mermaid=body.mermaid)
+        out = save_logigramme(
+            category=body.category,
+            stem=body.stem,
+            mermaid=body.mermaid,
+            username=_mgr["username"],
+        )
         reload_document_store()
-        return {**out, "overview": get_documents_overview()}
+        return {**out, "overview": get_documents_overview(_mgr["username"])}
     except LogigrammeServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:
@@ -1294,7 +1304,7 @@ async def admin_logigramme_delete(
     try:
         out = remove_logigramme(category=category, stem=stem)
         reload_document_store()
-        return {**out, "overview": get_documents_overview()}
+        return {**out, "overview": get_documents_overview(_mgr["username"])}
     except LogigrammeServiceError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 

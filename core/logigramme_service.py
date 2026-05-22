@@ -20,7 +20,6 @@ from core.logigrammes_store import (
     PROCEDURES_CATEGORY,
     LogigrammeStoreError,
     delete,
-    draft_exists,
     read,
     read_draft,
     save,
@@ -50,19 +49,23 @@ def _assert_procedures(category: str) -> None:
         )
 
 
-def get_status(*, category: str, stem: str) -> dict:
+def get_status(*, category: str, stem: str, username: str) -> dict:
     _assert_procedures(category)
     st = (stem or "").strip()
     if not st:
         raise LogigrammeServiceError("stem is required")
+    user = (username or "").strip()
+    if not user:
+        raise LogigrammeServiceError("username is required")
     published = read(category, st)
-    draft = read_draft(category, st)
+    draft = read_draft(category, st, user)
     has_draft = draft is not None
     has_published = published is not None
     # Prefer draft in editor when present (work in progress).
     editor_mermaid = (draft or published or "") if (has_draft or has_published) else ""
     return {
         "exists": has_published,
+        "published_exists": has_published,
         "mermaid": published or "",
         "draft_exists": has_draft,
         "draft_mermaid": draft or "",
@@ -70,25 +73,31 @@ def get_status(*, category: str, stem: str) -> dict:
     }
 
 
-def save_logigramme_draft(*, category: str, stem: str, mermaid: str) -> dict:
+def save_logigramme_draft(*, category: str, stem: str, mermaid: str, username: str) -> dict:
     _assert_procedures(category)
     st = (stem or "").strip()
     if not st:
         raise LogigrammeServiceError("stem is required")
+    user = (username or "").strip()
+    if not user:
+        raise LogigrammeServiceError("username is required")
     try:
-        path = save_draft(category, st, mermaid)
+        path = save_draft(category, st, mermaid, username=user)
     except LogigrammeStoreError as exc:
         raise LogigrammeServiceError(str(exc)) from exc
     return {"ok": True, "path": str(path), "draft": True}
 
 
-def save_logigramme(*, category: str, stem: str, mermaid: str) -> dict:
+def save_logigramme(*, category: str, stem: str, mermaid: str, username: str) -> dict:
     _assert_procedures(category)
     st = (stem or "").strip()
     if not st:
         raise LogigrammeServiceError("stem is required")
+    user = (username or "").strip()
+    if not user:
+        raise LogigrammeServiceError("username is required")
     try:
-        path = save(category, st, mermaid)
+        path = save(category, st, mermaid, username=user)
     except LogigrammeStoreError as exc:
         raise LogigrammeServiceError(str(exc)) from exc
     return {"ok": True, "path": str(path), "published": True}

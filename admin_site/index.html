@@ -23,7 +23,7 @@
       title="sendbot-theme"
     />
     <link rel="stylesheet" href="/admin-static/theme-base.css?v=20260524" />
-    <link rel="stylesheet" href="/admin-static/admin.css?v=20260524" />
+    <link rel="stylesheet" href="/admin-static/admin.css?v=20260528" />
     <script src="/admin-static/theme-sync.js?v=20260524"></script>
     <script>
       (function () {
@@ -349,25 +349,26 @@
           <div class="logigramme-modal-controls">
             <div class="logigramme-modal-col">
               <label for="logigramme-source" class="logigramme-source-label">Code Mermaid (modifiable)</label>
-              <textarea id="logigramme-source" class="logigramme-source" rows="16" spellcheck="false" placeholder="flowchart TD&#10;  A[Début] --> B[Fin]"></textarea>
+              <textarea id="logigramme-source" class="logigramme-source" rows="12" spellcheck="false" placeholder="flowchart TD&#10;  A[Début] --> B[Fin]"></textarea>
             </div>
             <div class="logigramme-modal-col logigramme-modal-col-refine">
               <label for="logigramme-refine-input" class="logigramme-refine-label">Affiner avec Gemma</label>
               <textarea id="logigramme-refine-input" class="logigramme-refine-input" rows="4" placeholder="Ex. Ajoute la branche remboursement refusé…"></textarea>
-              <div class="logigramme-modal-actions">
-                <button type="button" id="logigramme-generate-btn" class="toolbar-button">Générer</button>
-                <button type="button" id="logigramme-refine-btn" class="toolbar-button secondary">Affiner</button>
-                <button type="button" id="logigramme-draft-btn" class="toolbar-button secondary">Enregistrer brouillon</button>
-                <button type="button" id="logigramme-publish-btn" class="toolbar-button doc-btn-save">Publier</button>
-                <button type="button" id="logigramme-cancel-btn" class="toolbar-button secondary">Annuler</button>
-              </div>
-              <p id="logigramme-status" class="logigramme-status" role="status"></p>
             </div>
+          </div>
+          <div class="logigramme-modal-footer">
+            <div class="logigramme-modal-actions">
+              <button type="button" id="logigramme-generate-btn" class="toolbar-button">Générer</button>
+              <button type="button" id="logigramme-refine-btn" class="toolbar-button secondary">Affiner</button>
+              <button type="button" id="logigramme-publish-btn" class="toolbar-button doc-btn-save">Publier</button>
+              <button type="button" id="logigramme-cancel-btn" class="toolbar-button secondary">Annuler modifications</button>
+            </div>
+            <p id="logigramme-status" class="logigramme-status" role="status"></p>
           </div>
         </div>
       </div>
     </div>
 
-    <script src="/admin-static/admin.js?v=20260526" defer></script>
+    <script src="/admin-static/admin.js?v=20260528" defer></script>
   </body>
   </html>

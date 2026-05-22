@@ -184,6 +184,7 @@ class LogigrammeSaveRequest(BaseModel):
 
 class LogigrammeStatusResponse(BaseModel):
     exists: bool
+    published_exists: bool = False
     mermaid: str = ""
     draft_exists: bool = False
     draft_mermaid: str = ""

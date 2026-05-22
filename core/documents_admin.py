@@ -119,14 +119,17 @@ def _active_source(category: str) -> str:
     return "docx"
 
 
-def _list_files(category: str, source: str) -> List[dict]:
+def _list_files(category: str, source: str, *, username: str = "") -> List[dict]:
     files: List[dict] = []
     is_procedures = category == "procedures"
+    user = (username or "").strip()
 
     def _with_logigramme(entry: dict, stem: str) -> dict:
         if is_procedures:
             entry["has_logigramme"] = logigramme_exists(category, stem)
-            entry["has_logigramme_draft"] = logigramme_draft_exists(category, stem)
+            entry["has_logigramme_draft"] = (
+                logigramme_draft_exists(category, stem, user) if user else False
+            )
         return entry
 
     if source == "md":
@@ -169,13 +172,14 @@ def _list_files(category: str, source: str) -> List[dict]:
     return files
 
 
-def get_overview() -> dict:
+def get_overview(*, username: str = "") -> dict:
     """List corpus folders and files. Category size is informational only (no admin cap)."""
+    user = (username or "").strip()
     categories = []
     for cat in _categories():
         try:
             source = _active_source(cat)
-            files = _list_files(cat, source)
+            files = _list_files(cat, source, username=user)
             total_chars = sum(f["chars"] for f in files)
             categories.append(
                 {

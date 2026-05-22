@@ -229,13 +229,18 @@ def test_logigramme_draft_storage() -> None:
         store.LOGIGRAMMES_DIR = root
         try:
             m = "flowchart TD\n  A[Début] --> B[Fin]\n"
-            store.save_draft("procedures", "test_sop", m)
-            assert store.draft_exists("procedures", "test_sop")
-            assert store.read_draft("procedures", "test_sop") == m.strip()
+            m2 = "flowchart TD\n  A[Début] --> C[Autre]\n"
+            store.save_draft("procedures", "test_sop", m, username="alice")
+            store.save_draft("procedures", "test_sop", m2, username="bob")
+            assert store.draft_exists("procedures", "test_sop", "alice")
+            assert store.draft_exists("procedures", "test_sop", "bob")
+            assert store.read_draft("procedures", "test_sop", "alice") == m.strip()
+            assert store.read_draft("procedures", "test_sop", "bob") == m2.strip()
             assert not store.exists("procedures", "test_sop")
-            store.save("procedures", "test_sop", m)
+            store.save("procedures", "test_sop", m, username="alice")
             assert store.exists("procedures", "test_sop")
-            assert not store.draft_exists("procedures", "test_sop")
+            assert not store.draft_exists("procedures", "test_sop", "alice")
+            assert store.draft_exists("procedures", "test_sop", "bob")
         finally:
             store.LOGIGRAMMES_DIR = orig
 

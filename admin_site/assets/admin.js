@@ -2124,7 +2124,6 @@ const logigrammeRefineInput = document.getElementById("logigramme-refine-input")
 const logigrammeStatus = document.getElementById("logigramme-status");
 const logigrammeGenerateBtn = document.getElementById("logigramme-generate-btn");
 const logigrammeRefineBtn = document.getElementById("logigramme-refine-btn");
-const logigrammeDraftBtn = document.getElementById("logigramme-draft-btn");
 const logigrammePublishBtn = document.getElementById("logigramme-publish-btn");
 const logigrammeCloseBtn = document.getElementById("logigramme-close-btn");
 const logigrammeCancelBtn = document.getElementById("logigramme-cancel-btn");
@@ -2134,11 +2133,20 @@ const logigrammeState = {
   stem: "",
   name: "",
   mermaid: "",
+  savedDraftMermaid: "",
+  lastGoodMermaid: "",
+  lastGoodSvgHtml: "",
+  previewError: false,
+  publishedExists: false,
   messages: [],
   busy: false,
+  autosaving: false,
 };
 
 let logigrammePreviewTimer = null;
+let logigrammeAutosaveTimer = null;
+let mermaidLoaderPromise = null;
+let mermaidThemeObserver = null;
 
 function syncLogigrammeFromEditor() {
   if (!logigrammeSource) return (logigrammeState.mermaid || "").trim();
@@ -2147,24 +2155,74 @@ function syncLogigrammeFromEditor() {
   return v;
 }
 
+function normalizeLogigrammeCode(raw) {
+  let s = (raw || "").trim();
+  s = s.replace(/^```(?:mermaid)?\s*\r?\n?/i, "").replace(/\r?\n?```\s*$/, "");
+  return s.trim();
+}
+
 function setLogigrammeSource(code) {
-  const v = code || "";
+  const v = normalizeLogigrammeCode(code);
   logigrammeState.mermaid = v;
   if (logigrammeSource) logigrammeSource.value = v;
 }
 
-function scheduleLogigrammePreview() {
-  if (logigrammePreviewTimer) clearTimeout(logigrammePreviewTimer);
-  logigrammePreviewTimer = setTimeout(() => {
-    syncLogigrammeFromEditor();
-    renderLogigrammePreview(logigrammeState.mermaid);
-  }, 450);
+function setLogigrammePreviewInvalid(on) {
+  logigrammeState.previewError = on;
+  if (logigrammeSource) logigrammeSource.classList.toggle("logigramme-source--invalid", on);
 }
 
-let mermaidLoaderPromise = null;
+function getMermaidThemeConfig() {
+  const dark = document.documentElement.getAttribute("data-theme") === "dark";
+  if (dark) {
+    return {
+      startOnLoad: false,
+      securityLevel: "loose",
+      theme: "dark",
+      flowchart: {
+        htmlLabels: true,
+        useMaxWidth: true,
+        wrappingWidth: 180,
+      },
+      themeVariables: {
+        fontSize: "13px",
+        fontFamily: "system-ui, Segoe UI, sans-serif",
+        background: "#1a2332",
+        primaryColor: "#2d3a4d",
+        primaryTextColor: "#e8eaed",
+        primaryBorderColor: "#3d4f66",
+        lineColor: "#94a3b8",
+        secondaryColor: "#151d28",
+        tertiaryColor: "#0f1419",
+      },
+    };
+  }
+  return {
+    startOnLoad: false,
+    securityLevel: "loose",
+    theme: "neutral",
+    flowchart: {
+      htmlLabels: true,
+      useMaxWidth: true,
+      wrappingWidth: 180,
+    },
+    themeVariables: {
+      fontSize: "13px",
+      fontFamily: "system-ui, Segoe UI, sans-serif",
+    },
+  };
+}
+
+function initMermaidWithTheme() {
+  if (!window.mermaid) return;
+  window.mermaid.initialize(getMermaidThemeConfig());
+}
 
 function ensureMermaidLib() {
-  if (window.mermaid) return Promise.resolve(window.mermaid);
+  if (window.mermaid) {
+    initMermaidWithTheme();
+    return Promise.resolve(window.mermaid);
+  }
   if (mermaidLoaderPromise) return mermaidLoaderPromise;
   mermaidLoaderPromise = new Promise((resolve, reject) => {
     const s = document.createElement("script");
@@ -2172,20 +2230,7 @@ function ensureMermaidLib() {
     s.async = true;
     s.onload = () => {
       try {
-        window.mermaid.initialize({
-          startOnLoad: false,
-          securityLevel: "loose",
-          theme: "neutral",
-          flowchart: {
-            htmlLabels: true,
-            useMaxWidth: false,
-            wrappingWidth: 200,
-          },
-          themeVariables: {
-            fontSize: "15px",
-            fontFamily: "system-ui, Segoe UI, sans-serif",
-          },
-        });
+        initMermaidWithTheme();
         resolve(window.mermaid);
       } catch (err) {
         reject(err);
@@ -2197,29 +2242,97 @@ function ensureMermaidLib() {
   return mermaidLoaderPromise;
 }
 
-async function renderLogigrammePreview(code) {
-  if (!logigrammePreview) return;
-  const src = (code || "").trim();
+function setupLogigrammeThemeObserver() {
+  if (mermaidThemeObserver) return;
+  mermaidThemeObserver = new MutationObserver(() => {
+    if (!logigrammeModal || logigrammeModal.classList.contains("hidden")) return;
+    initMermaidWithTheme();
+    const code = logigrammeState.lastGoodMermaid || syncLogigrammeFromEditor();
+    if (code) renderLogigrammePreview(code, { force: true });
+  });
+  mermaidThemeObserver.observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ["data-theme"],
+  });
+}
+
+function scheduleLogigrammePreview() {
+  if (logigrammePreviewTimer) clearTimeout(logigrammePreviewTimer);
+  logigrammePreviewTimer = setTimeout(() => {
+    syncLogigrammeFromEditor();
+    renderLogigrammePreview(logigrammeState.mermaid);
+  }, 250);
+}
+
+function scheduleLogigrammeAutosave() {
+  if (logigrammeAutosaveTimer) clearTimeout(logigrammeAutosaveTimer);
+  logigrammeAutosaveTimer = setTimeout(() => {
+    autosaveLogigrammeDraft();
+  }, 1500);
+}
+
+function restoreLogigrammePreviewSvg() {
+  if (!logigrammePreview || !logigrammeState.lastGoodSvgHtml) return false;
+  logigrammePreview.innerHTML = logigrammeState.lastGoodSvgHtml;
+  fitLogigrammePreviewSvg();
+  return true;
+}
+
+function fitLogigrammePreviewSvg() {
+  const svg = logigrammePreview?.querySelector("svg");
+  if (!svg) return;
+  svg.removeAttribute("width");
+  svg.removeAttribute("height");
+  svg.style.width = "100%";
+  svg.style.maxWidth = "100%";
+  svg.style.height = "auto";
+  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
+}
+
+async function renderLogigrammePreview(code, { force = false } = {}) {
+  if (!logigrammePreview) return false;
+  const src = normalizeLogigrammeCode(code);
   if (!src) {
     logigrammePreview.innerHTML = '<p class="logigramme-preview-empty">Aucun diagramme pour l’instant.</p>';
-    return;
+    logigrammeState.lastGoodMermaid = "";
+    logigrammeState.lastGoodSvgHtml = "";
+    setLogigrammePreviewInvalid(false);
+    return false;
   }
   try {
     const mermaid = await ensureMermaidLib();
     const id = "logigramme-render-" + Date.now();
     const { svg } = await mermaid.render(id, src);
     logigrammePreview.innerHTML = svg;
-  } catch (err) {
-    logigrammePreview.innerHTML = `<pre class="logigramme-preview-fallback">${escapeHtml(src)}</pre>`;
-    if (logigrammeStatus) {
-      logigrammeStatus.textContent = "Aperçu Mermaid indisponible — code brut affiché.";
+    fitLogigrammePreviewSvg();
+    logigrammeState.lastGoodMermaid = src;
+    logigrammeState.lastGoodSvgHtml = logigrammePreview.innerHTML;
+    setLogigrammePreviewInvalid(false);
+    if (logigrammeState.previewError && logigrammeStatus && !logigrammeState.busy && !logigrammeState.autosaving) {
+      setLogigrammeStatus("");
     }
+    return true;
+  } catch (err) {
+    if (restoreLogigrammePreviewSvg()) {
+      setLogigrammePreviewInvalid(true);
+      setLogigrammeStatus("Syntaxe invalide — aperçu précédent conservé.");
+      return false;
+    }
+    if (logigrammeState.lastGoodMermaid && !force) {
+      setLogigrammePreviewInvalid(true);
+      setLogigrammeStatus("Syntaxe invalide — aperçu précédent conservé.");
+      return false;
+    }
+    logigrammePreview.innerHTML = '<p class="logigramme-preview-empty">Diagramme invalide — corrigez le code Mermaid.</p>';
+    setLogigrammePreviewInvalid(true);
+    setLogigrammeStatus("Syntaxe Mermaid invalide.");
+    return false;
   }
 }
 
 function setLogigrammeBusy(on) {
   logigrammeState.busy = on;
-  [logigrammeGenerateBtn, logigrammeRefineBtn, logigrammeDraftBtn, logigrammePublishBtn].forEach((b) => {
+  [logigrammeGenerateBtn, logigrammeRefineBtn, logigrammePublishBtn, logigrammeCancelBtn].forEach((b) => {
     if (b) b.disabled = on;
   });
 }
@@ -2228,16 +2341,53 @@ function setLogigrammeStatus(msg) {
   if (logigrammeStatus) logigrammeStatus.textContent = msg || "";
 }
 
+async function autosaveLogigrammeDraft({ quiet = true } = {}) {
+  syncLogigrammeFromEditor();
+  if (logigrammeState.busy || !logigrammeState.mermaid.trim()) return;
+  logigrammeState.autosaving = true;
+  try {
+    const res = await apiFetch(`${LOGIGRAMME_API}/draft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        category: logigrammeState.category,
+        stem: logigrammeState.stem,
+        mermaid: logigrammeState.mermaid,
+      }),
+    });
+    const data = await res.json();
+    logigrammeState.savedDraftMermaid = logigrammeState.mermaid;
+    if (data.overview) state.docsOverview = data.overview;
+    initDocsDraft();
+    renderDocuments();
+    if (!quiet) setLogigrammeStatus("Brouillon enregistré.");
+    else if (!logigrammeState.previewError && !logigrammeState.busy) {
+      setLogigrammeStatus("Brouillon enregistré automatiquement.");
+    }
+  } catch (err) {
+    if (!quiet) setLogigrammeStatus(err.message || "Erreur brouillon.");
+  } finally {
+    logigrammeState.autosaving = false;
+  }
+}
+
 async function openLogigrammeModal({ category, stem, name }) {
   if (!logigrammeModal) return;
+  setupLogigrammeThemeObserver();
   logigrammeState.category = category || "procedures";
   logigrammeState.stem = stem || "";
   logigrammeState.name = name || stem;
   logigrammeState.mermaid = "";
+  logigrammeState.savedDraftMermaid = "";
+  logigrammeState.lastGoodMermaid = "";
+  logigrammeState.lastGoodSvgHtml = "";
+  logigrammeState.previewError = false;
+  logigrammeState.publishedExists = false;
   logigrammeState.messages = [];
   if (logigrammeTitle) logigrammeTitle.textContent = `Logigramme — ${logigrammeState.name}`;
   if (logigrammeRefineInput) logigrammeRefineInput.value = "";
   setLogigrammeSource("");
+  setLogigrammePreviewInvalid(false);
   setLogigrammeStatus("");
   logigrammeModal.classList.remove("hidden");
   document.body.classList.add("logigramme-modal-open");
@@ -2246,18 +2396,21 @@ async function openLogigrammeModal({ category, stem, name }) {
     const qs = new URLSearchParams({ category: logigrammeState.category, stem: logigrammeState.stem });
     const res = await apiFetch(`${LOGIGRAMME_API}?${qs.toString()}`);
     const data = await res.json();
+    logigrammeState.publishedExists = Boolean(data.published_exists ?? data.exists);
     const toLoad = (data.editor_mermaid || data.draft_mermaid || data.mermaid || "").trim();
     if (toLoad) {
       setLogigrammeSource(toLoad);
+      logigrammeState.savedDraftMermaid = (data.draft_mermaid || data.mermaid || toLoad).trim();
       await renderLogigrammePreview(toLoad);
       if (data.draft_exists) {
         setLogigrammeStatus(
-          data.exists
-            ? "Brouillon chargé (non publié). Publier pour mettre à jour le chat/RAG."
-            : "Brouillon chargé — publiez quand prêt pour le rendre visible.",
+          logigrammeState.publishedExists
+            ? "Votre brouillon est chargé — publiez pour mettre à jour le chat/RAG."
+            : "Votre brouillon est chargé — publiez quand prêt.",
         );
-      } else if (data.exists) {
+      } else if (logigrammeState.publishedExists) {
         setLogigrammeStatus("Logigramme publié chargé.");
+        logigrammeState.savedDraftMermaid = toLoad;
       }
     } else {
       await renderLogigrammePreview("");
@@ -2270,8 +2423,33 @@ async function openLogigrammeModal({ category, stem, name }) {
 
 function closeLogigrammeModal() {
   if (!logigrammeModal) return;
+  if (logigrammePreviewTimer) clearTimeout(logigrammePreviewTimer);
+  if (logigrammeAutosaveTimer) clearTimeout(logigrammeAutosaveTimer);
   logigrammeModal.classList.add("hidden");
   document.body.classList.remove("logigramme-modal-open");
+}
+
+async function revertLogigrammeModifications() {
+  if (logigrammeState.busy) return;
+  let draft = (logigrammeState.savedDraftMermaid || "").trim();
+  if (!draft) {
+    try {
+      const qs = new URLSearchParams({ category: logigrammeState.category, stem: logigrammeState.stem });
+      const res = await apiFetch(`${LOGIGRAMME_API}?${qs.toString()}`);
+      const data = await res.json();
+      draft = (data.draft_mermaid || data.mermaid || "").trim();
+      logigrammeState.savedDraftMermaid = draft;
+    } catch (err) {
+      setLogigrammeStatus(err.message || "Impossible de restaurer le brouillon.");
+      return;
+    }
+  }
+  if (logigrammeRefineInput) logigrammeRefineInput.value = "";
+  logigrammeState.messages = [];
+  setLogigrammeSource(draft);
+  setLogigrammePreviewInvalid(false);
+  await renderLogigrammePreview(draft, { force: true });
+  setLogigrammeStatus("Modifications annulées — brouillon restauré.");
 }
 
 async function runLogigrammeGenerate({ refine = false } = {}) {
@@ -2302,11 +2480,16 @@ async function runLogigrammeGenerate({ refine = false } = {}) {
     setLogigrammeSource(data.mermaid);
     logigrammeState.messages = messages;
     if (refine && refineText && logigrammeRefineInput) logigrammeRefineInput.value = "";
-    await renderLogigrammePreview(data.mermaid);
+    const rendered = await renderLogigrammePreview(data.mermaid);
+    if (rendered) {
+      await autosaveLogigrammeDraft({ quiet: false });
+    }
     setLogigrammeStatus(
-      data.syntax_valid
-        ? "Diagramme prêt — modifiez le code si besoin puis enregistrez."
-        : "Syntaxe Mermaid douteuse — corrigez le code ou régénérez.",
+      rendered
+        ? data.syntax_valid
+          ? "Diagramme prêt — modifiez le code si besoin, puis publiez."
+          : "Syntaxe Mermaid douteuse — corrigez le code ou régénérez."
+        : "Le code a été mis à jour mais l’aperçu n’a pas pu être rendu — corrigez la syntaxe ou annulez les modifications.",
     );
   } catch (err) {
     setLogigrammeStatus(err.message || "Échec génération logigramme.");
@@ -2315,40 +2498,17 @@ async function runLogigrammeGenerate({ refine = false } = {}) {
   }
 }
 
-async function saveLogigrammeWorkDraft() {
-  syncLogigrammeFromEditor();
-  if (logigrammeState.busy || !logigrammeState.mermaid.trim()) return;
-  setLogigrammeBusy(true);
-  setLogigrammeStatus("Enregistrement du brouillon…");
-  try {
-    const res = await apiFetch(`${LOGIGRAMME_API}/draft`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        category: logigrammeState.category,
-        stem: logigrammeState.stem,
-        mermaid: logigrammeState.mermaid,
-      }),
-    });
-    const data = await res.json();
-    if (data.overview) state.docsOverview = data.overview;
-    initDocsDraft();
-    renderDocuments();
-    setLogigrammeStatus("Brouillon enregistré — visible admin seulement. Reprenez plus tard ou publiez.");
-  } catch (err) {
-    setLogigrammeStatus(err.message || "Échec enregistrement brouillon.");
-  } finally {
-    setLogigrammeBusy(false);
-  }
-}
-
 async function publishLogigramme() {
   syncLogigrammeFromEditor();
   if (logigrammeState.busy || !logigrammeState.mermaid.trim()) return;
-  const ok = window.confirm(
-    "Publier ce logigramme ?\n\nIl sera visible dans le chat (aperçu Source) et indexé dans le RAG. Les utilisateurs pourront s’y référer.",
-  );
-  if (!ok) return;
+  if (logigrammeState.previewError) {
+    setLogigrammeStatus("Corrigez la syntaxe Mermaid ou cliquez « Annuler modifications » avant de publier.");
+    return;
+  }
+  const confirmMsg = logigrammeState.publishedExists
+    ? "Un logigramme est déjà publié pour cette procédure.\n\nRemplacer la version visible par tous ? Elle sera indexée dans le chat/RAG."
+    : "Publier ce logigramme ?\n\nIl sera visible dans le chat (aperçu Source) et indexé dans le RAG.";
+  if (!window.confirm(confirmMsg)) return;
   setLogigrammeBusy(true);
   setLogigrammeStatus("Publication…");
   try {
@@ -2362,6 +2522,8 @@ async function publishLogigramme() {
       }),
     });
     const data = await res.json();
+    logigrammeState.savedDraftMermaid = logigrammeState.mermaid;
+    logigrammeState.publishedExists = true;
     if (data.overview) state.docsOverview = data.overview;
     initDocsDraft();
     renderDocuments();
@@ -2380,16 +2542,16 @@ if (logigrammeGenerateBtn) {
 if (logigrammeRefineBtn) {
   logigrammeRefineBtn.addEventListener("click", () => runLogigrammeGenerate({ refine: true }));
 }
-if (logigrammeDraftBtn) {
-  logigrammeDraftBtn.addEventListener("click", saveLogigrammeWorkDraft);
-}
 if (logigrammePublishBtn) {
   logigrammePublishBtn.addEventListener("click", publishLogigramme);
 }
 if (logigrammeCloseBtn) logigrammeCloseBtn.addEventListener("click", closeLogigrammeModal);
-if (logigrammeCancelBtn) logigrammeCancelBtn.addEventListener("click", closeLogigrammeModal);
+if (logigrammeCancelBtn) logigrammeCancelBtn.addEventListener("click", revertLogigrammeModifications);
 if (logigrammeSource) {
-  logigrammeSource.addEventListener("input", scheduleLogigrammePreview);
+  logigrammeSource.addEventListener("input", () => {
+    scheduleLogigrammePreview();
+    scheduleLogigrammeAutosave();
+  });
 }
 if (logigrammeModal) {
   logigrammeModal.addEventListener("click", (ev) => {
