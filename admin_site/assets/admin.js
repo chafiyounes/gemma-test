@@ -2131,6 +2131,58 @@ const logigrammeDownloadBtn = document.getElementById("logigramme-download-btn")
 
 const LOGIGRAMME_FOCUS_SCALE = 2.25;
 
+// #region agent log
+function agentDebugLog(location, message, data, hypothesisId) {
+  const payload = {
+    sessionId: "a662c1",
+    location,
+    message,
+    data,
+    hypothesisId,
+    timestamp: Date.now(),
+  };
+  fetch("/api/admin/debug-log", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+  fetch("http://127.0.0.1:7406/ingest/2e6d6a94-b6a8-47b6-b79b-690eefdc7f11", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a662c1" },
+    body: JSON.stringify(payload),
+  }).catch(() => {});
+}
+
+function measureLogigrammePreviewScroll(context, hypothesisId) {
+  if (!logigrammePreview) return;
+  const section = logigrammePreview.closest(".logigramme-modal-preview-section");
+  const svg = getLogigrammePreviewViewport()?.querySelector("svg");
+  const pStyle = getComputedStyle(logigrammePreview);
+  const sStyle = section ? getComputedStyle(section) : null;
+  agentDebugLog(
+    "admin.js:measureLogigrammePreviewScroll",
+    context,
+    {
+      previewClientH: logigrammePreview.clientHeight,
+      previewScrollH: logigrammePreview.scrollHeight,
+      previewClientW: logigrammePreview.clientWidth,
+      previewScrollW: logigrammePreview.scrollWidth,
+      previewOverflow: pStyle.overflow,
+      previewOverflowY: pStyle.overflowY,
+      sectionClientH: section ? section.clientHeight : null,
+      sectionScrollH: section ? section.scrollHeight : null,
+      sectionOverflow: sStyle ? sStyle.overflow : null,
+      svgOffsetW: svg ? svg.offsetWidth : null,
+      svgOffsetH: svg ? svg.offsetHeight : null,
+      svgRectH: svg ? Math.round(svg.getBoundingClientRect().height) : null,
+      focused: logigrammeState.previewFocused,
+      canScrollY: logigrammePreview.scrollHeight > logigrammePreview.clientHeight + 1,
+    },
+    hypothesisId
+  );
+}
+// #endregion
+
 const logigrammeState = {
   category: "procedures",
   stem: "",
@@ -2383,6 +2435,7 @@ function applyLogigrammePreviewFocus(clientX, clientY) {
     const ratio = newWidth / currentWidth;
     container.scrollLeft = Math.max(0, clickX * ratio - container.clientWidth / 2);
     container.scrollTop = Math.max(0, clickY * ratio - container.clientHeight / 2);
+    measureLogigrammePreviewScroll("after-zoom", "D");
   });
 
   container.classList.add("logigramme-preview--focused");
@@ -2437,6 +2490,7 @@ async function renderLogigrammePreview(code, { force = false } = {}) {
     if (logigrammeState.previewError && logigrammeStatus && !logigrammeState.busy && !logigrammeState.autosaving) {
       setLogigrammeStatus("");
     }
+    requestAnimationFrame(() => measureLogigrammePreviewScroll("after-render", "A"));
     return true;
   } catch (err) {
     if (restoreLogigrammePreviewSvg()) {
@@ -2686,6 +2740,26 @@ if (logigrammeSource) {
 }
 if (logigrammePreview) {
   logigrammePreview.addEventListener("dblclick", onLogigrammePreviewDblClick);
+  // #region agent log
+  logigrammePreview.addEventListener(
+    "wheel",
+    (ev) => {
+      measureLogigrammePreviewScroll("wheel", "E");
+      agentDebugLog(
+        "admin.js:wheel",
+        "wheel on preview",
+        {
+          deltaY: ev.deltaY,
+          defaultPrevented: ev.defaultPrevented,
+          scrollTop: logigrammePreview.scrollTop,
+          maxScrollTop: logigrammePreview.scrollHeight - logigrammePreview.clientHeight,
+        },
+        "E"
+      );
+    },
+    { passive: true }
+  );
+  // #endregion
 }
 if (logigrammeModal) {
   logigrammeModal.addEventListener("click", (ev) => {
