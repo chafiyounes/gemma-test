@@ -8,6 +8,37 @@
   padding: 1rem;
 }
 
+.mermaid-diagram-wrap--compact {
+  max-height: 420px;
+  margin-top: 0.5rem;
+}
+
+.mermaid-diagram-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin-bottom: 0.5rem;
+}
+
+.mermaid-diagram-download {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.mermaid-diagram-download:hover:not(:disabled) {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.mermaid-diagram-download:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .mermaid-diagram {
   min-height: 320px;
 }

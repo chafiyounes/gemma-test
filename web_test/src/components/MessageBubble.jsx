@@ -3,6 +3,7 @@ import { renderFormattedMessage } from "../lib/messageFormat";
 import "./MessageBubble.css";
 
 const DocumentPreviewModal = lazy(() => import("./DocumentPreviewModal"));
+const MermaidDiagram = lazy(() => import("./MermaidDiagram"));
 
 const DISLIKE_REASONS = ["Hors sujet", "Incomplete", "Incorrecte"];
 
@@ -26,6 +27,9 @@ export default function MessageBubble({ message, onSubmitFeedback }) {
 
   const feedbackValue = message.feedback?.value;
   const categoryHint = message.metadata?.category_used;
+  const logigrammeMeta = message.metadata?.logigramme;
+  const logigrammeCode = logigrammeMeta?.mermaid;
+  const logigrammeFilename = `${(logigrammeMeta?.stem || "logigramme").replace(/[^\w.-]+/g, "_")}-logigramme.png`;
 
   const handleSourceClick = (name) => {
     const trimmed = (name || "").trim();
@@ -84,6 +88,19 @@ export default function MessageBubble({ message, onSubmitFeedback }) {
               ? message.content
               : renderFormattedMessage(message.content, { onSourceClick: handleSourceClick })}
           </div>
+          {!isUser && !isError && logigrammeCode ? (
+            <div className="msg-logigramme-block">
+              <p className="msg-logigramme-title">Logigramme</p>
+              <Suspense fallback={<p className="msg-logigramme-loading">Chargement du diagramme…</p>}>
+                <MermaidDiagram
+                  code={logigrammeCode}
+                  compact
+                  showDownload
+                  downloadFilename={logigrammeFilename}
+                />
+              </Suspense>
+            </div>
+          ) : null}
           {!isUser && !isError && message.interactionId ? (
             <div className="feedback-section">
               <div className="feedback-actions">

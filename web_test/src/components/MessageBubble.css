@@ -8,6 +8,26 @@
   border: 1px solid var(--border);
 }
 
+.msg-logigramme-block {
+  margin-top: 12px;
+  max-width: 100%;
+}
+
+.msg-logigramme-title {
+  margin: 0 0 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.msg-logigramme-loading {
+  margin: 0;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
 .msg-img-wrap {
   margin: 6px 0;
 }

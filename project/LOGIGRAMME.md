@@ -1,6 +1,6 @@
 # Logigrammes (procedure flowcharts)
 
-**Status:** Integrated for **procedures** only — admin/manager creation, RAG sidecar, preview tab. Normal chat is unchanged (no global logigramme intent).
+**Status:** Integrated for **procedures** — admin/manager creation, RAG sidecar, document preview tab, and **explicit-request** logigrammes in normal chat.
 
 **Related:** [`ARCHITECTURE.md`](ARCHITECTURE.md), [`DATA_LAYOUT.md`](DATA_LAYOUT.md)
 
@@ -68,7 +68,10 @@ Generation uses dedicated admin endpoints — **not** `POST /chat`.
 - **Auto-save** — edits are saved to your draft (~1.5 s debounce); no manual draft button
 - **Annuler modifications** — restores your last auto-saved draft; clears Affiner input/history
 - **Publier** — sole explicit save to the shared `.mmd`; confirms overwrite when a published version already exists; reloads RAG; visible in chat preview
+- **Télécharger PNG** — export the current preview as PNG (client-side, no server dependency)
 - Close modal via **×** (draft already auto-saved)
+
+Preview: **double-clic** zooms in on the click area; double-clic again resets. Scroll when the diagram is taller than the panel or when zoomed.
 
 Goal: the diagram alone should let an operator follow the **entire** procedure (all steps, branches, lists). Generation prompts enforce exhaustive coverage; **Affiner** fixes gaps.
 
@@ -76,13 +79,32 @@ Validation: [`core/mermaid_validate.py`](../core/mermaid_validate.py)
 
 ---
 
-## Chat preview
+## Chat (explicit logigramme request)
+
+When the user **explicitly** asks for a logigramme (keywords: *logigramme*, *diagramme de flux*, *schéma du processus*, *flowchart*, etc.), `POST /chat` may attach a diagram after the textual answer.
+
+Module: [`core/chat_logigramme.py`](../core/chat_logigramme.py)
+
+Flow:
+
+1. RAG + LLM answer with numbered steps for the situation (no Mermaid in the text).
+2. If a **published** sidecar matches the primary retrieved procedure → reuse it (`source: "published"`).
+3. Else generate a **situational** Mermaid from procedure context + user question + step answer (`source: "generated"`).
+4. Response metadata includes `logigramme: { mermaid, stem, source }`.
+
+UI: [`MessageBubble.jsx`](../web_test/src/components/MessageBubble.jsx) renders the diagram below the text (lazy `MermaidDiagram`) with **Télécharger PNG**.
+
+Generic questions without logigramme keywords are unchanged.
+
+---
+
+## Document preview (Source click)
 
 When a user clicks a **Source** hint, [`DocumentPreviewModal`](../web_test/src/components/DocumentPreviewModal.jsx) shows tabs:
 
 **Word | Markdown | Logigramme** (Logigramme tab only when a sidecar exists).
 
-Mermaid renders only in the preview modal (lazy-loaded) — not in chat message bodies.
+Mermaid in chat message bodies is only for explicit logigramme requests — not inline in arbitrary assistant prose.
 
 ---
 
@@ -96,8 +118,8 @@ Scripts: [`scripts/eval_logigramme_formats.py`](../scripts/eval_logigramme_forma
 
 ---
 
-## Explicit non-goals (normal chat safety)
+## Safety boundaries
 
-- No logigramme intent in [`core/llm.py`](../core/llm.py)
+- Logigramme intent is **not** in [`core/llm.py`](../core/llm.py) `SYSTEM_PROMPT` — only [`core/chat_logigramme.py`](../core/chat_logigramme.py) after an explicit user keyword
 - No `generate_logigramme` agentic tool
-- No Mermaid rendering in [`messageFormat.jsx`](../web_test/src/lib/messageFormat.jsx)
+- No Mermaid parsing in [`messageFormat.jsx`](../web_test/src/lib/messageFormat.jsx) — diagrams come from `metadata.logigramme` only

@@ -185,7 +185,27 @@ def _rag_for_client(rag: dict) -> dict:
         return {}
     out = dict(rag)
     out.pop("context_full", None)
+    out.pop("logigramme", None)
     return out
+
+
+def _chat_response_metadata(
+    *,
+    session: dict,
+    client_ip: str,
+    category_used_label: str,
+    rag_meta: dict,
+) -> dict:
+    metadata = {
+        "session_role": session["role"],
+        "rate_limit_remaining": rate_limiter.remaining(client_ip),
+        "category_used": category_used_label,
+        "rag": _rag_for_client(rag_meta),
+    }
+    logigramme = rag_meta.get("logigramme") if isinstance(rag_meta, dict) else None
+    if logigramme:
+        metadata["logigramme"] = logigramme
+    return metadata
 
 
 def _reconstruct_rag_for_admin(message: str, category: Optional[str]) -> dict:
@@ -669,7 +689,6 @@ async def chat(
                 history=history,
                 category=category,
             )
-            rag_client = _rag_for_client(result.rag_meta)
             if not body.skip_persist:
                 await db.save_interaction(
                     {
@@ -690,12 +709,12 @@ async def chat(
                 response=result.response,
                 interaction_id=interaction_id,
                 model=result.model,
-                metadata={
-                    "session_role": session["role"],
-                    "rate_limit_remaining": rate_limiter.remaining(client_ip),
-                    "category_used": category_used_label,
-                    "rag": rag_client,
-                },
+                metadata=_chat_response_metadata(
+                    session=session,
+                    client_ip=client_ip,
+                    category_used_label=category_used_label,
+                    rag_meta=result.rag_meta,
+                ),
             )
 
     use_liked_cache = settings.LIKED_ANSWER_CACHE_ENABLED and not body.system_prompt
@@ -745,7 +764,6 @@ async def chat(
         system_prompt=body.system_prompt if auth.role_satisfies(session["role"], "administrator") else None,
         category=category,
     )
-    rag_client = _rag_for_client(result.rag_meta)
 
     if not body.skip_persist:
         await db.save_interaction(
@@ -768,12 +786,12 @@ async def chat(
         response=result.response,
         interaction_id=interaction_id,
         model=result.model,
-        metadata={
-            "session_role": session["role"],
-            "rate_limit_remaining": rate_limiter.remaining(client_ip),
-            "category_used": category_used_label,
-            "rag": rag_client,
-        },
+        metadata=_chat_response_metadata(
+            session=session,
+            client_ip=client_ip,
+            category_used_label=category_used_label,
+            rag_meta=result.rag_meta,
+        ),
     )
 
 

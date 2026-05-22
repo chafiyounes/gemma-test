@@ -2127,6 +2127,9 @@ const logigrammeRefineBtn = document.getElementById("logigramme-refine-btn");
 const logigrammePublishBtn = document.getElementById("logigramme-publish-btn");
 const logigrammeCloseBtn = document.getElementById("logigramme-close-btn");
 const logigrammeCancelBtn = document.getElementById("logigramme-cancel-btn");
+const logigrammeDownloadBtn = document.getElementById("logigramme-download-btn");
+
+const LOGIGRAMME_FOCUS_SCALE = 2.25;
 
 const logigrammeState = {
   category: "procedures",
@@ -2138,6 +2141,7 @@ const logigrammeState = {
   lastGoodSvgHtml: "",
   previewError: false,
   previewFocused: false,
+  previewBaseWidth: null,
   publishedExists: false,
   messages: [],
   busy: false,
@@ -2276,106 +2280,111 @@ function getLogigrammePreviewViewport() {
   return logigrammePreview?.querySelector(".logigramme-preview-viewport");
 }
 
-function resetLogigrammePreviewZoom(animate = true) {
+function updateLogigrammeDownloadBtn() {
+  if (!logigrammeDownloadBtn) return;
+  const svg = getLogigrammePreviewViewport()?.querySelector("svg");
+  logigrammeDownloadBtn.disabled = !svg;
+}
+
+function downloadLogigrammePng() {
+  const svg = getLogigrammePreviewViewport()?.querySelector("svg");
+  if (!svg) return;
+
+  const bg = getComputedStyle(logigrammePreview).backgroundColor || "#ffffff";
+  const vb = svg.viewBox?.baseVal;
+  const rect = svg.getBoundingClientRect();
+  const baseW = vb?.width || rect.width || 800;
+  const baseH = vb?.height || rect.height || 600;
+  const exportScale = 2;
+  const canvas = document.createElement("canvas");
+  canvas.width = Math.ceil(baseW * exportScale);
+  canvas.height = Math.ceil(baseH * exportScale);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const svgStr = new XMLSerializer().serializeToString(svg);
+  const blob = new Blob([svgStr], { type: "image/svg+xml;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const img = new Image();
+  img.onload = () => {
+    ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+    URL.revokeObjectURL(url);
+    canvas.toBlob((pngBlob) => {
+      if (!pngBlob) return;
+      const a = document.createElement("a");
+      const stem = (logigrammeState.stem || "logigramme").replace(/[^\w.-]+/g, "_");
+      a.href = URL.createObjectURL(pngBlob);
+      a.download = `${stem}-logigramme.png`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }, "image/png");
+  };
+  img.onerror = () => URL.revokeObjectURL(url);
+  img.src = url;
+}
+
+function resetLogigrammePreviewZoom() {
   const vp = getLogigrammePreviewViewport();
+  const svg = vp?.querySelector("svg");
   if (!vp || !logigrammePreview) return;
-  if (!animate) vp.style.transition = "none";
-  vp.style.transform = "";
+  if (svg) {
+    svg.style.width = "100%";
+    svg.style.maxWidth = "100%";
+    svg.style.height = "auto";
+  }
   logigrammePreview.classList.remove("logigramme-preview--focused");
   logigrammeState.previewFocused = false;
-  if (!animate) {
-    requestAnimationFrame(() => {
-      vp.style.transition = "";
-    });
-  }
+  logigrammeState.previewBaseWidth = null;
 }
 
 function mountLogigrammePreviewContent(html) {
   if (!logigrammePreview) return;
-  resetLogigrammePreviewZoom(false);
+  resetLogigrammePreviewZoom();
   const trimmed = (html || "").trim();
   if (!trimmed || trimmed.startsWith("<p")) {
     logigrammePreview.innerHTML = trimmed || "";
+    updateLogigrammeDownloadBtn();
     return;
   }
   logigrammePreview.innerHTML = `<div class="logigramme-preview-viewport">${trimmed}</div>`;
   fitLogigrammePreviewSvg();
+  updateLogigrammeDownloadBtn();
 }
 
-function findLogigrammeFocusTarget(svg, targetEl) {
-  if (!svg || !targetEl) return null;
-  let node = targetEl;
-  while (node && node !== svg) {
-    if (node.classList?.contains("node") || node.classList?.contains("cluster")) {
-      try {
-        return node.getBBox();
-      } catch {
-        return null;
-      }
-    }
-    node = node.parentElement;
-  }
-  return null;
-}
-
-function clientPointToSvgRect(svg, clientX, clientY, pad = 90) {
-  if (!svg) return null;
-  const ctm = svg.getScreenCTM();
-  if (!ctm) return null;
-  const pt = svg.createSVGPoint();
-  pt.x = clientX;
-  pt.y = clientY;
-  const sp = pt.matrixTransform(ctm.inverse());
-  return { x: sp.x - pad, y: sp.y - pad, width: pad * 2, height: pad * 2 };
-}
-
-function svgRectToContainerRect(svg, bbox) {
-  const container = logigrammePreview;
-  if (!container || !svg || !bbox) return null;
-  const svgBox = svg.getBoundingClientRect();
-  const containerBox = container.getBoundingClientRect();
-  const vb = svg.viewBox?.baseVal;
-  const vbW = vb?.width || svgBox.width || 1;
-  const vbH = vb?.height || svgBox.height || 1;
-  const scaleX = svgBox.width / vbW;
-  const scaleY = svgBox.height / vbH;
-  const left = svgBox.left - containerBox.left + container.scrollLeft + bbox.x * scaleX;
-  const top = svgBox.top - containerBox.top + container.scrollTop + bbox.y * scaleY;
-  return {
-    x: left,
-    y: top,
-    width: Math.max(bbox.width * scaleX, 48),
-    height: Math.max(bbox.height * scaleY, 36),
-  };
-}
-
-function applyLogigrammePreviewFocus(clientX, clientY, targetEl) {
+function applyLogigrammePreviewFocus(clientX, clientY) {
   const container = logigrammePreview;
   const vp = getLogigrammePreviewViewport();
   const svg = vp?.querySelector("svg");
   if (!container || !vp || !svg) return;
 
   if (logigrammeState.previewFocused) {
-    resetLogigrammePreviewZoom(true);
+    resetLogigrammePreviewZoom();
     return;
   }
 
-  const svgBBox = findLogigrammeFocusTarget(svg, targetEl) || clientPointToSvgRect(svg, clientX, clientY);
-  const focus = svgRectToContainerRect(svg, svgBBox);
-  if (!focus) return;
+  const containerRect = container.getBoundingClientRect();
+  const clickX = clientX - containerRect.left + container.scrollLeft;
+  const clickY = clientY - containerRect.top + container.scrollTop;
 
-  const pad = 20;
-  const availW = Math.max(container.clientWidth - pad * 2, 120);
-  const availH = Math.max(container.clientHeight - pad * 2, 80);
-  let scale = Math.min(availW / focus.width, availH / focus.height, 3.2);
-  scale = Math.max(scale, 1.6);
+  const currentWidth = svg.getBoundingClientRect().width;
+  if (currentWidth <= 0) return;
 
-  const focusCx = focus.x + focus.width / 2;
-  const focusCy = focus.y + focus.height / 2;
-  const tx = container.clientWidth / 2 - focusCx * scale;
-  const ty = container.clientHeight / 2 - focusCy * scale;
+  logigrammeState.previewBaseWidth = currentWidth;
+  const scale = LOGIGRAMME_FOCUS_SCALE;
+  const newWidth = currentWidth * scale;
+  svg.style.width = `${newWidth}px`;
+  svg.style.maxWidth = "none";
+  svg.style.height = "auto";
 
-  vp.style.transform = `translate(${tx}px, ${ty}px) scale(${scale})`;
+  requestAnimationFrame(() => {
+    const ratio = newWidth / currentWidth;
+    container.scrollLeft = Math.max(0, clickX * ratio - container.clientWidth / 2);
+    container.scrollTop = Math.max(0, clickY * ratio - container.clientHeight / 2);
+  });
+
   container.classList.add("logigramme-preview--focused");
   logigrammeState.previewFocused = true;
 }
@@ -2384,7 +2393,7 @@ function onLogigrammePreviewDblClick(ev) {
   if (!logigrammePreview?.contains(ev.target)) return;
   if (ev.target.closest?.(".logigramme-preview-empty")) return;
   ev.preventDefault();
-  applyLogigrammePreviewFocus(ev.clientX, ev.clientY, ev.target);
+  applyLogigrammePreviewFocus(ev.clientX, ev.clientY);
 }
 
 function restoreLogigrammePreviewSvg() {
@@ -2408,11 +2417,12 @@ async function renderLogigrammePreview(code, { force = false } = {}) {
   if (!logigrammePreview) return false;
   const src = normalizeLogigrammeCode(code);
   if (!src) {
-    resetLogigrammePreviewZoom(false);
+    resetLogigrammePreviewZoom();
     logigrammePreview.innerHTML = '<p class="logigramme-preview-empty">Aucun diagramme pour l’instant.</p>';
     logigrammeState.lastGoodMermaid = "";
     logigrammeState.lastGoodSvgHtml = "";
     setLogigrammePreviewInvalid(false);
+    updateLogigrammeDownloadBtn();
     return false;
   }
   try {
@@ -2423,6 +2433,7 @@ async function renderLogigrammePreview(code, { force = false } = {}) {
     logigrammeState.lastGoodMermaid = src;
     logigrammeState.lastGoodSvgHtml = getLogigrammePreviewViewport()?.innerHTML || svg;
     setLogigrammePreviewInvalid(false);
+    updateLogigrammeDownloadBtn();
     if (logigrammeState.previewError && logigrammeStatus && !logigrammeState.busy && !logigrammeState.autosaving) {
       setLogigrammeStatus("");
     }
@@ -2441,6 +2452,7 @@ async function renderLogigrammePreview(code, { force = false } = {}) {
     logigrammePreview.innerHTML = '<p class="logigramme-preview-empty">Diagramme invalide — corrigez le code Mermaid.</p>';
     setLogigrammePreviewInvalid(true);
     setLogigrammeStatus("Syntaxe Mermaid invalide.");
+    updateLogigrammeDownloadBtn();
     return false;
   }
 }
@@ -2663,6 +2675,9 @@ if (logigrammePublishBtn) {
 }
 if (logigrammeCloseBtn) logigrammeCloseBtn.addEventListener("click", closeLogigrammeModal);
 if (logigrammeCancelBtn) logigrammeCancelBtn.addEventListener("click", revertLogigrammeModifications);
+if (logigrammeDownloadBtn) {
+  logigrammeDownloadBtn.addEventListener("click", downloadLogigrammePng);
+}
 if (logigrammeSource) {
   logigrammeSource.addEventListener("input", () => {
     scheduleLogigrammePreview();

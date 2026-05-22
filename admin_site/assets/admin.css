@@ -1750,22 +1750,19 @@ body.logigramme-modal-open {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-page);
-  overflow: hidden;
+  overflow: auto;
   cursor: zoom-in;
   position: relative;
 }
 
 .logigramme-preview.logigramme-preview--focused {
   cursor: zoom-out;
-  overflow: hidden;
 }
 
 .logigramme-preview-viewport {
-  transform-origin: 0 0;
-  transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
   display: inline-block;
   width: 100%;
-  will-change: transform;
+  min-width: min-content;
 }
 
 .logigramme-preview-viewport svg {

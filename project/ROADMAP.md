@@ -70,7 +70,7 @@ Procedure → Mermaid flowchart via Gemma. **Procedures only** — admin/manager
 | Admin modal (manager + admin) | Done |
 | Document preview Logigramme tab | Done |
 | RAG merge at index time | Done |
-| Classic chat logigramme intent | **Off** (by design) |
+| Classic chat logigramme intent | **On** (explicit keywords only; see [`LOGIGRAMME.md`](LOGIGRAMME.md)) |
 | Chat message Mermaid renderer | **Off** (preview only) |
 
 **Next:** Manual fidelity review on saved sidecars; tune refine prompts if branches are missing.

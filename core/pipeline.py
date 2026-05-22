@@ -2,6 +2,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from core.chat_logigramme import attach_logigramme_if_requested, augment_message_for_logigramme
 from core.llm import GemmaModel
 from app_config.settings import settings
 
@@ -33,16 +34,23 @@ class GemmaPipeline:
         category: Optional[str] = None,
     ) -> PipelineResult:
         try:
+            llm_message = augment_message_for_logigramme(message)
             out = await self.llm.generate(
-                message=message,
+                message=llm_message,
                 history=history or [],
                 system_prompt=system_prompt,
                 category=category,
             )
+            rag_meta = attach_logigramme_if_requested(
+                message=message,
+                step_answer=out.text,
+                rag_meta=dict(out.rag or {}),
+                model=self.model_name,
+            )
             return PipelineResult(
                 response=out.text,
                 model=self.model_name,
-                rag_meta=out.rag,
+                rag_meta=rag_meta,
             )
         except Exception as exc:
             logger.error("Pipeline error: %s", exc, exc_info=True)
@@ -60,15 +68,22 @@ class GemmaPipeline:
     ) -> PipelineResult:
         """Agentic RAG: map + tools; no naive RAG inject."""
         try:
+            llm_message = augment_message_for_logigramme(message)
             out = await self.llm.generate_agentic_rag(
-                message=message,
+                message=llm_message,
                 history=history or [],
                 category=category,
+            )
+            rag_meta = attach_logigramme_if_requested(
+                message=message,
+                step_answer=out.text,
+                rag_meta=dict(out.rag or {}),
+                model=self.model_name,
             )
             return PipelineResult(
                 response=out.text,
                 model=self.model_name,
-                rag_meta=out.rag,
+                rag_meta=rag_meta,
             )
         except Exception as exc:
             logger.error("Agentic pipeline error: %s", exc, exc_info=True)
