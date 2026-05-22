@@ -426,6 +426,8 @@ def apply_plan(
     uploads: List[dict],
     moves: List[dict],
     deletes: List[dict],
+    *,
+    username: str = "",
 ) -> dict:
     """Apply staged document operations atomically (best-effort rollback)."""
     undo_stack: List[dict] = []
@@ -517,7 +519,7 @@ def apply_plan(
                 }
             )
 
-        return get_overview()
+        return get_overview(username=username)
     except Exception:
         for step in reversed(undo_stack):
             try:
