@@ -96,6 +96,10 @@
   box-shadow: var(--shadow-sm);
 }
 
+.bot-bubble.msg-bubble--diagram {
+  max-width: min(960px, 96%);
+}
+
 .error-bubble {
   border: 1px solid var(--error);
   color: var(--error);

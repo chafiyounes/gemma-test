@@ -82,7 +82,7 @@ export default function MessageBubble({ message, onSubmitFeedback }) {
             </svg>
           </div>
         )}
-        <div className={`msg-bubble ${isUser ? "user-bubble" : "bot-bubble"} ${isError ? "error-bubble" : ""}`}>
+        <div className={`msg-bubble ${isUser ? "user-bubble" : "bot-bubble"} ${isError ? "error-bubble" : ""}${!isUser && logigrammeCode ? " msg-bubble--diagram" : ""}`}>
           <div className="msg-text" dir={textDir}>
             {isUser || isError
               ? message.content
@@ -96,6 +96,7 @@ export default function MessageBubble({ message, onSubmitFeedback }) {
                   code={logigrammeCode}
                   compact
                   showDownload
+                  showZoomControls
                   downloadFilename={logigrammeFilename}
                 />
               </Suspense>

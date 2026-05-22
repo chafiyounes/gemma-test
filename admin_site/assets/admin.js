@@ -2119,6 +2119,11 @@ const LOGIGRAMME_API = "/api/admin/logigramme";
 const logigrammeModal = document.getElementById("logigramme-modal");
 const logigrammeTitle = document.getElementById("logigramme-modal-title");
 const logigrammePreview = document.getElementById("logigramme-preview");
+const logigrammePreviewScroll = document.getElementById("logigramme-preview-scroll");
+const logigrammeZoomInBtn = document.getElementById("logigramme-zoom-in");
+const logigrammeZoomOutBtn = document.getElementById("logigramme-zoom-out");
+const logigrammeZoomFitBtn = document.getElementById("logigramme-zoom-fit");
+const logigrammeZoomLabel = document.getElementById("logigramme-zoom-label");
 const logigrammeSource = document.getElementById("logigramme-source");
 const logigrammeRefineInput = document.getElementById("logigramme-refine-input");
 const logigrammeStatus = document.getElementById("logigramme-status");
@@ -2129,59 +2134,9 @@ const logigrammeCloseBtn = document.getElementById("logigramme-close-btn");
 const logigrammeCancelBtn = document.getElementById("logigramme-cancel-btn");
 const logigrammeDownloadBtn = document.getElementById("logigramme-download-btn");
 
-const LOGIGRAMME_FOCUS_SCALE = 2.25;
-
-// #region agent log
-function agentDebugLog(location, message, data, hypothesisId) {
-  const payload = {
-    sessionId: "a662c1",
-    location,
-    message,
-    data,
-    hypothesisId,
-    timestamp: Date.now(),
-  };
-  fetch("/api/admin/debug-log", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload),
-  }).catch(() => {});
-  fetch("http://127.0.0.1:7406/ingest/2e6d6a94-b6a8-47b6-b79b-690eefdc7f11", {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "a662c1" },
-    body: JSON.stringify(payload),
-  }).catch(() => {});
-}
-
-function measureLogigrammePreviewScroll(context, hypothesisId) {
-  if (!logigrammePreview) return;
-  const section = logigrammePreview.closest(".logigramme-modal-preview-section");
-  const svg = getLogigrammePreviewViewport()?.querySelector("svg");
-  const pStyle = getComputedStyle(logigrammePreview);
-  const sStyle = section ? getComputedStyle(section) : null;
-  agentDebugLog(
-    "admin.js:measureLogigrammePreviewScroll",
-    context,
-    {
-      previewClientH: logigrammePreview.clientHeight,
-      previewScrollH: logigrammePreview.scrollHeight,
-      previewClientW: logigrammePreview.clientWidth,
-      previewScrollW: logigrammePreview.scrollWidth,
-      previewOverflow: pStyle.overflow,
-      previewOverflowY: pStyle.overflowY,
-      sectionClientH: section ? section.clientHeight : null,
-      sectionScrollH: section ? section.scrollHeight : null,
-      sectionOverflow: sStyle ? sStyle.overflow : null,
-      svgOffsetW: svg ? svg.offsetWidth : null,
-      svgOffsetH: svg ? svg.offsetHeight : null,
-      svgRectH: svg ? Math.round(svg.getBoundingClientRect().height) : null,
-      focused: logigrammeState.previewFocused,
-      canScrollY: logigrammePreview.scrollHeight > logigrammePreview.clientHeight + 1,
-    },
-    hypothesisId
-  );
-}
-// #endregion
+const LOGIGRAMME_ZOOM_STEP = 1.25;
+const LOGIGRAMME_ZOOM_MAX = 3;
+const LOGIGRAMME_DBLCLICK_FACTOR = 2;
 
 const logigrammeState = {
   category: "procedures",
@@ -2192,13 +2147,17 @@ const logigrammeState = {
   lastGoodMermaid: "",
   lastGoodSvgHtml: "",
   previewError: false,
-  previewFocused: false,
-  previewBaseWidth: null,
+  baseWidth: 0,
+  baseHeight: 0,
+  fitScale: 1,
+  currentScale: 1,
   publishedExists: false,
   messages: [],
   busy: false,
   autosaving: false,
 };
+
+let logigrammePanState = null;
 
 let logigrammePreviewTimer = null;
 let logigrammeAutosaveTimer = null;
@@ -2238,7 +2197,7 @@ function getMermaidThemeConfig() {
       theme: "dark",
       flowchart: {
         htmlLabels: true,
-        useMaxWidth: true,
+        useMaxWidth: false,
         wrappingWidth: 180,
       },
       themeVariables: {
@@ -2260,7 +2219,7 @@ function getMermaidThemeConfig() {
     theme: "neutral",
     flowchart: {
       htmlLabels: true,
-      useMaxWidth: true,
+      useMaxWidth: false,
       wrappingWidth: 180,
     },
     themeVariables: {
@@ -2332,17 +2291,171 @@ function getLogigrammePreviewViewport() {
   return logigrammePreview?.querySelector(".logigramme-preview-viewport");
 }
 
+function getLogigrammePreviewSvg() {
+  return getLogigrammePreviewViewport()?.querySelector("svg") || logigrammePreview?.querySelector("svg");
+}
+
+function measureSvgNaturalSize(svg) {
+  if (!svg) return { width: 800, height: 600 };
+  const vb = svg.viewBox?.baseVal;
+  if (vb && vb.width > 0 && vb.height > 0) {
+    return { width: vb.width, height: vb.height };
+  }
+  try {
+    const bb = svg.getBBox();
+    if (bb.width > 0 && bb.height > 0) {
+      return { width: bb.width, height: bb.height };
+    }
+  } catch {
+    /* foreignObject / not laid out yet */
+  }
+  const rect = svg.getBoundingClientRect();
+  return {
+    width: rect.width > 0 ? rect.width : 800,
+    height: rect.height > 0 ? rect.height : 600,
+  };
+}
+
+function computeLogigrammeFitScale() {
+  const scroll = logigrammePreviewScroll;
+  if (!scroll || !logigrammeState.baseWidth) return 1;
+  const pad = 24;
+  const availW = Math.max(scroll.clientWidth - pad, 120);
+  const availH = Math.max(scroll.clientHeight - pad, 80);
+  const scaleW = availW / logigrammeState.baseWidth;
+  const scaleH = availH / logigrammeState.baseHeight;
+  return Math.min(1, scaleW, scaleH);
+}
+
+function updateLogigrammeZoomUi() {
+  const fit = logigrammeState.fitScale || 1;
+  const cur = logigrammeState.currentScale || fit;
+  if (logigrammeZoomLabel) {
+    logigrammeZoomLabel.textContent = `${Math.round((cur / fit) * 100)}%`;
+  }
+  if (logigrammeZoomOutBtn) {
+    logigrammeZoomOutBtn.disabled = cur <= fit + 0.001 || !logigrammeState.baseWidth;
+  }
+  if (logigrammeZoomInBtn) {
+    logigrammeZoomInBtn.disabled = !logigrammeState.baseWidth || cur >= LOGIGRAMME_ZOOM_MAX - 0.001;
+  }
+  if (logigrammeZoomFitBtn) {
+    logigrammeZoomFitBtn.disabled = !logigrammeState.baseWidth;
+  }
+}
+
+function applyLogigrammePreviewDimensions() {
+  const canvas = logigrammePreview;
+  const svg = getLogigrammePreviewSvg();
+  if (!canvas || !svg || !logigrammeState.baseWidth) return;
+
+  const scale = logigrammeState.currentScale || 1;
+  const w = logigrammeState.baseWidth * scale;
+  const h = logigrammeState.baseHeight * scale;
+
+  canvas.style.width = `${w}px`;
+  canvas.style.height = `${h}px`;
+  svg.removeAttribute("width");
+  svg.removeAttribute("height");
+  svg.style.width = `${logigrammeState.baseWidth}px`;
+  svg.style.height = `${logigrammeState.baseHeight}px`;
+  svg.style.maxWidth = "none";
+  svg.style.display = "block";
+  updateLogigrammeZoomUi();
+}
+
+function setLogigrammePreviewZoom(scale, focalPoint) {
+  if (!logigrammeState.baseWidth) return;
+  const fit = logigrammeState.fitScale || computeLogigrammeFitScale();
+  logigrammeState.fitScale = fit;
+  const clamped = Math.max(fit, Math.min(LOGIGRAMME_ZOOM_MAX, scale));
+  logigrammeState.currentScale = clamped;
+  applyLogigrammePreviewDimensions();
+
+  const scroll = logigrammePreviewScroll;
+  if (scroll && focalPoint) {
+    requestAnimationFrame(() => {
+      scroll.scrollLeft = Math.max(0, focalPoint.x * clamped - scroll.clientWidth / 2);
+      scroll.scrollTop = Math.max(0, focalPoint.y * clamped - scroll.clientHeight / 2);
+    });
+  }
+}
+
+function fitLogigrammePreviewToView(resetScroll = true) {
+  if (!logigrammeState.baseWidth) return;
+  logigrammeState.fitScale = computeLogigrammeFitScale();
+  setLogigrammePreviewZoom(logigrammeState.fitScale);
+  if (resetScroll && logigrammePreviewScroll) {
+    logigrammePreviewScroll.scrollLeft = 0;
+    logigrammePreviewScroll.scrollTop = 0;
+  }
+}
+
+function resetLogigrammePreviewZoom() {
+  logigrammeState.baseWidth = 0;
+  logigrammeState.baseHeight = 0;
+  logigrammeState.fitScale = 1;
+  logigrammeState.currentScale = 1;
+  if (logigrammePreview) {
+    logigrammePreview.style.width = "";
+    logigrammePreview.style.height = "";
+  }
+  updateLogigrammeZoomUi();
+}
+
+function prepareLogigrammePreviewSvg() {
+  const svg = getLogigrammePreviewSvg();
+  if (!svg) return;
+  const natural = measureSvgNaturalSize(svg);
+  logigrammeState.baseWidth = natural.width;
+  logigrammeState.baseHeight = natural.height;
+  fitLogigrammePreviewToView(true);
+}
+
+function onLogigrammeZoomIn() {
+  setLogigrammePreviewZoom((logigrammeState.currentScale || 1) * LOGIGRAMME_ZOOM_STEP);
+}
+
+function onLogigrammeZoomOut() {
+  setLogigrammePreviewZoom((logigrammeState.currentScale || 1) / LOGIGRAMME_ZOOM_STEP);
+}
+
+function onLogigrammePreviewPanStart(ev) {
+  if (!logigrammePreviewScroll || ev.button !== 0) return;
+  if (ev.target.closest?.(".logigramme-preview-empty")) return;
+  logigrammePanState = {
+    x: ev.clientX,
+    y: ev.clientY,
+    sl: logigrammePreviewScroll.scrollLeft,
+    st: logigrammePreviewScroll.scrollTop,
+  };
+  logigrammePreviewScroll.classList.add("logigramme-preview-scroll--panning");
+}
+
+function onLogigrammePreviewPanMove(ev) {
+  if (!logigrammePanState || !logigrammePreviewScroll) return;
+  logigrammePreviewScroll.scrollLeft = logigrammePanState.sl - (ev.clientX - logigrammePanState.x);
+  logigrammePreviewScroll.scrollTop = logigrammePanState.st - (ev.clientY - logigrammePanState.y);
+}
+
+function onLogigrammePreviewPanEnd() {
+  if (!logigrammePreviewScroll) return;
+  logigrammePanState = null;
+  logigrammePreviewScroll.classList.remove("logigramme-preview-scroll--panning");
+}
+
 function updateLogigrammeDownloadBtn() {
   if (!logigrammeDownloadBtn) return;
-  const svg = getLogigrammePreviewViewport()?.querySelector("svg");
+  const svg = getLogigrammePreviewSvg();
   logigrammeDownloadBtn.disabled = !svg;
 }
 
 function downloadLogigrammePng() {
-  const svg = getLogigrammePreviewViewport()?.querySelector("svg");
+  const svg = getLogigrammePreviewSvg();
   if (!svg) return;
 
-  const bg = getComputedStyle(logigrammePreview).backgroundColor || "#ffffff";
+  const shell = logigrammePreviewScroll?.closest(".logigramme-preview-shell");
+  const bg = getComputedStyle(shell || logigrammePreviewScroll || document.body).backgroundColor || "#ffffff";
   const vb = svg.viewBox?.baseVal;
   const rect = svg.getBoundingClientRect();
   const baseW = vb?.width || rect.width || 800;
@@ -2378,20 +2491,6 @@ function downloadLogigrammePng() {
   img.src = url;
 }
 
-function resetLogigrammePreviewZoom() {
-  const vp = getLogigrammePreviewViewport();
-  const svg = vp?.querySelector("svg");
-  if (!vp || !logigrammePreview) return;
-  if (svg) {
-    svg.style.width = "100%";
-    svg.style.maxWidth = "100%";
-    svg.style.height = "auto";
-  }
-  logigrammePreview.classList.remove("logigramme-preview--focused");
-  logigrammeState.previewFocused = false;
-  logigrammeState.previewBaseWidth = null;
-}
-
 function mountLogigrammePreviewContent(html) {
   if (!logigrammePreview) return;
   resetLogigrammePreviewZoom();
@@ -2402,48 +2501,32 @@ function mountLogigrammePreviewContent(html) {
     return;
   }
   logigrammePreview.innerHTML = `<div class="logigramme-preview-viewport">${trimmed}</div>`;
-  fitLogigrammePreviewSvg();
+  requestAnimationFrame(() => prepareLogigrammePreviewSvg());
   updateLogigrammeDownloadBtn();
 }
 
 function applyLogigrammePreviewFocus(clientX, clientY) {
-  const container = logigrammePreview;
-  const vp = getLogigrammePreviewViewport();
-  const svg = vp?.querySelector("svg");
-  if (!container || !vp || !svg) return;
+  const scroll = logigrammePreviewScroll;
+  if (!scroll || !logigrammeState.baseWidth) return;
 
-  if (logigrammeState.previewFocused) {
-    resetLogigrammePreviewZoom();
+  const fit = logigrammeState.fitScale || computeLogigrammeFitScale();
+  const atFit = Math.abs((logigrammeState.currentScale || fit) - fit) < 0.02;
+  if (!atFit) {
+    fitLogigrammePreviewToView(true);
     return;
   }
 
-  const containerRect = container.getBoundingClientRect();
-  const clickX = clientX - containerRect.left + container.scrollLeft;
-  const clickY = clientY - containerRect.top + container.scrollTop;
-
-  const currentWidth = svg.getBoundingClientRect().width;
-  if (currentWidth <= 0) return;
-
-  logigrammeState.previewBaseWidth = currentWidth;
-  const scale = LOGIGRAMME_FOCUS_SCALE;
-  const newWidth = currentWidth * scale;
-  svg.style.width = `${newWidth}px`;
-  svg.style.maxWidth = "none";
-  svg.style.height = "auto";
-
-  requestAnimationFrame(() => {
-    const ratio = newWidth / currentWidth;
-    container.scrollLeft = Math.max(0, clickX * ratio - container.clientWidth / 2);
-    container.scrollTop = Math.max(0, clickY * ratio - container.clientHeight / 2);
-    measureLogigrammePreviewScroll("after-zoom", "D");
-  });
-
-  container.classList.add("logigramme-preview--focused");
-  logigrammeState.previewFocused = true;
+  const rect = scroll.getBoundingClientRect();
+  const scale = logigrammeState.currentScale || fit;
+  const focal = {
+    x: (clientX - rect.left + scroll.scrollLeft) / scale,
+    y: (clientY - rect.top + scroll.scrollTop) / scale,
+  };
+  setLogigrammePreviewZoom(fit * LOGIGRAMME_DBLCLICK_FACTOR, focal);
 }
 
 function onLogigrammePreviewDblClick(ev) {
-  if (!logigrammePreview?.contains(ev.target)) return;
+  if (!logigrammePreviewScroll?.contains(ev.target)) return;
   if (ev.target.closest?.(".logigramme-preview-empty")) return;
   ev.preventDefault();
   applyLogigrammePreviewFocus(ev.clientX, ev.clientY);
@@ -2453,17 +2536,6 @@ function restoreLogigrammePreviewSvg() {
   if (!logigrammePreview || !logigrammeState.lastGoodSvgHtml) return false;
   mountLogigrammePreviewContent(logigrammeState.lastGoodSvgHtml);
   return true;
-}
-
-function fitLogigrammePreviewSvg() {
-  const svg = logigrammePreview?.querySelector("svg");
-  if (!svg) return;
-  svg.removeAttribute("width");
-  svg.removeAttribute("height");
-  svg.style.width = "100%";
-  svg.style.maxWidth = "100%";
-  svg.style.height = "auto";
-  svg.setAttribute("preserveAspectRatio", "xMidYMid meet");
 }
 
 async function renderLogigrammePreview(code, { force = false } = {}) {
@@ -2490,7 +2562,6 @@ async function renderLogigrammePreview(code, { force = false } = {}) {
     if (logigrammeState.previewError && logigrammeStatus && !logigrammeState.busy && !logigrammeState.autosaving) {
       setLogigrammeStatus("");
     }
-    requestAnimationFrame(() => measureLogigrammePreviewScroll("after-render", "A"));
     return true;
   } catch (err) {
     if (restoreLogigrammePreviewSvg()) {
@@ -2563,7 +2634,10 @@ async function openLogigrammeModal({ category, stem, name }) {
   logigrammeState.lastGoodMermaid = "";
   logigrammeState.lastGoodSvgHtml = "";
   logigrammeState.previewError = false;
-  logigrammeState.previewFocused = false;
+  logigrammeState.baseWidth = 0;
+  logigrammeState.baseHeight = 0;
+  logigrammeState.fitScale = 1;
+  logigrammeState.currentScale = 1;
   logigrammeState.publishedExists = false;
   logigrammeState.messages = [];
   if (logigrammeTitle) logigrammeTitle.textContent = `Logigramme — ${logigrammeState.name}`;
@@ -2738,28 +2812,14 @@ if (logigrammeSource) {
     scheduleLogigrammeAutosave();
   });
 }
-if (logigrammePreview) {
-  logigrammePreview.addEventListener("dblclick", onLogigrammePreviewDblClick);
-  // #region agent log
-  logigrammePreview.addEventListener(
-    "wheel",
-    (ev) => {
-      measureLogigrammePreviewScroll("wheel", "E");
-      agentDebugLog(
-        "admin.js:wheel",
-        "wheel on preview",
-        {
-          deltaY: ev.deltaY,
-          defaultPrevented: ev.defaultPrevented,
-          scrollTop: logigrammePreview.scrollTop,
-          maxScrollTop: logigrammePreview.scrollHeight - logigrammePreview.clientHeight,
-        },
-        "E"
-      );
-    },
-    { passive: true }
-  );
-  // #endregion
+if (logigrammeZoomInBtn) logigrammeZoomInBtn.addEventListener("click", onLogigrammeZoomIn);
+if (logigrammeZoomOutBtn) logigrammeZoomOutBtn.addEventListener("click", onLogigrammeZoomOut);
+if (logigrammeZoomFitBtn) logigrammeZoomFitBtn.addEventListener("click", () => fitLogigrammePreviewToView(true));
+if (logigrammePreviewScroll) {
+  logigrammePreviewScroll.addEventListener("dblclick", onLogigrammePreviewDblClick);
+  logigrammePreviewScroll.addEventListener("mousedown", onLogigrammePreviewPanStart);
+  window.addEventListener("mousemove", onLogigrammePreviewPanMove);
+  window.addEventListener("mouseup", onLogigrammePreviewPanEnd);
 }
 if (logigrammeModal) {
   logigrammeModal.addEventListener("click", (ev) => {

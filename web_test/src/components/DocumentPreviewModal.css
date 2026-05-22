@@ -93,6 +93,13 @@
   background: var(--bg-elevated);
 }
 
+.doc-preview-body--logigramme {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 12px 18px 18px;
+}
+
 .doc-preview-status {
   margin: 0;
   color: var(--text-muted);

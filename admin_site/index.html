@@ -23,7 +23,7 @@
       title="sendbot-theme"
     />
     <link rel="stylesheet" href="/admin-static/theme-base.css?v=20260524" />
-    <link rel="stylesheet" href="/admin-static/admin.css?v=20260530" />
+    <link rel="stylesheet" href="/admin-static/admin.css?v=20260531" />
     <script src="/admin-static/theme-sync.js?v=20260524"></script>
     <script>
       (function () {
@@ -343,8 +343,19 @@
         </header>
         <div class="logigramme-modal-body">
           <div class="logigramme-modal-preview-section">
-            <h3>Aperçu <span class="logigramme-preview-hint">Double-clic pour zoomer / dézoomer</span></h3>
-            <div id="logigramme-preview" class="logigramme-preview"></div>
+            <h3>Aperçu</h3>
+            <div class="logigramme-preview-shell">
+              <div class="logigramme-preview-toolbar">
+                <button type="button" id="logigramme-zoom-out" class="logigramme-zoom-btn" title="Zoom arrière" aria-label="Zoom arrière">−</button>
+                <span id="logigramme-zoom-label" class="logigramme-zoom-label">100%</span>
+                <button type="button" id="logigramme-zoom-in" class="logigramme-zoom-btn" title="Zoom avant" aria-label="Zoom avant">+</button>
+                <button type="button" id="logigramme-zoom-fit" class="logigramme-zoom-btn logigramme-zoom-btn-fit">Ajuster</button>
+                <span class="logigramme-preview-hint">Molette ou glisser pour naviguer · double-clic pour zoomer</span>
+              </div>
+              <div id="logigramme-preview-scroll" class="logigramme-preview-scroll">
+                <div id="logigramme-preview" class="logigramme-preview-canvas"></div>
+              </div>
+            </div>
           </div>
           <div class="logigramme-modal-controls">
             <div class="logigramme-modal-col">
@@ -370,6 +381,6 @@
       </div>
     </div>
 
-    <script src="/admin-static/admin.js?v=20260531dbg" defer></script>
+    <script src="/admin-static/admin.js?v=20260531" defer></script>
   </body>
   </html>

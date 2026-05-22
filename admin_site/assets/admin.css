@@ -1733,52 +1733,112 @@ body.logigramme-modal-open {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
-  contain: layout;
 }
 
 .logigramme-modal-preview-section h3,
 .logigramme-modal-col h3 {
   margin: 0 0 0.5rem;
+  flex-shrink: 0;
   font-size: 0.95rem;
   color: var(--text-secondary);
 }
 
-.logigramme-preview {
+.logigramme-preview-shell {
   flex: 1 1 0;
   min-height: 0;
-  padding: 0.75rem;
+  display: flex;
+  flex-direction: column;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-page);
+  overflow: hidden;
+}
+
+.logigramme-preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 0.5rem;
+  padding: 0.45rem 0.65rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-surface);
+  flex-shrink: 0;
+}
+
+.logigramme-zoom-btn {
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.logigramme-zoom-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.logigramme-zoom-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.logigramme-zoom-btn-fit {
+  font-size: 0.8rem;
+  min-width: auto;
+  padding: 0 0.65rem;
+}
+
+.logigramme-zoom-label {
+  min-width: 3.25rem;
+  text-align: center;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.logigramme-preview-scroll {
+  flex: 1 1 0;
+  min-height: 0;
   overflow: auto;
-  cursor: zoom-in;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  cursor: grab;
+}
+
+.logigramme-preview-scroll.logigramme-preview-scroll--panning {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.logigramme-preview-canvas {
+  display: inline-block;
+  transform-origin: 0 0;
   position: relative;
 }
 
-.logigramme-preview.logigramme-preview--focused {
-  cursor: zoom-out;
-}
-
 .logigramme-preview-viewport {
-  display: inline-block;
-  width: 100%;
-  min-width: min-content;
+  display: block;
+  line-height: 0;
 }
 
 .logigramme-preview-viewport svg {
   display: block;
-  width: 100%;
-  max-width: 100%;
-  height: auto;
   background: transparent;
   pointer-events: visiblePainted;
 }
 
 .logigramme-preview-hint {
-  margin: 0 0 0.35rem;
-  font-size: 0.8rem;
+  margin: 0;
+  font-size: 0.78rem;
   color: var(--text-muted);
   font-weight: normal;
+  flex: 1 1 140px;
 }
 
 .logigramme-preview-empty {

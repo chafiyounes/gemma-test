@@ -137,7 +137,7 @@ export default function DocumentPreviewModal({ name, categoryHint, onClose }) {
           </div>
         ) : null}
 
-        <div className="doc-preview-body">
+        <div className={`doc-preview-body${tab === "logigramme" ? " doc-preview-body--logigramme" : ""}`}>
           {loading ? <p className="doc-preview-status">Chargement…</p> : null}
           {error ? <p className="doc-preview-status doc-preview-error">{error}</p> : null}
           {!loading && !error && preview ? (
@@ -153,7 +153,7 @@ export default function DocumentPreviewModal({ name, categoryHint, onClose }) {
               {tab === "logigramme" && showLogigrammeTab ? (
                 <div className="doc-preview-logigramme">
                   <Suspense fallback={<p className="doc-preview-status">Chargement du diagramme…</p>}>
-                    <MermaidDiagram code={preview.logigramme} />
+                    <MermaidDiagram code={preview.logigramme} embedded showZoomControls />
                   </Suspense>
                 </div>
               ) : null}
