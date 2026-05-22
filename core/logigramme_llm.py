@@ -22,6 +22,7 @@ from core.mermaid_validate import normalize_mermaid, strip_code_fence, validate_
 logger = logging.getLogger(__name__)
 
 MAX_DOC_CHARS = 12_000
+MERMAID_MAX_TOKENS = 4096
 
 SUPPORTED_FORMATS = ("mermaid", "dot", "plantuml", "svg", "html", "json_graph")
 
@@ -31,19 +32,24 @@ Produis UNIQUEMENT du code Mermaid valide en français — pas de texte explicat
 
 La PREMIÈRE ligne DOIT être exactement: flowchart TD
 
-Structure:
-- Un `subgraph` par acteur mentionné dans la procédure (uniquement ceux impliqués).
-- Acteurs possibles: Magasinier, Sendit, Chauffeur, Stock, ServiceQualite, Client, Transporteur, Hub, ServiceAcquisition.
-- IDs de nœuds en camelCase sans espaces (ex: scanColis, validerStock).
-- Étapes: A[Label], décisions: B{{Question ?}}.
-- Labels en français; `<br/>` pour retours à la ligne (jusqu'à 5 lignes par boîte si nécessaire).
+Objectif principal:
+- Un opérateur SENDIT doit pouvoir exécuter TOUTE la procédure en ne lisant QUE ce diagramme (sans ouvrir le document Word).
+- Couvre du déclencheur initial à la clôture: chaque section/étape importante, chaque décision avec TOUTES ses branches (Oui/Non, cas A/B…), exceptions, escalades, boucles de retour.
 
-Richesse du contenu (obligatoire):
-- Reprends les informations **concrètes** de la procédure dans les labels: listes autorisées/interdites, restrictions, seuils, délais, documents, critères de refus, etc.
-- Ne te limite pas à « autorisé ? » sans détail: cite les exemples ou catégories tirés du texte (ex: « Produit autorisé ?<br/>Oui: colis sec, textile<br/>Non: liquides, batteries, aérosols »).
-- Chaque boîte doit porter une info exploitable par un opérateur SENDIT, pas seulement un intitulé générique.
-- Flèches `-->` entre étapes; libellés de branche `-- Oui -->` / `-- Non -->` quand utile.
-- Pas de directive `%%{{init:...}}%%`, pas de couleurs/style, pas de HTML sauf `<br/>`.
+Structure:
+- Un `subgraph` par acteur mentionné (Magasinier, Sendit, Chauffeur, Stock, ServiceQualite, Client, Transporteur, Hub, ServiceAcquisition…).
+- IDs camelCase (ex: scanColis, validerStock). Étapes: A[Label], décisions: B{{Question ?}}.
+- Labels en français avec `<br/>` (jusqu'à 5 lignes par boîte pour listes et critères).
+
+Contenu obligatoire dans les labels:
+- Listes autorisées/interdites, restrictions, seuils, délais, documents requis, critères de refus — tirés du texte.
+- Pas de « autorisé ? » seul: inclure exemples/catégories (ex: « Produit autorisé ?<br/>Oui: colis sec<br/>Non: liquides, batteries »).
+- Pas de « etc. », « … », « voir procédure » — chaque nœud = info actionnable.
+
+Flux:
+- Flèches `-->` ; branches `-- Oui -->` / `-- Non -->` / `-- Cas X -->` quand pertinent.
+- Ordre chronologique respecté ; transferts inter-acteurs explicites entre subgraphs.
+- Pas de `%%{{init:...}}%%`, pas de couleurs/style, pas de HTML sauf `<br/>`.
 
 Procédure:
 {document_text}""",
@@ -85,8 +91,8 @@ Procédure:
 FORMAT_RETRY: Dict[str, str] = {
     "mermaid": (
         "Réponds UNIQUEMENT avec du code Mermaid. Première ligne: flowchart TD. "
-        "Subgraphs par acteur. Labels détaillés avec listes/critères concrets de la procédure (<br/>). "
-        "Pas de prose, pas de fence."
+        "Subgraphs par acteur. TOUTES les étapes et branches de la procédure. "
+        "Labels détaillés avec listes/critères concrets (<br/>). Pas de prose, pas de fence."
     ),
     "dot": "Réponds UNIQUEMENT avec digraph {{ ... }} valide.",
     "plantuml": "Réponds UNIQUEMENT avec @startuml ... @enduml.",
@@ -95,11 +101,19 @@ FORMAT_RETRY: Dict[str, str] = {
     "json_graph": "Réponds UNIQUEMENT avec un objet JSON nodes/edges.",
 }
 
+FORMAT_RETRY_COMPLETE: Dict[str, str] = {
+    "mermaid": (
+        "Le diagramme est trop incomplet ou trop générique. Reprends TOUTE la procédure source: "
+        "chaque section/étape, chaque branche Oui/Non, début à fin. "
+        "Première ligne: flowchart TD. Labels riches (<br/>). Pas de prose."
+    ),
+}
+
 FORMAT_SYSTEM: Dict[str, str] = {
     "mermaid": (
-        "Tu génères uniquement du code Mermaid flowchart TD valide. "
-        "Première ligne = flowchart TD. Subgraphs par acteur. "
-        "Labels riches: listes autorisées/interdites et critères concrets du texte (<br/>). Aucun texte hors code."
+        "Tu génères uniquement du code Mermaid flowchart TD exhaustif. "
+        "Première ligne = flowchart TD. Le diagramme seul doit suffire pour exécuter la procédure. "
+        "Subgraphs par acteur. Labels concrets (<br/>). Aucun texte hors code."
     ),
     "dot": "Tu génères uniquement du Graphviz DOT valide.",
     "plantuml": "Tu génères uniquement du PlantUML valide.",
@@ -229,6 +243,35 @@ def load_procedure_text(store: DocStore, category: str, stem: str) -> str:
     return text
 
 
+def estimate_procedure_steps(text: str) -> int:
+    """Heuristic step count for completeness checks."""
+    t = text or ""
+    numbered = len(
+        re.findall(
+            r"(?im)^\s*(?:\d+[\.\):]\s|\d+\s*[-–]\s|(?:section|étape|etape|partie)\s+\d+)",
+            t,
+        )
+    )
+    bullets = len(re.findall(r"(?im)^\s*[-•*]\s+\S", t))
+    return max(3, numbered, min(bullets, 25))
+
+
+def count_mermaid_nodes(text: str) -> int:
+    s = strip_code_fence(text)
+    return len(re.findall(r"\[[^\]]+\]|\{\{[^}]+\}\}", s))
+
+
+def mermaid_looks_incomplete(document_text: str, mermaid: str) -> bool:
+    steps = estimate_procedure_steps(document_text)
+    nodes = count_mermaid_nodes(mermaid)
+    edges = count_structure("mermaid", mermaid)
+    if steps >= 6 and nodes < int(steps * 0.55):
+        return True
+    if steps >= 8 and edges < steps:
+        return True
+    return False
+
+
 def generate_logigramme(
     *,
     document_text: str,
@@ -243,10 +286,12 @@ def generate_logigramme(
     body = (document_text or "")[:MAX_DOC_CHARS]
     user_a = FORMAT_PROMPTS[fmt].format(document_text=body)
     user_b = user_a + "\n\n" + FORMAT_RETRY[fmt]
+    user_c = user_b + "\n\n" + FORMAT_RETRY_COMPLETE.get(fmt, "")
     mdl = model or settings.VLLM_MODEL_NAME
     validator = VALIDATORS[fmt]
     retried = False
     last_error = ""
+    max_tokens = MERMAID_MAX_TOKENS if fmt == "mermaid" else 2048
 
     def one_call(user_content: str) -> str:
         payload = {
@@ -255,7 +300,7 @@ def generate_logigramme(
                 {"role": "system", "content": FORMAT_SYSTEM[fmt]},
                 {"role": "user", "content": user_content},
             ],
-            "max_tokens": 2048,
+            "max_tokens": max_tokens,
             "temperature": 0.25,
         }
         t0 = time.perf_counter()
@@ -293,6 +338,16 @@ def generate_logigramme(
     syntax = validator(cleaned)
     if fmt == "dot" and syntax:
         syntax = validate_dot_with_binary(cleaned)
+
+    if fmt == "mermaid" and syntax and mermaid_looks_incomplete(body, cleaned):
+        logger.info("Logigramme mermaid looks incomplete (nodes=%s); completeness retry", count_mermaid_nodes(cleaned))
+        retried = True
+        try:
+            raw, cleaned, latency = one_call(user_c)
+        except Exception as exc3:
+            logger.warning("Logigramme mermaid completeness retry failed: %s", exc3)
+        else:
+            syntax = validator(cleaned)
 
     return GenerationOutcome(
         format=fmt,

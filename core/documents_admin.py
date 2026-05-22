@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 from app_config.settings import settings
 from core.documents import DOCS_DIR, DOCS_MD_DIR, DOCS_TXT_DIR, _read_docx, _read_md, _read_txt
 from core.docx_to_md import convert_docx_to_markdown
+from core.logigrammes_store import draft_exists as logigramme_draft_exists
 from core.logigrammes_store import exists as logigramme_exists
 
 logger = logging.getLogger(__name__)
@@ -125,6 +126,7 @@ def _list_files(category: str, source: str) -> List[dict]:
     def _with_logigramme(entry: dict, stem: str) -> dict:
         if is_procedures:
             entry["has_logigramme"] = logigramme_exists(category, stem)
+            entry["has_logigramme_draft"] = logigramme_draft_exists(category, stem)
         return entry
 
     if source == "md":

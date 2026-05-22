@@ -57,6 +57,7 @@ from core.logigramme_service import (
     get_status,
     remove_logigramme,
     save_logigramme,
+    save_logigramme_draft,
 )
 from core.documents import DOCS_MD_DIR, get_store as get_doc_store, reload_document_store
 from core.pipeline import GemmaPipeline
@@ -1251,6 +1252,21 @@ async def admin_logigramme_generate(
     except Exception as exc:
         logger.error("Logigramme generate failed: %s", exc, exc_info=True)
         raise HTTPException(status_code=502, detail="Logigramme generation failed") from exc
+
+
+@app.post("/api/admin/logigramme/draft")
+async def admin_logigramme_save_draft(
+    body: LogigrammeSaveRequest,
+    _mgr: dict = Depends(_require_docs_manager),
+):
+    try:
+        out = save_logigramme_draft(category=body.category, stem=body.stem, mermaid=body.mermaid)
+        return {**out, "overview": get_documents_overview()}
+    except LogigrammeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Logigramme draft save failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to save logigramme draft") from exc
 
 
 @app.post("/api/admin/logigramme/save")

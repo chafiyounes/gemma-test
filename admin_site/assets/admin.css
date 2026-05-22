@@ -1648,6 +1648,12 @@ body.doc-modal-open {
   border: 1px solid rgba(22, 163, 74, 0.35);
 }
 
+.logigramme-pill-draft {
+  background: color-mix(in srgb, var(--accent) 18%, var(--bg-page));
+  color: var(--text-secondary);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
 .logigramme-pill-none {
   opacity: 0.72;
 }

@@ -20,16 +20,20 @@ from core.logigrammes_store import (
     PROCEDURES_CATEGORY,
     LogigrammeStoreError,
     delete,
+    draft_exists,
     read,
+    read_draft,
     save,
+    save_draft,
 )
 from core.mermaid_validate import normalize_mermaid
 
 REFINE_SYSTEM = (
     "Tu génères uniquement du code Mermaid flowchart TD valide en français. "
     "Première ligne = flowchart TD. Subgraphs par acteur SENDIT présents dans la procédure. "
-    "Labels détaillés: listes autorisées/interdites, restrictions et critères concrets du texte (<br/>). "
-    "IDs camelCase. Aucun texte hors code."
+    "Le diagramme doit permettre de suivre TOUTE la procédure sans le document source. "
+    "Labels détaillés: listes autorisées/interdites, restrictions, critères concrets (<br/>). "
+    "Chaque décision a ses branches. IDs camelCase. Aucun texte hors code."
 )
 
 REFINE_RETRY_SUFFIX = FORMAT_RETRY["mermaid"]
@@ -51,8 +55,31 @@ def get_status(*, category: str, stem: str) -> dict:
     st = (stem or "").strip()
     if not st:
         raise LogigrammeServiceError("stem is required")
-    mermaid = read(category, st)
-    return {"exists": mermaid is not None, "mermaid": mermaid or ""}
+    published = read(category, st)
+    draft = read_draft(category, st)
+    has_draft = draft is not None
+    has_published = published is not None
+    # Prefer draft in editor when present (work in progress).
+    editor_mermaid = (draft or published or "") if (has_draft or has_published) else ""
+    return {
+        "exists": has_published,
+        "mermaid": published or "",
+        "draft_exists": has_draft,
+        "draft_mermaid": draft or "",
+        "editor_mermaid": editor_mermaid,
+    }
+
+
+def save_logigramme_draft(*, category: str, stem: str, mermaid: str) -> dict:
+    _assert_procedures(category)
+    st = (stem or "").strip()
+    if not st:
+        raise LogigrammeServiceError("stem is required")
+    try:
+        path = save_draft(category, st, mermaid)
+    except LogigrammeStoreError as exc:
+        raise LogigrammeServiceError(str(exc)) from exc
+    return {"ok": True, "path": str(path), "draft": True}
 
 
 def save_logigramme(*, category: str, stem: str, mermaid: str) -> dict:
@@ -64,7 +91,7 @@ def save_logigramme(*, category: str, stem: str, mermaid: str) -> dict:
         path = save(category, st, mermaid)
     except LogigrammeStoreError as exc:
         raise LogigrammeServiceError(str(exc)) from exc
-    return {"ok": True, "path": str(path)}
+    return {"ok": True, "path": str(path), "published": True}
 
 
 def remove_logigramme(*, category: str, stem: str) -> dict:
@@ -94,6 +121,7 @@ def _refine_prompt(
         "Première ligne: flowchart TD.\n"
         "Subgraphs par acteur SENDIT impliqué. IDs camelCase.\n"
         "Labels riches avec listes/critères concrets de la procédure (articles autorisés/interdits, restrictions…) via <br/>.\n"
+        "Couvre toute la procédure du début à la fin, toutes les branches de décision.\n"
         "Fidèle au texte. Pas de markdown fence, pas de prose."
     )
     return prompt
@@ -115,7 +143,7 @@ def _call_refine(
             {"role": "system", "content": REFINE_SYSTEM},
             {"role": "user", "content": user_content},
         ],
-        "max_tokens": 2048,
+        "max_tokens": 4096,
         "temperature": 0.25,
     }
     r = client.post("/v1/chat/completions", json=payload, timeout=120.0)

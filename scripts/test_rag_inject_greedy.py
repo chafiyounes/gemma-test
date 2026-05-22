@@ -206,6 +206,40 @@ def test_format_retrieved_agentic_greedy() -> None:
     assert text.count("### Document :") <= 3
 
 
+def test_mermaid_completeness_heuristic() -> None:
+    from core.logigramme_llm import count_mermaid_nodes, estimate_procedure_steps, mermaid_looks_incomplete
+
+    proc = "\n".join([f"{i}. Étape importante numéro {i}" for i in range(1, 12)])
+    assert estimate_procedure_steps(proc) >= 10
+    sparse = "flowchart TD\n  A[Début] --> B[Fin]\n"
+    rich = "flowchart TD\n" + "\n".join(f"  n{i}[Étape {i}] --> n{i+1}[Suite {i}]" for i in range(12))
+    assert mermaid_looks_incomplete(proc, sparse)
+    assert not mermaid_looks_incomplete(proc, rich)
+    assert count_mermaid_nodes(rich) >= 12
+
+
+def test_logigramme_draft_storage() -> None:
+    import tempfile
+
+    import core.logigrammes_store as store
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        orig = store.LOGIGRAMMES_DIR
+        store.LOGIGRAMMES_DIR = root
+        try:
+            m = "flowchart TD\n  A[Début] --> B[Fin]\n"
+            store.save_draft("procedures", "test_sop", m)
+            assert store.draft_exists("procedures", "test_sop")
+            assert store.read_draft("procedures", "test_sop") == m.strip()
+            assert not store.exists("procedures", "test_sop")
+            store.save("procedures", "test_sop", m)
+            assert store.exists("procedures", "test_sop")
+            assert not store.draft_exists("procedures", "test_sop")
+        finally:
+            store.LOGIGRAMMES_DIR = orig
+
+
 def main() -> None:
     test_all_full_when_fits()
     test_at_most_one_partial_many_large_docs()
@@ -214,8 +248,10 @@ def main() -> None:
     test_build_all_docs_overflow_few_partials()
     test_multi_category_retrieve_prefers_global_relevance()
     test_validate_mermaid_skips_init_directive()
+    test_mermaid_completeness_heuristic()
+    test_logigramme_draft_storage()
     test_format_retrieved_agentic_greedy()
-    print("rag_inject_greedy: OK (9 tests)")
+    print("rag_inject_greedy: OK (11 tests)")
 
 
 if __name__ == "__main__":

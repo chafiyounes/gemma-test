@@ -1289,9 +1289,19 @@ function renderDocuments() {
           const isProcedures = cat.name === "procedures";
           const liveFile = (live?.files || []).find((f) => f.name === file.name || f.stem === stem);
           const hasLogigramme = Boolean(isProcedures && liveFile?.has_logigramme);
-          const logigrammeBadge = isProcedures
-            ? `<span class="pill ${hasLogigramme ? "logigramme-pill-ok" : "logigramme-pill-none"}">${hasLogigramme ? "Logigramme ✓" : "Sans logigramme"}</span>`
-            : "";
+          const hasLogigrammeDraft = Boolean(isProcedures && liveFile?.has_logigramme_draft);
+          let logigrammeBadge = "";
+          if (isProcedures) {
+            if (hasLogigramme) {
+              logigrammeBadge += `<span class="pill logigramme-pill-ok">Publié ✓</span>`;
+            }
+            if (hasLogigrammeDraft) {
+              logigrammeBadge += `<span class="pill logigramme-pill-draft">Brouillon</span>`;
+            }
+            if (!hasLogigramme && !hasLogigrammeDraft) {
+              logigrammeBadge = `<span class="pill logigramme-pill-none">Sans logigramme</span>`;
+            }
+          }
           const logigrammeBtn = isProcedures
             ? `<button type="button" class="doc-file-btn doc-file-btn-log" data-logigramme-button data-category="${escapeHtml(cat.name)}" data-stem="${escapeHtml(stem)}" data-name="${escapeHtml(file.name)}">${hasLogigramme ? "Modifier logigramme" : "Créer logigramme"}</button>`
             : "";
@@ -2114,7 +2124,8 @@ const logigrammeRefineInput = document.getElementById("logigramme-refine-input")
 const logigrammeStatus = document.getElementById("logigramme-status");
 const logigrammeGenerateBtn = document.getElementById("logigramme-generate-btn");
 const logigrammeRefineBtn = document.getElementById("logigramme-refine-btn");
-const logigrammeSaveBtn = document.getElementById("logigramme-save-btn");
+const logigrammeDraftBtn = document.getElementById("logigramme-draft-btn");
+const logigrammePublishBtn = document.getElementById("logigramme-publish-btn");
 const logigrammeCloseBtn = document.getElementById("logigramme-close-btn");
 const logigrammeCancelBtn = document.getElementById("logigramme-cancel-btn");
 
@@ -2208,7 +2219,7 @@ async function renderLogigrammePreview(code) {
 
 function setLogigrammeBusy(on) {
   logigrammeState.busy = on;
-  [logigrammeGenerateBtn, logigrammeRefineBtn, logigrammeSaveBtn].forEach((b) => {
+  [logigrammeGenerateBtn, logigrammeRefineBtn, logigrammeDraftBtn, logigrammePublishBtn].forEach((b) => {
     if (b) b.disabled = on;
   });
 }
@@ -2235,10 +2246,19 @@ async function openLogigrammeModal({ category, stem, name }) {
     const qs = new URLSearchParams({ category: logigrammeState.category, stem: logigrammeState.stem });
     const res = await apiFetch(`${LOGIGRAMME_API}?${qs.toString()}`);
     const data = await res.json();
-    if (data.mermaid) {
-      setLogigrammeSource(data.mermaid);
-      await renderLogigrammePreview(data.mermaid);
-      setLogigrammeStatus(data.exists ? "Logigramme existant chargé." : "");
+    const toLoad = (data.editor_mermaid || data.draft_mermaid || data.mermaid || "").trim();
+    if (toLoad) {
+      setLogigrammeSource(toLoad);
+      await renderLogigrammePreview(toLoad);
+      if (data.draft_exists) {
+        setLogigrammeStatus(
+          data.exists
+            ? "Brouillon chargé (non publié). Publier pour mettre à jour le chat/RAG."
+            : "Brouillon chargé — publiez quand prêt pour le rendre visible.",
+        );
+      } else if (data.exists) {
+        setLogigrammeStatus("Logigramme publié chargé.");
+      }
     } else {
       await renderLogigrammePreview("");
     }
@@ -2295,11 +2315,42 @@ async function runLogigrammeGenerate({ refine = false } = {}) {
   }
 }
 
-async function saveLogigrammeDraft() {
+async function saveLogigrammeWorkDraft() {
   syncLogigrammeFromEditor();
   if (logigrammeState.busy || !logigrammeState.mermaid.trim()) return;
   setLogigrammeBusy(true);
-  setLogigrammeStatus("Enregistrement…");
+  setLogigrammeStatus("Enregistrement du brouillon…");
+  try {
+    const res = await apiFetch(`${LOGIGRAMME_API}/draft`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        category: logigrammeState.category,
+        stem: logigrammeState.stem,
+        mermaid: logigrammeState.mermaid,
+      }),
+    });
+    const data = await res.json();
+    if (data.overview) state.docsOverview = data.overview;
+    initDocsDraft();
+    renderDocuments();
+    setLogigrammeStatus("Brouillon enregistré — visible admin seulement. Reprenez plus tard ou publiez.");
+  } catch (err) {
+    setLogigrammeStatus(err.message || "Échec enregistrement brouillon.");
+  } finally {
+    setLogigrammeBusy(false);
+  }
+}
+
+async function publishLogigramme() {
+  syncLogigrammeFromEditor();
+  if (logigrammeState.busy || !logigrammeState.mermaid.trim()) return;
+  const ok = window.confirm(
+    "Publier ce logigramme ?\n\nIl sera visible dans le chat (aperçu Source) et indexé dans le RAG. Les utilisateurs pourront s’y référer.",
+  );
+  if (!ok) return;
+  setLogigrammeBusy(true);
+  setLogigrammeStatus("Publication…");
   try {
     const res = await apiFetch(`${LOGIGRAMME_API}/save`, {
       method: "POST",
@@ -2314,10 +2365,10 @@ async function saveLogigrammeDraft() {
     if (data.overview) state.docsOverview = data.overview;
     initDocsDraft();
     renderDocuments();
-    setLogigrammeStatus("Logigramme enregistré.");
+    setLogigrammeStatus("Logigramme publié.");
     setTimeout(closeLogigrammeModal, 600);
   } catch (err) {
-    setLogigrammeStatus(err.message || "Échec enregistrement.");
+    setLogigrammeStatus(err.message || "Échec publication — vérifiez la syntaxe Mermaid.");
   } finally {
     setLogigrammeBusy(false);
   }
@@ -2329,8 +2380,11 @@ if (logigrammeGenerateBtn) {
 if (logigrammeRefineBtn) {
   logigrammeRefineBtn.addEventListener("click", () => runLogigrammeGenerate({ refine: true }));
 }
-if (logigrammeSaveBtn) {
-  logigrammeSaveBtn.addEventListener("click", saveLogigrammeDraft);
+if (logigrammeDraftBtn) {
+  logigrammeDraftBtn.addEventListener("click", saveLogigrammeWorkDraft);
+}
+if (logigrammePublishBtn) {
+  logigrammePublishBtn.addEventListener("click", publishLogigramme);
 }
 if (logigrammeCloseBtn) logigrammeCloseBtn.addEventListener("click", closeLogigrammeModal);
 if (logigrammeCancelBtn) logigrammeCancelBtn.addEventListener("click", closeLogigrammeModal);

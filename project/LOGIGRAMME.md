@@ -21,10 +21,13 @@ Implementation: [`core/logigramme_llm.py`](../core/logigramme_llm.py), [`core/lo
 Sidecar files keyed by `(category, stem)`:
 
 ```
-data/logigrammes/procedures/<stem>.mmd
+data/logigrammes/procedures/<stem>.mmd          # published (chat + RAG)
+data/logigrammes/procedures/<stem>.draft.mmd    # admin draft only
 ```
 
 Module: [`core/logigrammes_store.py`](../core/logigrammes_store.py)
+
+Only **published** `.mmd` files are merged into RAG. Drafts are for continuing work in admin.
 
 On DocStore load, when a sidecar exists, the procedure text is augmented with:
 
@@ -43,8 +46,8 @@ So RAG can retrieve diagram content with the parent procedure — without a sepa
 
 On **Documents** (`/admin`), each row in the **procedures** category shows:
 
-- Badge: **Logigramme ✓** or **Sans logigramme**
-- Button: **Créer / Modifier logigramme** → modal with generate, refine chat, preview, **Enregistrer**
+- Button: **Créer / Modifier logigramme** → modal with generate, refine, editable Mermaid, **Enregistrer brouillon**, **Publier** (confirmation)
+- Badge: **Publié ✓** / **Brouillon** / **Sans logigramme**
 
 Auth: `_require_docs_manager` (gestionnaires + administrateurs).
 
@@ -54,14 +57,18 @@ API:
 |--------|------|
 | GET | `/api/admin/logigramme?category=procedures&stem=…` |
 | POST | `/api/admin/logigramme/generate` |
+| POST | `/api/admin/logigramme/draft` |
 | POST | `/api/admin/logigramme/save` |
 | DELETE | `/api/admin/logigramme?category=procedures&stem=…` |
 
 Generation uses dedicated admin endpoints — **not** `POST /chat`.
 
-**Générer** reads the procedure automatically (no manual Mermaid paste). **Affiner** is optional follow-up instructions. The **Code Mermaid** textarea is fully editable — manual edits update the preview and can be saved directly. The first line of generated code must be `flowchart TD`; Mermaid init directives (`%%{init:…}%%`) are not required — rendering config is handled in the admin/preview UI.
+**Générer** reads the procedure automatically. **Affiner** is optional. The **Code Mermaid** textarea is editable.
 
-Generated diagrams should embed **concrete** procedure content in node labels (authorized/forbidden item lists, restrictions, criteria) — not only generic yes/no decision titles.
+- **Enregistrer brouillon** — saves `.draft.mmd` (admin only; not in chat/RAG)
+- **Publier** — confirms, then saves `.mmd`, reloads RAG, visible in chat preview
+
+Goal: the diagram alone should let an operator follow the **entire** procedure (all steps, branches, lists). Generation prompts enforce exhaustive coverage; **Affiner** fixes gaps.
 
 Validation: [`core/mermaid_validate.py`](../core/mermaid_validate.py)
 
