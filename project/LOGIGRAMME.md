@@ -59,6 +59,10 @@ API:
 
 Generation uses dedicated admin endpoints — **not** `POST /chat`.
 
+**Générer** reads the procedure automatically (no manual Mermaid paste). **Affiner** is optional follow-up instructions. The first line of generated code must be `flowchart TD`; Mermaid init directives (`%%{init:…}%%`) are not required — rendering config is handled in the admin/preview UI.
+
+Validation: [`core/mermaid_validate.py`](../core/mermaid_validate.py)
+
 ---
 
 ## Chat preview

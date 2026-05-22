@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     AGENTIC_RAG_DEFAULT_ON_CHAT: bool = False
     # If False, only admin sessions may set agentic_rag on /chat.
     AGENTIC_RAG_ALLOW_NON_ADMIN: bool = False
+    # When True, multi-category scopes (e.g. "all") auto-use agentic catalog routing.
+    AGENTIC_RAG_ON_MULTI_SCOPE: bool = True
+    # BM25 pre-filter: max catalog rows sent to the router prompt.
+    AGENTIC_RAG_CATALOG_NARROW_MAX: int = 40
     AGENTIC_RAG_MAP_DIR: str = "data/agentic_map"
     # Lower temperature stabilizes tool selection vs default chat TEMPERATURE.
     AGENTIC_RAG_TEMPERATURE: float = 0.35

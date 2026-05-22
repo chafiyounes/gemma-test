@@ -154,6 +154,41 @@ def test_build_all_docs_overflow_few_partials() -> None:
     assert ctx.count("### Document :") <= 6
 
 
+def test_multi_category_retrieve_prefers_global_relevance() -> None:
+    from core.documents import DocStore
+
+    help_body = "article général aide support " * 50
+    proc_body = "procédure livraison colis téléphone modification vendeur " * 30
+    help_docs = _make_docs([f"help{i}" for i in range(8)], "help_md", help_body)
+    proc_docs = _make_docs(["sop_livraison"], "procedures", proc_body)
+    store = DocStore.__new__(DocStore)
+    store.indexes = {
+        "help_md": _category_index("help_md", help_docs),
+        "procedures": _category_index("procedures", proc_docs),
+    }
+    top = store.retrieve(
+        "modification téléphone colis livraison vendeur",
+        categories=["help_md", "procedures"],
+        k=3,
+        expand_fr_darija_hints=False,
+    )
+    assert top, "expected retrieval hits"
+    assert top[0].category == "procedures", [f"{d.category}/{d.name}" for d in top]
+
+
+def test_validate_mermaid_skips_init_directive() -> None:
+    from core.mermaid_validate import normalize_mermaid, validate_mermaid
+
+    raw = (
+        "%%{init: {'flowchart': {'htmlLabels': true}}}%%\n"
+        "flowchart TD\n"
+        "  A[Début] --> B[Fin]\n"
+    )
+    assert validate_mermaid(raw)
+    cleaned = normalize_mermaid(raw)
+    assert cleaned.startswith("flowchart TD")
+
+
 def test_format_retrieved_agentic_greedy() -> None:
     from core.agentic_rag import format_retrieved_documents_for_prompt
 
@@ -177,8 +212,10 @@ def main() -> None:
     test_partial_then_more_full_in_remaining_budget()
     test_build_context_real_store_few_partials()
     test_build_all_docs_overflow_few_partials()
+    test_multi_category_retrieve_prefers_global_relevance()
+    test_validate_mermaid_skips_init_directive()
     test_format_retrieved_agentic_greedy()
-    print("rag_inject_greedy: OK (7 tests)")
+    print("rag_inject_greedy: OK (9 tests)")
 
 
 if __name__ == "__main__":

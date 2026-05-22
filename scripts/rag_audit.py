@@ -58,12 +58,15 @@ def main() -> None:
         print("No document categories loaded. Add folders under data/documents/<name>/ with .txt or .docx.")
         return
     category = args.category.strip()
-    if not category:
-        d = (settings.RAG_DEFAULT_CATEGORY or "").strip()
-        category = d if d in store.indexes else cats[0]
-    if category not in store.indexes:
-        print(f"Unknown category {category!r}. Available: {', '.join(cats)}")
+    if not category or category.lower() in ("all", "tout", "*"):
+        cats = store.rag_categories_all()
+        label = "all"
+    elif category not in store.indexes:
+        print(f"Unknown category {category!r}. Available: all, {', '.join(cats)}")
         return
+    else:
+        cats = [category]
+        label = category
 
     bucket = detect_lang_bucket(q)
     rq = retrieval_anchor_query(q, [])
@@ -71,44 +74,51 @@ def main() -> None:
     expanded = expand_query_for_retrieval_fr_darija(rq) if expand else rq
     top = store.retrieve(
         rq,
-        category=category,
-        k=max(settings.RAG_BM25_K, len(store.indexes[category].docs)),
+        categories=cats if len(cats) > 1 else None,
+        category=cats[0] if len(cats) == 1 else None,
+        k=max(settings.RAG_BM25_K, sum(len(store.indexes[c].docs) for c in cats if c in store.indexes)),
         expand_fr_darija_hints=expand,
     )
 
     print("=== RAG audit ===")
-    print(f"Category     : {category}")
+    print(f"Category     : {label}")
+    print(f"Categories   : {', '.join(cats)}")
     print(f"Lang bucket  : {bucket}")
     print(f"Raw anchor   : {rq[:200]}{'…' if len(rq) > 200 else ''}")
     print(f"Expanded Q   : {expanded[:260]}{'…' if len(expanded) > 260 else ''}")
     print()
 
-    idx = store.indexes[category]
-    print(f"Documents in category ({len(idx.docs)}):")
-    print("-" * 100)
     any_hits = False
-    for d in idx.docs:
-        line_parts = [f"{d.name[:48]:<50}"]
-        for label, pat in THEMES:
-            n = _count_pattern(d.text, pat)
-            line_parts.append(f"{label.split()[0][:6]}:{n}")
-            if n:
-                any_hits = True
-        print("  ".join(line_parts))
-    print("-" * 100)
+    for cat_name in cats:
+        idx = store.indexes.get(cat_name)
+        if not idx:
+            continue
+        print(f"Documents in {cat_name} ({len(idx.docs)}):")
+        print("-" * 100)
+        for d in idx.docs:
+            line_parts = [f"{d.name[:48]:<50}"]
+            for theme_label, pat in THEMES:
+                n = _count_pattern(d.text, pat)
+                line_parts.append(f"{theme_label.split()[0][:6]}:{n}")
+                if n:
+                    any_hits = True
+            print("  ".join(line_parts))
+        print("-" * 100)
     print("Theme legend:", ", ".join(t[0] for t in THEMES))
     print()
 
     print("BM25 order (retrieval):")
     for i, d in enumerate(top, 1):
-        print(f"  {i:2}. {d.name}")
+        print(f"  {i:2}. {d.category}/{d.name}")
     print()
 
-    ctx = store.build_all_docs_context(
-        category=category,
+    ctx = store.build_context(
+        rq,
+        categories=cats if len(cats) > 1 else None,
+        category=cats[0] if len(cats) == 1 else None,
+        k=max(settings.RAG_BM25_K, 12),
         max_chars=settings.RAG_INJECT_MAX_CHARS,
-        query=rq,
-        expand_for_retrieval=expand,
+        expand_fr_darija_hints=expand,
         condense=settings.RAG_CONDENSE_DOCUMENTS,
     )
     n_docs_in_ctx = ctx.count("### Document :") if ctx else 0

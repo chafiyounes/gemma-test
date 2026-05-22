@@ -181,6 +181,48 @@ def build_document_catalog_for_categories(store: DocStore, categories: List[str]
     return rows
 
 
+def narrow_catalog_for_router(
+    store: DocStore,
+    categories: List[str],
+    query: str,
+    *,
+    max_entries: int | None = None,
+    expand_fr_darija_hints: bool = False,
+) -> tuple[List[MapEntry], int]:
+    """BM25 pre-filter: shrink catalog to top entries for the router prompt."""
+    full = build_document_catalog_for_categories(store, categories)
+    full_count = len(full)
+    if not full:
+        return [], 0
+    cap = max_entries if max_entries is not None else settings.AGENTIC_RAG_CATALOG_NARROW_MAX
+    cap = max(1, int(cap))
+    if full_count <= cap:
+        return full, full_count
+
+    ranked = store.retrieve(
+        query,
+        categories=categories,
+        k=min(cap, full_count),
+        expand_fr_darija_hints=expand_fr_darija_hints,
+    )
+    id_to_entry = {e.id: e for e in full}
+    out: List[MapEntry] = []
+    seen: set[str] = set()
+    for doc in ranked:
+        cid = f"{doc.category}/{doc.name}"
+        entry = id_to_entry.get(cid)
+        if entry and cid not in seen:
+            seen.add(cid)
+            out.append(entry)
+    for entry in full:
+        if len(out) >= cap:
+            break
+        if entry.id not in seen:
+            seen.add(entry.id)
+            out.append(entry)
+    return out, full_count
+
+
 def _router_prompt_limits() -> tuple[int, int, int, int]:
     """(per_round_cap, max_total, max_rounds, target_docs) from settings."""
     max_total = max(1, settings.AGENTIC_RAG_ROUTER_MAX_TOTAL_IDS)

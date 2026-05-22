@@ -17,6 +17,7 @@ import httpx
 
 from app_config.settings import settings
 from core.documents import DocStore, get_store
+from core.mermaid_validate import normalize_mermaid, strip_code_fence, validate_mermaid
 
 logger = logging.getLogger(__name__)
 
@@ -26,18 +27,18 @@ SUPPORTED_FORMATS = ("mermaid", "dot", "plantuml", "svg", "html", "json_graph")
 
 FORMAT_PROMPTS: Dict[str, str] = {
     "mermaid": """Tu es un expert en logigrammes SENDIT.
-Produis UNIQUEMENT un diagramme Mermaid `flowchart TD` en français, organisé en colonnes (swimlanes) par acteur.
+Produis UNIQUEMENT du code Mermaid valide en français — pas de texte explicatif, pas de markdown fence.
 
-Structure obligatoire:
-- Utilise `subgraph` pour chaque acteur mentionné dans la procédure (uniquement ceux présents dans le texte).
-- Acteurs possibles (inclure seulement si la procédure les implique):
-  Magasinier / Chef magasin, Système Sendit, Chauffeur, Stock, Service Qualité, Client, Transporteur, Hub.
-- Place chaque étape dans le subgraph de l'acteur concerné.
-- Les transferts entre acteurs = flèches explicites entre nœuds de subgraphs différents.
-- Étapes: rectangles A[Label], décisions: B{{Question ?}}.
-- Labels courts en français; utilise <br/> pour retour à la ligne (max 3 lignes par boîte).
-- Tu peux commencer par: %%{{init: {{'flowchart': {{'htmlLabels': true, 'useMaxWidth': false, 'wrappingWidth': 200}}}}}}%%
-- Pas de markdown fence.
+La PREMIÈRE ligne DOIT être exactement: flowchart TD
+
+Structure:
+- Un `subgraph` par acteur mentionné dans la procédure (uniquement ceux impliqués).
+- Acteurs possibles: Magasinier, Sendit, Chauffeur, Stock, ServiceQualite, Client, Transporteur, Hub.
+- IDs de nœuds en camelCase sans espaces (ex: scanColis, validerStock).
+- Étapes: A[Label court], décisions: B{{Question ?}}.
+- Labels en français; `<br/>` autorisé dans les labels (max 3 lignes par boîte).
+- Flèches `-->` entre étapes; les transferts inter-acteurs relient des nœuds de subgraphs différents.
+- Pas de directive `%%{{init:...}}%%`, pas de couleurs/style, pas de HTML sauf `<br/>`.
 
 Procédure:
 {document_text}""",
@@ -77,7 +78,10 @@ Procédure:
 }
 
 FORMAT_RETRY: Dict[str, str] = {
-    "mermaid": "Réponds UNIQUEMENT avec flowchart TD valide, subgraphs par acteur SENDIT présents dans la procédure.",
+    "mermaid": (
+        "Réponds UNIQUEMENT avec du code Mermaid. Première ligne: flowchart TD. "
+        "Subgraphs par acteur SENDIT présents dans la procédure. Pas de prose, pas de fence."
+    ),
     "dot": "Réponds UNIQUEMENT avec digraph {{ ... }} valide.",
     "plantuml": "Réponds UNIQUEMENT avec @startuml ... @enduml.",
     "svg": "Réponds UNIQUEMENT avec <svg>...</svg> valide.",
@@ -86,7 +90,10 @@ FORMAT_RETRY: Dict[str, str] = {
 }
 
 FORMAT_SYSTEM: Dict[str, str] = {
-    "mermaid": "Tu génères uniquement du code Mermaid valide avec subgraphs swimlanes par acteur SENDIT.",
+    "mermaid": (
+        "Tu génères uniquement du code Mermaid flowchart TD valide. "
+        "Première ligne = flowchart TD. Subgraphs par acteur SENDIT. Aucun texte hors code."
+    ),
     "dot": "Tu génères uniquement du Graphviz DOT valide.",
     "plantuml": "Tu génères uniquement du PlantUML valide.",
     "svg": "Tu génères uniquement du SVG valide.",
@@ -105,22 +112,6 @@ class GenerationOutcome:
     retried: bool
     latency_ms: int
     error: str = ""
-
-
-def strip_code_fence(raw: str) -> str:
-    s = (raw or "").strip()
-    if s.startswith("```"):
-        s = re.sub(r"^```[a-zA-Z]*\s*", "", s)
-        s = re.sub(r"\s*```\s*$", "", s)
-    return s.strip()
-
-
-def validate_mermaid(text: str) -> bool:
-    s = strip_code_fence(text)
-    if not s:
-        return False
-    first = s.splitlines()[0].strip().lower()
-    return first.startswith("flowchart") or first.startswith("graph ")
 
 
 def validate_dot(text: str) -> bool:
@@ -267,7 +258,7 @@ def generate_logigramme(
         latency = int((time.perf_counter() - t0) * 1000)
         msg = data["choices"][0].get("message") or {}
         raw = (msg.get("content") or "").strip()
-        cleaned = strip_code_fence(raw)
+        cleaned = normalize_mermaid(raw) if fmt == "mermaid" else strip_code_fence(raw)
         if not validator(cleaned):
             raise ValueError(f"invalid {fmt} output")
         return raw, cleaned, latency

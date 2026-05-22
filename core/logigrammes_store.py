@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-import re
 from pathlib import Path
+
+from core.mermaid_validate import normalize_mermaid, validate_mermaid
 
 LOGIGRAMMES_DIR = Path(__file__).resolve().parents[1] / "data" / "logigrammes"
 PROCEDURES_CATEGORY = "procedures"
@@ -11,22 +12,6 @@ PROCEDURES_CATEGORY = "procedures"
 
 class LogigrammeStoreError(Exception):
     pass
-
-
-def _strip_code_fence(raw: str) -> str:
-    s = (raw or "").strip()
-    if s.startswith("```"):
-        s = re.sub(r"^```[a-zA-Z]*\s*", "", s)
-        s = re.sub(r"\s*```\s*$", "", s)
-    return s.strip()
-
-
-def _validate_mermaid(text: str) -> bool:
-    s = _strip_code_fence(text)
-    if not s:
-        return False
-    first = s.splitlines()[0].strip().lower()
-    return first.startswith("flowchart") or first.startswith("graph ")
 
 
 def path_for(category: str, stem: str) -> Path:
@@ -56,8 +41,8 @@ def read(category: str, stem: str) -> str | None:
 def save(category: str, stem: str, mermaid: str) -> Path:
     if category != PROCEDURES_CATEGORY:
         raise LogigrammeStoreError(f"logigrammes only allowed for category {PROCEDURES_CATEGORY!r}")
-    cleaned = _strip_code_fence((mermaid or "").strip())
-    if not _validate_mermaid(cleaned):
+    cleaned = normalize_mermaid(mermaid or "")
+    if not validate_mermaid(cleaned):
         raise LogigrammeStoreError("invalid Mermaid syntax")
     p = path_for(category, stem)
     p.parent.mkdir(parents=True, exist_ok=True)

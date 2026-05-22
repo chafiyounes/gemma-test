@@ -23,10 +23,10 @@ from core.chat_policy import (
 )
 from core.agentic_rag import (
     AGENTIC_NOT_FOUND,
-    build_document_catalog_for_categories,
     format_retrieved_documents_for_prompt,
     make_agentic_system_prompt,
     make_router_system_prompt,
+    narrow_catalog_for_router,
     run_agentic_answer_phase,
     run_agentic_router_phase,
     run_agentic_tool_loop,
@@ -383,14 +383,23 @@ class GemmaModel:
                 else:
                     expand_hints = bucket in ("fr", "darija", "en")
                     k = max(1, int(settings.RAG_RETRIEVAL_CANDIDATE_K))
-                    ctx = store.build_context(
-                        rq,
-                        categories=cats,
-                        k=k,
-                        max_chars=inject_cap,
-                        expand_fr_darija_hints=expand_hints,
-                        condense=settings.RAG_CONDENSE_DOCUMENTS,
-                    )
+                    if len(cats) == 1 and store.use_full_category_inject(cats[0]):
+                        ctx = store.build_all_docs_context(
+                            categories=cats,
+                            max_chars=inject_cap,
+                            query=rq,
+                            expand_for_retrieval=expand_hints,
+                            condense=settings.RAG_CONDENSE_DOCUMENTS,
+                        )
+                    else:
+                        ctx = store.build_context(
+                            rq,
+                            categories=cats,
+                            k=k,
+                            max_chars=inject_cap,
+                            expand_fr_darija_hints=expand_hints,
+                            condense=settings.RAG_CONDENSE_DOCUMENTS,
+                        )
                     logger.info(
                         "RAG unified retrieve+inject: categories=%s candidate_k=%s corpus_chars=%d → ctx=%d",
                         cats,
@@ -724,8 +733,16 @@ class GemmaModel:
 
         tool_cat = cats[0]
 
-        catalog = build_document_catalog_for_categories(store, cats)
-        rag_meta["catalog_entries"] = len(catalog)
+        rq = retrieval_anchor_query(message, hist)
+        expand_hints = bucket in ("fr", "darija", "en")
+        catalog, catalog_full_count = narrow_catalog_for_router(
+            store,
+            cats,
+            rq,
+            expand_fr_darija_hints=expand_hints,
+        )
+        rag_meta["catalog_entries"] = catalog_full_count
+        rag_meta["catalog_narrowed"] = len(catalog)
         if not catalog:
             rag_meta["note"] = "agentic_catalog_empty"
             return LLMGenerateResult(

@@ -9,6 +9,7 @@ import httpx
 from app_config.settings import settings
 from core.documents import DocStore, get_store
 from core.logigramme_llm import (
+    FORMAT_RETRY,
     MAX_DOC_CHARS,
     generate_logigramme,
     load_procedure_text,
@@ -22,12 +23,16 @@ from core.logigrammes_store import (
     read,
     save,
 )
+from core.mermaid_validate import normalize_mermaid
 
 REFINE_SYSTEM = (
-    "Tu génères uniquement du code Mermaid flowchart TD valide en français, "
-    "organisé en subgraphs swimlanes par acteur SENDIT (Magasinier, Système Sendit, "
-    "Chauffeur, Stock, Service Qualité, etc.) — uniquement les acteurs présents dans la procédure."
+    "Tu génères uniquement du code Mermaid flowchart TD valide en français. "
+    "Première ligne = flowchart TD. Subgraphs par acteur SENDIT présents dans la procédure "
+    "(Magasinier, Sendit, Chauffeur, Stock, ServiceQualite, etc.). "
+    "IDs camelCase, labels courts, <br/> autorisé. Aucun texte hors code."
 )
+
+REFINE_RETRY_SUFFIX = FORMAT_RETRY["mermaid"]
 
 
 class LogigrammeServiceError(Exception):
@@ -71,6 +76,56 @@ def remove_logigramme(*, category: str, stem: str) -> dict:
     return {"ok": True, "deleted": deleted}
 
 
+def _refine_prompt(
+    procedure_text: str,
+    draft: str,
+    history_lines: List[str],
+) -> str:
+    prompt = (
+        "Voici la procédure SENDIT source:\n\n"
+        f"{procedure_text[:MAX_DOC_CHARS]}\n\n"
+    )
+    if draft:
+        prompt += f"Logigramme Mermaid actuel:\n```\n{draft}\n```\n\n"
+    if history_lines:
+        prompt += "Demandes de l'utilisateur:\n" + "\n".join(history_lines) + "\n\n"
+    prompt += (
+        "Produis UNIQUEMENT le logigramme Mermaid révisé.\n"
+        "Première ligne: flowchart TD.\n"
+        "Subgraphs par acteur SENDIT impliqué. IDs camelCase. Labels français avec <br/> si besoin.\n"
+        "Fidèle à la procédure. Pas de markdown fence, pas de prose."
+    )
+    return prompt
+
+
+def _call_refine(
+    client: httpx.Client,
+    *,
+    model: str,
+    refine_prompt: str,
+    retry: bool = False,
+) -> tuple[str, str]:
+    user_content = refine_prompt
+    if retry:
+        user_content = refine_prompt + "\n\n" + REFINE_RETRY_SUFFIX
+    payload: Dict[str, Any] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": REFINE_SYSTEM},
+            {"role": "user", "content": user_content},
+        ],
+        "max_tokens": 2048,
+        "temperature": 0.25,
+    }
+    r = client.post("/v1/chat/completions", json=payload, timeout=120.0)
+    r.raise_for_status()
+    data = r.json()
+    msg = data["choices"][0].get("message") or {}
+    raw = (msg.get("content") or "").strip()
+    cleaned = normalize_mermaid(raw)
+    return raw, cleaned
+
+
 def generate_mermaid(
     *,
     category: str,
@@ -111,7 +166,7 @@ def generate_mermaid(
                 "error": outcome.error,
             }
 
-        draft = strip_code_fence((current_mermaid or "").strip())
+        draft = normalize_mermaid((current_mermaid or "").strip())
         if not draft and user_messages:
             outcome = generate_logigramme(
                 document_text=procedure_text,
@@ -128,43 +183,18 @@ def generate_mermaid(
             if content:
                 history_lines.append(f"{role}: {content}")
 
-        refine_prompt = (
-            "Voici la procédure SENDIT source:\n\n"
-            f"{procedure_text[:MAX_DOC_CHARS]}\n\n"
-        )
-        if draft:
-            refine_prompt += (
-                "Logigramme Mermaid actuel:\n```\n"
-                f"{draft}\n```\n\n"
-            )
-        if history_lines:
-            refine_prompt += "Demandes de l'utilisateur:\n" + "\n".join(history_lines) + "\n\n"
-        refine_prompt += (
-            "Produis UNIQUEMENT le logigramme Mermaid `flowchart TD` révisé, "
-            "organisé en subgraphs par acteur SENDIT (un subgraph par rôle impliqué dans la procédure). "
-            "Labels avec <br/> si besoin. Fidèle à la procédure, en français. Pas de markdown fence."
-        )
+        refine_prompt = _refine_prompt(procedure_text, draft, history_lines)
+        _raw, cleaned = _call_refine(client, model=mdl, refine_prompt=refine_prompt, retry=False)
+        retried = False
+        if not validate_mermaid(cleaned):
+            retried = True
+            _raw, cleaned = _call_refine(client, model=mdl, refine_prompt=refine_prompt, retry=True)
 
-        payload: Dict[str, Any] = {
-            "model": mdl,
-            "messages": [
-                {"role": "system", "content": REFINE_SYSTEM},
-                {"role": "user", "content": refine_prompt},
-            ],
-            "max_tokens": 2048,
-            "temperature": 0.25,
-        }
-        r = client.post("/v1/chat/completions", json=payload, timeout=120.0)
-        r.raise_for_status()
-        data = r.json()
-        msg = data["choices"][0].get("message") or {}
-        raw = (msg.get("content") or "").strip()
-        cleaned = strip_code_fence(raw)
         syntax_valid = validate_mermaid(cleaned)
         return {
             "mermaid": cleaned,
             "syntax_valid": syntax_valid,
-            "retried": False,
+            "retried": retried,
             "latency_ms": 0,
             "error": "" if syntax_valid else "invalid mermaid output",
         }

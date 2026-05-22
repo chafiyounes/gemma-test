@@ -719,41 +719,45 @@ class DocStore:
             return fallback_nt
 
         if categories and len(targets) >= 2:
-            floor = max(3, min(10, max(4, k // max(1, len(targets)))))
-            seen: set[tuple[str, str]] = set()
-            selected: List[Doc] = []
+            per_cat_cap = 3
+            scored_all: List[tuple[float, int, Doc]] = []
             for idx in targets:
-                ranked = self._rank_docs_in_index(
-                    idx, query, expand_for_retrieval=False
-                )
-                for d in ranked[:floor]:
+                for i, d in enumerate(idx.docs):
+                    s = self._bm25(q_tokens, d, idx)
+                    scored_all.append((s, i, d))
+            scored_all.sort(key=lambda x: (-x[0], x[1]))
+
+            selected: List[Doc] = []
+            cat_counts: Dict[str, int] = {}
+            seen: set[tuple[str, str]] = set()
+
+            for s, _i, d in scored_all:
+                if len(selected) >= k:
+                    break
+                if s <= 0:
+                    break
+                key = (d.category, d.name)
+                if key in seen:
+                    continue
+                cc = cat_counts.get(d.category, 0)
+                if cc >= per_cat_cap:
+                    continue
+                seen.add(key)
+                cat_counts[d.category] = cc + 1
+                selected.append(d)
+
+            if len(selected) < k:
+                for s, _i, d in scored_all:
+                    if len(selected) >= k:
+                        break
                     key = (d.category, d.name)
                     if key in seen:
                         continue
                     seen.add(key)
                     selected.append(d)
-            if len(selected) >= k:
-                return selected[:k]
-            scored_mc: List[tuple[float, Doc]] = []
-            for idx in targets:
-                for d in idx.docs:
-                    key = (d.category, d.name)
-                    if key in seen:
-                        continue
-                    s = self._bm25(q_tokens, d, idx)
-                    if s > 0:
-                        scored_mc.append((s, d))
-            scored_mc.sort(key=lambda x: x[0], reverse=True)
-            for d in (d for _, d in scored_mc):
-                if len(selected) >= k:
-                    break
-                key = (d.category, d.name)
-                if key in seen:
-                    continue
-                seen.add(key)
-                selected.append(d)
+
             if selected:
-                return selected
+                return selected[:k]
 
         scored = []
         for idx in targets:

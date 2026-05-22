@@ -632,6 +632,7 @@ async def chat(
 
     want_agentic = False
     agentic_explicit = body.agentic_rag is True
+    multi_scope = len(cats_resolved) > 1
     if body.agentic_rag is True:
         want_agentic = True
     elif body.agentic_rag is False:
@@ -640,6 +641,13 @@ async def chat(
         want_agentic = bool(
             settings.AGENTIC_RAG_ENABLED and settings.AGENTIC_RAG_DEFAULT_ON_CHAT
         )
+        if (
+            not want_agentic
+            and settings.AGENTIC_RAG_ENABLED
+            and settings.AGENTIC_RAG_ON_MULTI_SCOPE
+            and multi_scope
+        ):
+            want_agentic = True
 
     if want_agentic:
         if not settings.AGENTIC_RAG_ENABLED:

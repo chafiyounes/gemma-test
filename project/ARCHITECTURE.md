@@ -50,6 +50,8 @@ flowchart TB
 
 **Agentic RAG** (optional, `AGENTIC_RAG_ENABLED=true` and client `agentic_rag: true` for admin unless `AGENTIC_RAG_ALLOW_NON_ADMIN`): **two-phase** by default (`AGENTIC_RAG_TWO_PHASE`):
 
+When **`AGENTIC_RAG_ON_MULTI_SCOPE=true`** (default), chat scope **all** / multi-category automatically uses agentic routing even without `agentic_rag: true` on the request. BM25 pre-filters the catalog (`AGENTIC_RAG_CATALOG_NARROW_MAX`, default 40) before the router sheet. Single-category scopes (e.g. `procedures`) stay on classic BM25/full-inject.
+
 1. **Router** — English system prompt + JSON **catalog** per indexed doc: `id`, `path`, `objective`, `section_1` (heuristic extract from SOP body). Model calls tool **`request_documents(ids)`**; backend returns **full** bodies from `DocStore`. First vLLM round uses a **forced** `tool_choice` for `request_documents` so the router cannot “finish” without a tool call. Up to **`AGENTIC_RAG_ROUTER_MAX_ROUNDS`** rounds; **`AGENTIC_RAG_ROUTER_MAX_IDS_PER_ROUND`** ids per call; **`AGENTIC_RAG_ROUTER_MAX_TOTAL_IDS`** unique docs cap (default aim **~5**, max **10** via settings + prompts).
 2. **Answer** — Second completion: normal **`SYSTEM_PROMPT`** + same **DOCUMENTS DE RÉFÉRENCE** block formatting as classic RAG (`format_retrieved_documents_for_prompt`, greedy inject / query windows). **No tools.** Metadata must keep **`tool_rounds`** from the router (answer phase must not overwrite it with `0`).
 
@@ -84,6 +86,10 @@ flowchart LR
 ### 3.1 Greedy inject (`RAG_GREEDY_FULL_DOCS=true`)
 
 `_greedy_inject_document_blocks` + `_best_window_for_query`: prefer **full** top-ranked files, then **at most one** query-aligned excerpt; avoid thin slices of every file. Agentic answer phase reuses the same helpers.
+
+Multi-category BM25 (`retrieve` with `categories=[…]`) ranks by **global** score with a soft per-category cap (max 3 per folder in the first pass) so help articles do not always precede procedures alphabetically.
+
+Classic chat (`core/llm.py`) uses `build_all_docs_context` when a single scope qualifies for full-category inject (`RAG_FULL_CATEGORY_*` thresholds).
 
 ### 3.2 Optional map / embeddings “test track”
 
