@@ -33,11 +33,16 @@ La PREMIÈRE ligne DOIT être exactement: flowchart TD
 
 Structure:
 - Un `subgraph` par acteur mentionné dans la procédure (uniquement ceux impliqués).
-- Acteurs possibles: Magasinier, Sendit, Chauffeur, Stock, ServiceQualite, Client, Transporteur, Hub.
+- Acteurs possibles: Magasinier, Sendit, Chauffeur, Stock, ServiceQualite, Client, Transporteur, Hub, ServiceAcquisition.
 - IDs de nœuds en camelCase sans espaces (ex: scanColis, validerStock).
-- Étapes: A[Label court], décisions: B{{Question ?}}.
-- Labels en français; `<br/>` autorisé dans les labels (max 3 lignes par boîte).
-- Flèches `-->` entre étapes; les transferts inter-acteurs relient des nœuds de subgraphs différents.
+- Étapes: A[Label], décisions: B{{Question ?}}.
+- Labels en français; `<br/>` pour retours à la ligne (jusqu'à 5 lignes par boîte si nécessaire).
+
+Richesse du contenu (obligatoire):
+- Reprends les informations **concrètes** de la procédure dans les labels: listes autorisées/interdites, restrictions, seuils, délais, documents, critères de refus, etc.
+- Ne te limite pas à « autorisé ? » sans détail: cite les exemples ou catégories tirés du texte (ex: « Produit autorisé ?<br/>Oui: colis sec, textile<br/>Non: liquides, batteries, aérosols »).
+- Chaque boîte doit porter une info exploitable par un opérateur SENDIT, pas seulement un intitulé générique.
+- Flèches `-->` entre étapes; libellés de branche `-- Oui -->` / `-- Non -->` quand utile.
 - Pas de directive `%%{{init:...}}%%`, pas de couleurs/style, pas de HTML sauf `<br/>`.
 
 Procédure:
@@ -80,7 +85,8 @@ Procédure:
 FORMAT_RETRY: Dict[str, str] = {
     "mermaid": (
         "Réponds UNIQUEMENT avec du code Mermaid. Première ligne: flowchart TD. "
-        "Subgraphs par acteur SENDIT présents dans la procédure. Pas de prose, pas de fence."
+        "Subgraphs par acteur. Labels détaillés avec listes/critères concrets de la procédure (<br/>). "
+        "Pas de prose, pas de fence."
     ),
     "dot": "Réponds UNIQUEMENT avec digraph {{ ... }} valide.",
     "plantuml": "Réponds UNIQUEMENT avec @startuml ... @enduml.",
@@ -92,7 +98,8 @@ FORMAT_RETRY: Dict[str, str] = {
 FORMAT_SYSTEM: Dict[str, str] = {
     "mermaid": (
         "Tu génères uniquement du code Mermaid flowchart TD valide. "
-        "Première ligne = flowchart TD. Subgraphs par acteur SENDIT. Aucun texte hors code."
+        "Première ligne = flowchart TD. Subgraphs par acteur. "
+        "Labels riches: listes autorisées/interdites et critères concrets du texte (<br/>). Aucun texte hors code."
     ),
     "dot": "Tu génères uniquement du Graphviz DOT valide.",
     "plantuml": "Tu génères uniquement du PlantUML valide.",

@@ -2127,6 +2127,29 @@ const logigrammeState = {
   busy: false,
 };
 
+let logigrammePreviewTimer = null;
+
+function syncLogigrammeFromEditor() {
+  if (!logigrammeSource) return (logigrammeState.mermaid || "").trim();
+  const v = (logigrammeSource.value || "").trim();
+  logigrammeState.mermaid = v;
+  return v;
+}
+
+function setLogigrammeSource(code) {
+  const v = code || "";
+  logigrammeState.mermaid = v;
+  if (logigrammeSource) logigrammeSource.value = v;
+}
+
+function scheduleLogigrammePreview() {
+  if (logigrammePreviewTimer) clearTimeout(logigrammePreviewTimer);
+  logigrammePreviewTimer = setTimeout(() => {
+    syncLogigrammeFromEditor();
+    renderLogigrammePreview(logigrammeState.mermaid);
+  }, 450);
+}
+
 let mermaidLoaderPromise = null;
 
 function ensureMermaidLib() {
@@ -2203,7 +2226,7 @@ async function openLogigrammeModal({ category, stem, name }) {
   logigrammeState.messages = [];
   if (logigrammeTitle) logigrammeTitle.textContent = `Logigramme — ${logigrammeState.name}`;
   if (logigrammeRefineInput) logigrammeRefineInput.value = "";
-  if (logigrammeSource) logigrammeSource.textContent = "";
+  setLogigrammeSource("");
   setLogigrammeStatus("");
   logigrammeModal.classList.remove("hidden");
   document.body.classList.add("logigramme-modal-open");
@@ -2213,8 +2236,7 @@ async function openLogigrammeModal({ category, stem, name }) {
     const res = await apiFetch(`${LOGIGRAMME_API}?${qs.toString()}`);
     const data = await res.json();
     if (data.mermaid) {
-      logigrammeState.mermaid = data.mermaid;
-      if (logigrammeSource) logigrammeSource.textContent = data.mermaid;
+      setLogigrammeSource(data.mermaid);
       await renderLogigrammePreview(data.mermaid);
       setLogigrammeStatus(data.exists ? "Logigramme existant chargé." : "");
     } else {
@@ -2237,6 +2259,7 @@ async function runLogigrammeGenerate({ refine = false } = {}) {
   setLogigrammeBusy(true);
   setLogigrammeStatus(refine ? "Affinage en cours…" : "Génération en cours…");
   try {
+    syncLogigrammeFromEditor();
     const refineText = (logigrammeRefineInput?.value || "").trim();
     const messages = refine && refineText
       ? [...logigrammeState.messages, { role: "user", content: refineText }]
@@ -2256,13 +2279,14 @@ async function runLogigrammeGenerate({ refine = false } = {}) {
     if (!data.mermaid) {
       throw new Error(data.error || "Génération vide");
     }
-    logigrammeState.mermaid = data.mermaid;
+    setLogigrammeSource(data.mermaid);
     logigrammeState.messages = messages;
     if (refine && refineText && logigrammeRefineInput) logigrammeRefineInput.value = "";
-    if (logigrammeSource) logigrammeSource.textContent = data.mermaid;
     await renderLogigrammePreview(data.mermaid);
     setLogigrammeStatus(
-      data.syntax_valid ? "Diagramme prêt — vérifiez puis enregistrez." : "Syntaxe Mermaid douteuse — affinez ou régénérez.",
+      data.syntax_valid
+        ? "Diagramme prêt — modifiez le code si besoin puis enregistrez."
+        : "Syntaxe Mermaid douteuse — corrigez le code ou régénérez.",
     );
   } catch (err) {
     setLogigrammeStatus(err.message || "Échec génération logigramme.");
@@ -2272,6 +2296,7 @@ async function runLogigrammeGenerate({ refine = false } = {}) {
 }
 
 async function saveLogigrammeDraft() {
+  syncLogigrammeFromEditor();
   if (logigrammeState.busy || !logigrammeState.mermaid.trim()) return;
   setLogigrammeBusy(true);
   setLogigrammeStatus("Enregistrement…");
@@ -2309,6 +2334,9 @@ if (logigrammeSaveBtn) {
 }
 if (logigrammeCloseBtn) logigrammeCloseBtn.addEventListener("click", closeLogigrammeModal);
 if (logigrammeCancelBtn) logigrammeCancelBtn.addEventListener("click", closeLogigrammeModal);
+if (logigrammeSource) {
+  logigrammeSource.addEventListener("input", scheduleLogigrammePreview);
+}
 if (logigrammeModal) {
   logigrammeModal.addEventListener("click", (ev) => {
     if (ev.target === logigrammeModal) closeLogigrammeModal();

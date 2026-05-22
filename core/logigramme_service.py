@@ -27,9 +27,9 @@ from core.mermaid_validate import normalize_mermaid
 
 REFINE_SYSTEM = (
     "Tu génères uniquement du code Mermaid flowchart TD valide en français. "
-    "Première ligne = flowchart TD. Subgraphs par acteur SENDIT présents dans la procédure "
-    "(Magasinier, Sendit, Chauffeur, Stock, ServiceQualite, etc.). "
-    "IDs camelCase, labels courts, <br/> autorisé. Aucun texte hors code."
+    "Première ligne = flowchart TD. Subgraphs par acteur SENDIT présents dans la procédure. "
+    "Labels détaillés: listes autorisées/interdites, restrictions et critères concrets du texte (<br/>). "
+    "IDs camelCase. Aucun texte hors code."
 )
 
 REFINE_RETRY_SUFFIX = FORMAT_RETRY["mermaid"]
@@ -92,8 +92,9 @@ def _refine_prompt(
     prompt += (
         "Produis UNIQUEMENT le logigramme Mermaid révisé.\n"
         "Première ligne: flowchart TD.\n"
-        "Subgraphs par acteur SENDIT impliqué. IDs camelCase. Labels français avec <br/> si besoin.\n"
-        "Fidèle à la procédure. Pas de markdown fence, pas de prose."
+        "Subgraphs par acteur SENDIT impliqué. IDs camelCase.\n"
+        "Labels riches avec listes/critères concrets de la procédure (articles autorisés/interdits, restrictions…) via <br/>.\n"
+        "Fidèle au texte. Pas de markdown fence, pas de prose."
     )
     return prompt
 

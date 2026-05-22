@@ -59,7 +59,9 @@ API:
 
 Generation uses dedicated admin endpoints — **not** `POST /chat`.
 
-**Générer** reads the procedure automatically (no manual Mermaid paste). **Affiner** is optional follow-up instructions. The first line of generated code must be `flowchart TD`; Mermaid init directives (`%%{init:…}%%`) are not required — rendering config is handled in the admin/preview UI.
+**Générer** reads the procedure automatically (no manual Mermaid paste). **Affiner** is optional follow-up instructions. The **Code Mermaid** textarea is fully editable — manual edits update the preview and can be saved directly. The first line of generated code must be `flowchart TD`; Mermaid init directives (`%%{init:…}%%`) are not required — rendering config is handled in the admin/preview UI.
+
+Generated diagrams should embed **concrete** procedure content in node labels (authorized/forbidden item lists, restrictions, criteria) — not only generic yes/no decision titles.
 
 Validation: [`core/mermaid_validate.py`](../core/mermaid_validate.py)
 

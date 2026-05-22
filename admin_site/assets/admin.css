@@ -1784,7 +1784,16 @@ body.logigramme-modal-open {
   min-width: 0;
 }
 
+.logigramme-source-label {
+  display: block;
+  margin: 0 0 0.35rem;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+}
+
 .logigramme-source {
+  width: 100%;
+  min-height: 28vh;
   margin: 0;
   padding: 0.75rem;
   border: 1px solid var(--border);
@@ -1792,10 +1801,9 @@ body.logigramme-modal-open {
   background: var(--bg-page);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.88rem;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 22vh;
-  overflow: auto;
+  line-height: 1.45;
+  resize: vertical;
+  box-sizing: border-box;
 }
 
 .logigramme-refine-label {
