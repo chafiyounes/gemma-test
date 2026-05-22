@@ -426,7 +426,6 @@ def apply_plan(
     uploads: List[dict],
     moves: List[dict],
     deletes: List[dict],
-    *,
     username: str = "",
 ) -> dict:
     """Apply staged document operations atomically (best-effort rollback)."""
