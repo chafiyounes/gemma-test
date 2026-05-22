@@ -3,11 +3,26 @@ import "./MermaidDiagram.css";
 
 let mermaidModule = null;
 
+const MERMAID_CONFIG = {
+  startOnLoad: false,
+  securityLevel: "loose",
+  theme: "neutral",
+  flowchart: {
+    htmlLabels: true,
+    useMaxWidth: false,
+    wrappingWidth: 200,
+  },
+  themeVariables: {
+    fontSize: "15px",
+    fontFamily: "system-ui, Segoe UI, sans-serif",
+  },
+};
+
 async function loadMermaid() {
   if (mermaidModule) return mermaidModule;
   const mod = await import("mermaid");
   mermaidModule = mod.default;
-  mermaidModule.initialize({ startOnLoad: false, securityLevel: "strict" });
+  mermaidModule.initialize(MERMAID_CONFIG);
   return mermaidModule;
 }
 

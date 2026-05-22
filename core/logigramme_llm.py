@@ -26,8 +26,18 @@ SUPPORTED_FORMATS = ("mermaid", "dot", "plantuml", "svg", "html", "json_graph")
 
 FORMAT_PROMPTS: Dict[str, str] = {
     "mermaid": """Tu es un expert en logigrammes SENDIT.
-Produis UNIQUEMENT un diagramme Mermaid `flowchart TD` en français.
-Règles: étapes rectangulaires A[Étape], décisions B{{Question ?}}, fidèle au texte, pas de markdown fence.
+Produis UNIQUEMENT un diagramme Mermaid `flowchart TD` en français, organisé en colonnes (swimlanes) par acteur.
+
+Structure obligatoire:
+- Utilise `subgraph` pour chaque acteur mentionné dans la procédure (uniquement ceux présents dans le texte).
+- Acteurs possibles (inclure seulement si la procédure les implique):
+  Magasinier / Chef magasin, Système Sendit, Chauffeur, Stock, Service Qualité, Client, Transporteur, Hub.
+- Place chaque étape dans le subgraph de l'acteur concerné.
+- Les transferts entre acteurs = flèches explicites entre nœuds de subgraphs différents.
+- Étapes: rectangles A[Label], décisions: B{{Question ?}}.
+- Labels courts en français; utilise <br/> pour retour à la ligne (max 3 lignes par boîte).
+- Tu peux commencer par: %%{{init: {{'flowchart': {{'htmlLabels': true, 'useMaxWidth': false, 'wrappingWidth': 200}}}}}}%%
+- Pas de markdown fence.
 
 Procédure:
 {document_text}""",
@@ -67,7 +77,7 @@ Procédure:
 }
 
 FORMAT_RETRY: Dict[str, str] = {
-    "mermaid": "Réponds UNIQUEMENT avec flowchart TD valide.",
+    "mermaid": "Réponds UNIQUEMENT avec flowchart TD valide, subgraphs par acteur SENDIT présents dans la procédure.",
     "dot": "Réponds UNIQUEMENT avec digraph {{ ... }} valide.",
     "plantuml": "Réponds UNIQUEMENT avec @startuml ... @enduml.",
     "svg": "Réponds UNIQUEMENT avec <svg>...</svg> valide.",
@@ -76,7 +86,7 @@ FORMAT_RETRY: Dict[str, str] = {
 }
 
 FORMAT_SYSTEM: Dict[str, str] = {
-    "mermaid": "Tu génères uniquement du code Mermaid valide.",
+    "mermaid": "Tu génères uniquement du code Mermaid valide avec subgraphs swimlanes par acteur SENDIT.",
     "dot": "Tu génères uniquement du Graphviz DOT valide.",
     "plantuml": "Tu génères uniquement du PlantUML valide.",
     "svg": "Tu génères uniquement du SVG valide.",

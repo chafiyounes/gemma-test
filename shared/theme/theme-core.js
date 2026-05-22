@@ -1,6 +1,5 @@
 /**
- * SendBot theme — file-swap stylesheets (alternate <link disabled>) + data-theme.
- * Browsers that force-recolor variable themes often respect disabled stylesheet swaps.
+ * SendBot theme — both theme CSS files loaded; active palette via html[data-theme].
  */
 
 export const STORAGE_KEY = "sendbot_theme";
@@ -34,7 +33,7 @@ function upsertMeta(name, content) {
   el.setAttribute("content", content);
 }
 
-/** Ensure two alternate stylesheets exist; enable exactly one. */
+/** Ensure both theme stylesheets exist and stay enabled (data-theme selects tokens). */
 export function swapThemeStylesheets(theme) {
   const next = theme === "dark" ? "dark" : "light";
   const prefix = getThemeCssPrefix();
@@ -50,7 +49,7 @@ export function swapThemeStylesheets(theme) {
       link.href = `${prefix}theme-${mode}.css${v}`;
       document.head.appendChild(link);
     }
-    link.disabled = mode !== next;
+    link.disabled = false;
     link.media = "all";
   });
 

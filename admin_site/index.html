@@ -8,24 +8,23 @@
     <title>Darija Chatbot Admin</title>
     <script>
       window.SENDBOT_THEME_CSS_PREFIX = "/admin-static/";
-      window.SENDBOT_THEME_CSS_V = "?v=20260523";
+      window.SENDBOT_THEME_CSS_V = "?v=20260524";
     </script>
     <link
       rel="stylesheet"
-      href="/admin-static/theme-light.css?v=20260523"
+      href="/admin-static/theme-light.css?v=20260524"
       id="sendbot-theme-light"
       title="sendbot-theme"
     />
     <link
       rel="stylesheet"
-      href="/admin-static/theme-dark.css?v=20260523"
+      href="/admin-static/theme-dark.css?v=20260524"
       id="sendbot-theme-dark"
       title="sendbot-theme"
-      disabled
     />
-    <link rel="stylesheet" href="/admin-static/theme-base.css?v=20260523" />
-    <link rel="stylesheet" href="/admin-static/admin.css?v=20260523" />
-    <script src="/admin-static/theme-sync.js?v=20260523"></script>
+    <link rel="stylesheet" href="/admin-static/theme-base.css?v=20260524" />
+    <link rel="stylesheet" href="/admin-static/admin.css?v=20260524" />
+    <script src="/admin-static/theme-sync.js?v=20260524"></script>
     <script>
       (function () {
         var PAGE_BG = { light: "#e8e4dc", dark: "#0f1419" };
@@ -34,10 +33,6 @@
           var t = localStorage.getItem("sendbot_theme");
           if (t === "dark" || t === "light") theme = t;
         } catch (e) { /* ignore */ }
-        var light = document.getElementById("sendbot-theme-light");
-        var dark = document.getElementById("sendbot-theme-dark");
-        if (light) light.disabled = theme !== "light";
-        if (dark) dark.disabled = theme !== "dark";
         var html = document.documentElement;
         html.setAttribute("data-theme", theme);
         html.style.colorScheme = theme;
@@ -347,27 +342,31 @@
           <button type="button" id="logigramme-close-btn" class="logigramme-modal-close" aria-label="Fermer">×</button>
         </header>
         <div class="logigramme-modal-body">
-          <div class="logigramme-modal-col">
+          <div class="logigramme-modal-preview-section">
             <h3>Aperçu</h3>
             <div id="logigramme-preview" class="logigramme-preview"></div>
           </div>
-          <div class="logigramme-modal-col">
-            <h3>Code Mermaid</h3>
-            <pre id="logigramme-source" class="logigramme-source"></pre>
-            <label for="logigramme-refine-input" class="logigramme-refine-label">Affiner avec Gemma</label>
-            <textarea id="logigramme-refine-input" class="logigramme-refine-input" rows="3" placeholder="Ex. Ajoute la branche remboursement refusé…"></textarea>
-            <div class="logigramme-modal-actions">
-              <button type="button" id="logigramme-generate-btn" class="toolbar-button">Générer</button>
-              <button type="button" id="logigramme-refine-btn" class="toolbar-button secondary">Affiner</button>
-              <button type="button" id="logigramme-save-btn" class="toolbar-button doc-btn-save">Enregistrer</button>
-              <button type="button" id="logigramme-cancel-btn" class="toolbar-button secondary">Annuler</button>
+          <div class="logigramme-modal-controls">
+            <div class="logigramme-modal-col">
+              <h3>Code Mermaid</h3>
+              <pre id="logigramme-source" class="logigramme-source"></pre>
             </div>
-            <p id="logigramme-status" class="logigramme-status" role="status"></p>
+            <div class="logigramme-modal-col logigramme-modal-col-refine">
+              <label for="logigramme-refine-input" class="logigramme-refine-label">Affiner avec Gemma</label>
+              <textarea id="logigramme-refine-input" class="logigramme-refine-input" rows="4" placeholder="Ex. Ajoute la branche remboursement refusé…"></textarea>
+              <div class="logigramme-modal-actions">
+                <button type="button" id="logigramme-generate-btn" class="toolbar-button">Générer</button>
+                <button type="button" id="logigramme-refine-btn" class="toolbar-button secondary">Affiner</button>
+                <button type="button" id="logigramme-save-btn" class="toolbar-button doc-btn-save">Enregistrer</button>
+                <button type="button" id="logigramme-cancel-btn" class="toolbar-button secondary">Annuler</button>
+              </div>
+              <p id="logigramme-status" class="logigramme-status" role="status"></p>
+            </div>
           </div>
         </div>
       </div>
     </div>
 
-    <script src="/admin-static/admin.js?v=20260622" defer></script>
+    <script src="/admin-static/admin.js?v=20260524" defer></script>
   </body>
   </html>

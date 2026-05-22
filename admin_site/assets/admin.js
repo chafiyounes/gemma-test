@@ -11,14 +11,30 @@
   }
 
   function applyThemeInline(theme) {
+    var next = theme === "dark" ? "dark" : "light";
     var light = document.getElementById("sendbot-theme-light");
     var dark = document.getElementById("sendbot-theme-dark");
-    if (light) light.disabled = theme !== "light";
-    if (dark) dark.disabled = theme !== "dark";
+    if (light) light.disabled = false;
+    if (dark) dark.disabled = false;
     var html = document.documentElement;
-    html.setAttribute("data-theme", theme);
-    html.style.colorScheme = theme;
-    html.style.backgroundColor = PAGE_BG[theme] || PAGE_BG.light;
+    html.setAttribute("data-theme", next);
+    html.style.colorScheme = next;
+    html.style.backgroundColor = PAGE_BG[next] || PAGE_BG.light;
+    if (document.body) {
+      document.body.style.backgroundColor = PAGE_BG[next] || PAGE_BG.light;
+      document.body.style.colorScheme = next;
+    }
+    function meta(name, content) {
+      var el = document.querySelector('meta[name="' + name + '"]');
+      if (!el) {
+        el = document.createElement("meta");
+        el.setAttribute("name", name);
+        document.head.appendChild(el);
+      }
+      el.setAttribute("content", content);
+    }
+    meta("color-scheme", next);
+    meta("theme-color", PAGE_BG[next] || PAGE_BG.light);
   }
 
   function toggleThemeInline() {
@@ -2122,7 +2138,20 @@ function ensureMermaidLib() {
     s.async = true;
     s.onload = () => {
       try {
-        window.mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral" });
+        window.mermaid.initialize({
+          startOnLoad: false,
+          securityLevel: "loose",
+          theme: "neutral",
+          flowchart: {
+            htmlLabels: true,
+            useMaxWidth: false,
+            wrappingWidth: 200,
+          },
+          themeVariables: {
+            fontSize: "15px",
+            fontFamily: "system-ui, Segoe UI, sans-serif",
+          },
+        });
         resolve(window.mermaid);
       } catch (err) {
         reject(err);

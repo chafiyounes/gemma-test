@@ -5,20 +5,19 @@
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#e8e4dc" />
     <script>
-      window.SENDBOT_THEME_CSS_V = "?v=20260522";
+      window.SENDBOT_THEME_CSS_V = "?v=20260524";
     </script>
     <link
       rel="stylesheet"
-      href="/theme-light.css?v=20260522"
+      href="/theme-light.css?v=20260524"
       id="sendbot-theme-light"
       title="sendbot-theme"
     />
     <link
       rel="stylesheet"
-      href="/theme-dark.css?v=20260522"
+      href="/theme-dark.css?v=20260524"
       id="sendbot-theme-dark"
       title="sendbot-theme"
-      disabled
     />
     <script>
       (function () {
@@ -28,10 +27,6 @@
           var t = localStorage.getItem("sendbot_theme");
           if (t === "dark" || t === "light") theme = t;
         } catch (e) { /* ignore */ }
-        var light = document.getElementById("sendbot-theme-light");
-        var dark = document.getElementById("sendbot-theme-dark");
-        if (light) light.disabled = theme !== "light";
-        if (dark) dark.disabled = theme !== "dark";
         var html = document.documentElement;
         html.setAttribute("data-theme", theme);
         html.style.colorScheme = theme;

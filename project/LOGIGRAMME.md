@@ -8,7 +8,9 @@
 
 ## Format
 
-**Mermaid** `flowchart TD` — chosen after pod eval (100% syntax valid across 3 procedures × 3 trials).
+**Mermaid** `flowchart TD` with **subgraph swimlanes** per SENDIT actor present in the procedure (Magasinier, Système Sendit, Chauffeur, Stock, Service Qualité, etc.) — not every lane, only those mentioned in the SOP.
+
+Existing sidecars saved before this layout: **regenerate or Affiner** in admin to get swimlanes.
 
 Implementation: [`core/logigramme_llm.py`](../core/logigramme_llm.py), [`core/logigramme_service.py`](../core/logigramme_service.py)
 

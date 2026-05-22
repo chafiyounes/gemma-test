@@ -1,29 +1,43 @@
 .mermaid-diagram-wrap {
   width: 100%;
+  max-height: min(75vh, 900px);
   overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-page);
+  padding: 1rem;
 }
 
 .mermaid-diagram {
-  min-height: 120px;
+  min-height: 320px;
 }
 
 .mermaid-diagram svg {
-  max-width: 100%;
+  max-width: none;
+  width: auto;
   height: auto;
+  min-width: min(100%, 720px);
+  display: block;
 }
 
 .mermaid-diagram-empty {
   color: var(--text-muted);
   margin: 0;
+  font-size: 0.95rem;
 }
 
 .mermaid-diagram-fallback {
   margin-top: 0.75rem;
-  padding: 0.65rem;
+  padding: 0.75rem;
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--bg-page);
-  font-size: 0.78rem;
+  font-size: 0.88rem;
   white-space: pre-wrap;
+  word-break: break-word;
   overflow: auto;
+}
+
+.doc-preview-logigramme {
+  min-height: 360px;
 }

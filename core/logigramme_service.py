@@ -23,7 +23,11 @@ from core.logigrammes_store import (
     save,
 )
 
-REFINE_SYSTEM = "Tu génères uniquement du code Mermaid flowchart TD valide en français."
+REFINE_SYSTEM = (
+    "Tu génères uniquement du code Mermaid flowchart TD valide en français, "
+    "organisé en subgraphs swimlanes par acteur SENDIT (Magasinier, Système Sendit, "
+    "Chauffeur, Stock, Service Qualité, etc.) — uniquement les acteurs présents dans la procédure."
+)
 
 
 class LogigrammeServiceError(Exception):
@@ -137,7 +141,8 @@ def generate_mermaid(
             refine_prompt += "Demandes de l'utilisateur:\n" + "\n".join(history_lines) + "\n\n"
         refine_prompt += (
             "Produis UNIQUEMENT le logigramme Mermaid `flowchart TD` révisé, "
-            "fidèle à la procédure, en français. Pas de markdown fence."
+            "organisé en subgraphs par acteur SENDIT (un subgraph par rôle impliqué dans la procédure). "
+            "Labels avec <br/> si besoin. Fidèle à la procédure, en français. Pas de markdown fence."
         )
 
         payload: Dict[str, Any] = {

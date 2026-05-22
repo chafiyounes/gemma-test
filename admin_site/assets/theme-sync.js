@@ -37,8 +37,7 @@
     el.setAttribute("content", content);
   }
 
-  function swapThemeStylesheets(theme) {
-    var next = theme === "dark" ? "dark" : "light";
+  function ensureThemeStylesheets() {
     var prefix = getThemeCssPrefix();
     var v = root.SENDBOT_THEME_CSS_V || "";
     ["light", "dark"].forEach(function (mode) {
@@ -51,10 +50,14 @@
         link.href = prefix + "theme-" + mode + ".css" + v;
         document.head.appendChild(link);
       }
-      link.disabled = mode !== next;
+      link.disabled = false;
       link.media = "all";
     });
-    return next;
+  }
+
+  function swapThemeStylesheets(theme) {
+    ensureThemeStylesheets();
+    return theme === "dark" ? "dark" : "light";
   }
 
   function syncThemeToDocument(theme) {
