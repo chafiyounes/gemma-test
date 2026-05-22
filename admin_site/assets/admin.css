@@ -1720,8 +1720,9 @@ body.logigramme-modal-open {
 
 .logigramme-modal-body {
   display: grid;
-  grid-template-rows: minmax(0, 1fr) minmax(0, 34vh) auto;
-  gap: 0.75rem;
+  grid-template-columns: minmax(0, 1fr) min(420px, 34vw);
+  grid-template-rows: minmax(0, 1fr);
+  gap: 1rem;
   padding: 1rem;
   overflow: hidden;
   flex: 1;
@@ -1731,6 +1732,7 @@ body.logigramme-modal-open {
 .logigramme-modal-preview-section {
   display: flex;
   flex-direction: column;
+  height: 100%;
   min-height: 0;
   overflow: hidden;
 }
@@ -1860,10 +1862,10 @@ body.logigramme-modal-open {
   overflow: auto;
 }
 
-.logigramme-modal-controls {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+.logigramme-modal-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
   min-width: 0;
   min-height: 0;
   overflow: hidden;
@@ -1874,6 +1876,16 @@ body.logigramme-modal-open {
   min-height: 0;
   display: flex;
   flex-direction: column;
+}
+
+.logigramme-modal-col-refine {
+  flex-shrink: 0;
+}
+
+.logigramme-modal-col-source {
+  flex: 1 1 0;
+  min-height: 120px;
+  overflow: hidden;
 }
 
 .logigramme-source-label {
@@ -1895,8 +1907,9 @@ body.logigramme-modal-open {
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 0.88rem;
   line-height: 1.45;
-  resize: vertical;
+  resize: none;
   box-sizing: border-box;
+  overflow: auto;
 }
 
 .logigramme-source--invalid {
@@ -1912,7 +1925,7 @@ body.logigramme-modal-open {
 
 .logigramme-refine-input {
   width: 100%;
-  flex: 1 1 auto;
+  flex: 0 0 auto;
   min-height: 72px;
   padding: 0.65rem 0.75rem;
   border: 1px solid var(--border);
@@ -1924,29 +1937,32 @@ body.logigramme-modal-open {
   box-sizing: border-box;
 }
 
-.logigramme-modal-footer {
-  min-width: 0;
-  flex-shrink: 0;
-}
-
 .logigramme-modal-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem;
+  flex-shrink: 0;
 }
 
 .logigramme-status {
-  margin: 0.65rem 0 0;
+  margin: 0;
+  flex-shrink: 0;
   font-size: 0.9rem;
   color: var(--text-muted);
 }
 
 @media (max-width: 900px) {
   .logigramme-modal-body {
-    grid-template-rows: minmax(0, 1fr) minmax(0, 40vh) auto;
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(50vh, 1fr) auto;
   }
 
-  .logigramme-modal-controls {
-    grid-template-columns: 1fr;
+  .logigramme-modal-sidebar {
+    max-height: 45vh;
+    overflow: auto;
+  }
+
+  .logigramme-modal-col-source {
+    min-height: 100px;
   }
 }

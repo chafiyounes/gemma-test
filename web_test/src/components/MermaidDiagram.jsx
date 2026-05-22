@@ -18,10 +18,10 @@ function getMermaidThemeConfig() {
       flowchart: {
         htmlLabels: true,
         useMaxWidth: false,
-        wrappingWidth: 180,
+        wrappingWidth: 120,
       },
       themeVariables: {
-        fontSize: "13px",
+        fontSize: "16px",
         fontFamily: "system-ui, Segoe UI, sans-serif",
         background: "#1a2332",
         primaryColor: "#2d3a4d",
@@ -40,10 +40,10 @@ function getMermaidThemeConfig() {
     flowchart: {
       htmlLabels: true,
       useMaxWidth: false,
-      wrappingWidth: 180,
+      wrappingWidth: 120,
     },
     themeVariables: {
-      fontSize: "13px",
+      fontSize: "16px",
       fontFamily: "system-ui, Segoe UI, sans-serif",
     },
   };
@@ -94,49 +94,63 @@ export default function MermaidDiagram({
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
   const [zoomLabel, setZoomLabel] = useState("100%");
-  const [scaleUi, setScaleUi] = useState({ fit: 1, current: 1 });
+  const [scaleUi, setScaleUi] = useState({ fit: 1, min: 1, max: 3, current: 1 });
   const [themeKey, setThemeKey] = useState(
     () => document.documentElement.getAttribute("data-theme") || "light"
   );
 
-  const updateZoomUi = useCallback(() => {
-    const { fitScale, currentScale } = dimsRef.current;
-    setZoomLabel(`${Math.round((currentScale / (fitScale || 1)) * 100)}%`);
-    setScaleUi({ fit: fitScale || 1, current: currentScale || 1 });
+  const computeZoomBounds = useCallback(() => {
+    const scroll = scrollRef.current;
+    const { baseWidth, baseHeight } = dimsRef.current;
+    if (!scroll || !baseWidth) {
+      return { reference: 1, min: 1, max: ZOOM_MAX };
+    }
+    const pad = 16;
+    const availW = Math.max(scroll.clientWidth - pad, 120);
+    const availH = Math.max(scroll.clientHeight - pad, 80);
+    const scaleW = availW / baseWidth;
+    const scaleH = availH / baseHeight;
+    const reference = scaleW;
+    const fullFit = Math.min(scaleW, scaleH);
+    const min = fullFit < reference ? fullFit : reference / ZOOM_MAX;
+    const max = reference * ZOOM_MAX;
+    return { reference, min, max };
   }, []);
+
+  const updateZoomUi = useCallback(() => {
+    const { reference, min, max } = computeZoomBounds();
+    const cur = dimsRef.current.currentScale || reference;
+    dimsRef.current.fitScale = reference;
+    setZoomLabel(`${Math.round((cur / reference) * 100)}%`);
+    setScaleUi({ fit: reference, min, max, current: cur });
+  }, [computeZoomBounds]);
 
   const applyDimensions = useCallback(() => {
     const canvas = canvasRef.current;
     const svg = canvas?.querySelector("svg");
     const { baseWidth, baseHeight, currentScale } = dimsRef.current;
-    if (!canvas || !svg || !baseWidth) return;
+    if (!canvas || !svg || !baseWidth) {
+      return;
+    }
 
     const w = baseWidth * currentScale;
     const h = baseHeight * currentScale;
     canvas.style.width = `${w}px`;
     canvas.style.height = `${h}px`;
-    svg.style.width = `${baseWidth}px`;
-    svg.style.height = `${baseHeight}px`;
+    svg.style.width = `${w}px`;
+    svg.style.height = `${h}px`;
     svg.style.maxWidth = "none";
     svg.style.display = "block";
     updateZoomUi();
   }, [updateZoomUi]);
 
-  const computeFitScale = useCallback(() => {
-    const scroll = scrollRef.current;
-    const { baseWidth, baseHeight } = dimsRef.current;
-    if (!scroll || !baseWidth) return 1;
-    const pad = 16;
-    const availW = Math.max(scroll.clientWidth - pad, 120);
-    const availH = Math.max(scroll.clientHeight - pad, 80);
-    return Math.min(1, availW / baseWidth, availH / baseHeight);
-  }, []);
+  const computeFitScale = useCallback(() => computeZoomBounds().reference, [computeZoomBounds]);
 
   const setZoom = useCallback(
     (scale, focalPoint, resetScroll = false) => {
-      const fit = dimsRef.current.fitScale || computeFitScale();
-      dimsRef.current.fitScale = fit;
-      dimsRef.current.currentScale = Math.max(fit, Math.min(ZOOM_MAX, scale));
+      const { reference, min, max } = computeZoomBounds();
+      dimsRef.current.fitScale = reference;
+      dimsRef.current.currentScale = Math.max(min, Math.min(max, scale));
       applyDimensions();
 
       const scroll = scrollRef.current;
@@ -150,16 +164,16 @@ export default function MermaidDiagram({
         scroll.scrollTop = 0;
       }
     },
-    [applyDimensions, computeFitScale]
+    [applyDimensions, computeZoomBounds]
   );
 
   const fitToView = useCallback(
     (resetScroll = true) => {
-      const fit = computeFitScale();
-      dimsRef.current.fitScale = fit;
-      setZoom(fit, null, resetScroll);
+      const { reference } = computeZoomBounds();
+      dimsRef.current.fitScale = reference;
+      setZoom(reference, null, resetScroll);
     },
-    [computeFitScale, setZoom]
+    [computeZoomBounds, setZoom]
   );
 
   const prepareSvgLayout = useCallback(() => {
@@ -305,6 +319,8 @@ export default function MermaidDiagram({
     .join(" ");
 
   const fitScale = scaleUi.fit;
+  const minScale = scaleUi.min ?? fitScale;
+  const maxScale = scaleUi.max ?? fitScale * ZOOM_MAX;
   const currentScale = scaleUi.current;
 
   return (
@@ -317,7 +333,7 @@ export default function MermaidDiagram({
                 type="button"
                 className="mermaid-diagram-zoom-btn"
                 onClick={handleZoomOut}
-                disabled={!ready || currentScale <= fitScale + 0.001}
+                disabled={!ready || currentScale <= minScale + 0.001}
                 aria-label="Zoom arrière"
               >
                 −
@@ -327,7 +343,7 @@ export default function MermaidDiagram({
                 type="button"
                 className="mermaid-diagram-zoom-btn"
                 onClick={handleZoomIn}
-                disabled={!ready || currentScale >= ZOOM_MAX - 0.001}
+                disabled={!ready || currentScale >= maxScale - 0.001}
                 aria-label="Zoom avant"
               >
                 +

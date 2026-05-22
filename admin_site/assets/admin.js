@@ -2198,10 +2198,10 @@ function getMermaidThemeConfig() {
       flowchart: {
         htmlLabels: true,
         useMaxWidth: false,
-        wrappingWidth: 180,
+        wrappingWidth: 120,
       },
       themeVariables: {
-        fontSize: "13px",
+        fontSize: "16px",
         fontFamily: "system-ui, Segoe UI, sans-serif",
         background: "#1a2332",
         primaryColor: "#2d3a4d",
@@ -2220,10 +2220,10 @@ function getMermaidThemeConfig() {
     flowchart: {
       htmlLabels: true,
       useMaxWidth: false,
-      wrappingWidth: 180,
+      wrappingWidth: 120,
     },
     themeVariables: {
-      fontSize: "13px",
+      fontSize: "16px",
       fontFamily: "system-ui, Segoe UI, sans-serif",
     },
   };
@@ -2316,28 +2316,41 @@ function measureSvgNaturalSize(svg) {
   };
 }
 
-function computeLogigrammeFitScale() {
+function computeLogigrammeZoomBounds() {
   const scroll = logigrammePreviewScroll;
-  if (!scroll || !logigrammeState.baseWidth) return 1;
+  if (!scroll || !logigrammeState.baseWidth) {
+    return { reference: 1, min: 1, max: LOGIGRAMME_ZOOM_MAX };
+  }
   const pad = 24;
   const availW = Math.max(scroll.clientWidth - pad, 120);
   const availH = Math.max(scroll.clientHeight - pad, 80);
   const scaleW = availW / logigrammeState.baseWidth;
   const scaleH = availH / logigrammeState.baseHeight;
-  return Math.min(1, scaleW, scaleH);
+  const reference = scaleW;
+  const fullFit = Math.min(scaleW, scaleH);
+  const min = fullFit < reference ? fullFit : reference / LOGIGRAMME_ZOOM_MAX;
+  const max = reference * LOGIGRAMME_ZOOM_MAX;
+  return { reference, min, max };
+}
+
+function computeLogigrammeFitScale() {
+  return computeLogigrammeZoomBounds().reference;
 }
 
 function updateLogigrammeZoomUi() {
-  const fit = logigrammeState.fitScale || 1;
-  const cur = logigrammeState.currentScale || fit;
+  const { reference, min, max } = computeLogigrammeZoomBounds();
+  logigrammeState.fitScale = reference;
+  const cur = logigrammeState.currentScale || reference;
+  const zoomInDisabled = !logigrammeState.baseWidth || cur >= max - 0.001;
+  const zoomOutDisabled = cur <= min + 0.001 || !logigrammeState.baseWidth;
   if (logigrammeZoomLabel) {
-    logigrammeZoomLabel.textContent = `${Math.round((cur / fit) * 100)}%`;
+    logigrammeZoomLabel.textContent = `${Math.round((cur / reference) * 100)}%`;
   }
   if (logigrammeZoomOutBtn) {
-    logigrammeZoomOutBtn.disabled = cur <= fit + 0.001 || !logigrammeState.baseWidth;
+    logigrammeZoomOutBtn.disabled = zoomOutDisabled;
   }
   if (logigrammeZoomInBtn) {
-    logigrammeZoomInBtn.disabled = !logigrammeState.baseWidth || cur >= LOGIGRAMME_ZOOM_MAX - 0.001;
+    logigrammeZoomInBtn.disabled = zoomInDisabled;
   }
   if (logigrammeZoomFitBtn) {
     logigrammeZoomFitBtn.disabled = !logigrammeState.baseWidth;
@@ -2347,7 +2360,9 @@ function updateLogigrammeZoomUi() {
 function applyLogigrammePreviewDimensions() {
   const canvas = logigrammePreview;
   const svg = getLogigrammePreviewSvg();
-  if (!canvas || !svg || !logigrammeState.baseWidth) return;
+  if (!canvas || !svg || !logigrammeState.baseWidth) {
+    return;
+  }
 
   const scale = logigrammeState.currentScale || 1;
   const w = logigrammeState.baseWidth * scale;
@@ -2357,18 +2372,20 @@ function applyLogigrammePreviewDimensions() {
   canvas.style.height = `${h}px`;
   svg.removeAttribute("width");
   svg.removeAttribute("height");
-  svg.style.width = `${logigrammeState.baseWidth}px`;
-  svg.style.height = `${logigrammeState.baseHeight}px`;
+  svg.style.width = `${w}px`;
+  svg.style.height = `${h}px`;
   svg.style.maxWidth = "none";
   svg.style.display = "block";
   updateLogigrammeZoomUi();
 }
 
 function setLogigrammePreviewZoom(scale, focalPoint) {
-  if (!logigrammeState.baseWidth) return;
-  const fit = logigrammeState.fitScale || computeLogigrammeFitScale();
-  logigrammeState.fitScale = fit;
-  const clamped = Math.max(fit, Math.min(LOGIGRAMME_ZOOM_MAX, scale));
+  if (!logigrammeState.baseWidth) {
+    return;
+  }
+  const { reference, min, max } = computeLogigrammeZoomBounds();
+  logigrammeState.fitScale = reference;
+  const clamped = Math.max(min, Math.min(max, scale));
   logigrammeState.currentScale = clamped;
   applyLogigrammePreviewDimensions();
 
@@ -2383,8 +2400,9 @@ function setLogigrammePreviewZoom(scale, focalPoint) {
 
 function fitLogigrammePreviewToView(resetScroll = true) {
   if (!logigrammeState.baseWidth) return;
-  logigrammeState.fitScale = computeLogigrammeFitScale();
-  setLogigrammePreviewZoom(logigrammeState.fitScale);
+  const { reference } = computeLogigrammeZoomBounds();
+  logigrammeState.fitScale = reference;
+  setLogigrammePreviewZoom(reference);
   if (resetScroll && logigrammePreviewScroll) {
     logigrammePreviewScroll.scrollLeft = 0;
     logigrammePreviewScroll.scrollTop = 0;
@@ -2509,20 +2527,20 @@ function applyLogigrammePreviewFocus(clientX, clientY) {
   const scroll = logigrammePreviewScroll;
   if (!scroll || !logigrammeState.baseWidth) return;
 
-  const fit = logigrammeState.fitScale || computeLogigrammeFitScale();
-  const atFit = Math.abs((logigrammeState.currentScale || fit) - fit) < 0.02;
+  const { reference } = computeLogigrammeZoomBounds();
+  const atFit = Math.abs((logigrammeState.currentScale || reference) - reference) < 0.02;
   if (!atFit) {
     fitLogigrammePreviewToView(true);
     return;
   }
 
   const rect = scroll.getBoundingClientRect();
-  const scale = logigrammeState.currentScale || fit;
+  const scale = logigrammeState.currentScale || reference;
   const focal = {
     x: (clientX - rect.left + scroll.scrollLeft) / scale,
     y: (clientY - rect.top + scroll.scrollTop) / scale,
   };
-  setLogigrammePreviewZoom(fit * LOGIGRAMME_DBLCLICK_FACTOR, focal);
+  setLogigrammePreviewZoom(reference * LOGIGRAMME_DBLCLICK_FACTOR, focal);
 }
 
 function onLogigrammePreviewDblClick(ev) {
