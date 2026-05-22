@@ -208,28 +208,6 @@ def _chat_response_metadata(
     return metadata
 
 
-class ClientDebugLog(BaseModel):
-    sessionId: str = ""
-    location: str = ""
-    message: str = ""
-    data: dict = Field(default_factory=dict)
-    hypothesisId: str = ""
-    timestamp: int = 0
-
-
-DEBUG_LOG_PATH = Path(__file__).resolve().parents[1] / "debug-a662c1.log"
-
-
-@app.post("/api/admin/debug-log")
-async def admin_client_debug_log(body: ClientDebugLog):
-    entry = body.model_dump()
-    if not entry.get("timestamp"):
-        entry["timestamp"] = int(time.time() * 1000)
-    with DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
-        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
-    return {"ok": True}
-
-
 def _reconstruct_rag_for_admin(message: str, category: Optional[str]) -> dict:
     """Best-effort RAG reconstruction for legacy rows missing rag metadata."""
     rag: dict = {"category": category}
@@ -365,6 +343,28 @@ async def add_admin_no_cache_headers(request: Request, call_next):
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
     return response
+
+
+class ClientDebugLog(BaseModel):
+    sessionId: str = ""
+    location: str = ""
+    message: str = ""
+    data: dict = Field(default_factory=dict)
+    hypothesisId: str = ""
+    timestamp: int = 0
+
+
+DEBUG_LOG_PATH = Path(__file__).resolve().parents[1] / "debug-a662c1.log"
+
+
+@app.post("/api/admin/debug-log")
+async def admin_client_debug_log(body: ClientDebugLog):
+    entry = body.model_dump()
+    if not entry.get("timestamp"):
+        entry["timestamp"] = int(time.time() * 1000)
+    with DEBUG_LOG_PATH.open("a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+    return {"ok": True}
 
 
 # ── Static files ──────────────────────────────────────────────────────────────
