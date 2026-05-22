@@ -1750,15 +1750,38 @@ body.logigramme-modal-open {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-page);
-  overflow: auto;
+  overflow: hidden;
+  cursor: zoom-in;
+  position: relative;
 }
 
-.logigramme-preview svg {
+.logigramme-preview.logigramme-preview--focused {
+  cursor: zoom-out;
+  overflow: hidden;
+}
+
+.logigramme-preview-viewport {
+  transform-origin: 0 0;
+  transition: transform 0.4s cubic-bezier(0.25, 0.8, 0.25, 1);
+  display: inline-block;
+  width: 100%;
+  will-change: transform;
+}
+
+.logigramme-preview-viewport svg {
   display: block;
   width: 100%;
   max-width: 100%;
   height: auto;
   background: transparent;
+  pointer-events: visiblePainted;
+}
+
+.logigramme-preview-hint {
+  margin: 0 0 0.35rem;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: normal;
 }
 
 .logigramme-preview-empty {
