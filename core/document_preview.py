@@ -10,6 +10,7 @@ from typing import List, Optional, Set, Tuple
 from urllib.parse import quote
 
 from core.documents import DOCS_DIR, DOCS_MD_DIR, DocStore
+from core.logigrammes_store import read as read_logigramme
 
 logger = logging.getLogger(__name__)
 
@@ -332,13 +333,18 @@ def build_preview_payload(
     if has_docx and docx_path is not None:
         docx_url = _file_download_url(cat, docx_path)
 
+    logigramme = read_logigramme(cat, stem) or ""
+    has_logigramme = bool(logigramme.strip())
+
     return {
         "resolved_stem": stem,
         "resolved_category": cat,
         "title": display_title,
         "has_docx": has_docx,
         "has_md": has_md or bool(markdown.strip()),
+        "has_logigramme": has_logigramme,
         "markdown": markdown,
+        "logigramme": logigramme,
         "docx_url": docx_url,
     }
 

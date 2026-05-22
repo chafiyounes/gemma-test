@@ -110,7 +110,7 @@ Agentic mode needs vLLM started with **Gemma 4 tooling** (see `scripts/start_vll
 | Settings | `app_config/settings.py` | Env-backed knobs |
 | UI | `web_test/` | Vite/React; chat markdown + screenshots; light/dark theme (`shared/theme/`) |
 | Admin UI | `admin_site/` | Vanilla HTML/JS; paginated interaction list (`summary=1`); lazy RAG rebuild; theme tokens |
-| Logigramme | `core/logigramme_llm.py` | Procedure → diagram code (SSH eval only) — see [`LOGIGRAMME.md`](LOGIGRAMME.md) |
+| Logigramme | `core/logigrammes_store.py`, `core/logigramme_service.py` | Sidecar Mermaid for procedures; admin workflow + preview — see [`LOGIGRAMME.md`](LOGIGRAMME.md) |
 | SOP sanitise | `core/sop_text_clean.py` | Strips destructive/binary image data; preserves `![](path)` for non-data URLs |
 
 ---

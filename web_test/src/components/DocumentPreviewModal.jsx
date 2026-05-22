@@ -1,8 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { renderAsync } from "docx-preview";
 import { fetchDocumentFileBlob, fetchDocumentPreview } from "../services/api";
 import { renderFormattedMessage } from "../lib/messageFormat";
 import "./DocumentPreviewModal.css";
+
+const MermaidDiagram = lazy(() => import("./MermaidDiagram"));
 
 export default function DocumentPreviewModal({ name, categoryHint, onClose }) {
   const [loading, setLoading] = useState(true);
@@ -20,8 +22,10 @@ export default function DocumentPreviewModal({ name, categoryHint, onClose }) {
       setPreview(data);
       if (data.has_docx) {
         setTab("docx");
-      } else {
+      } else if (data.has_md && (data.markdown || "").trim()) {
         setTab("markdown");
+      } else if (data.has_logigramme) {
+        setTab("logigramme");
       }
     } catch (err) {
       setError(err.message || "Document introuvable");
@@ -74,6 +78,8 @@ export default function DocumentPreviewModal({ name, categoryHint, onClose }) {
 
   const showDocxTab = preview?.has_docx;
   const showMdTab = preview?.has_md && (preview.markdown || "").trim();
+  const showLogigrammeTab = preview?.has_logigramme && (preview.logigramme || "").trim();
+  const showTabs = showDocxTab || showMdTab || showLogigrammeTab;
 
   return (
     <div
@@ -93,7 +99,7 @@ export default function DocumentPreviewModal({ name, categoryHint, onClose }) {
           </button>
         </header>
 
-        {!loading && !error && preview && (showDocxTab || showMdTab) ? (
+        {!loading && !error && preview && showTabs ? (
           <div className="doc-preview-tabs" role="tablist">
             {showDocxTab ? (
               <button
@@ -117,6 +123,17 @@ export default function DocumentPreviewModal({ name, categoryHint, onClose }) {
                 Markdown
               </button>
             ) : null}
+            {showLogigrammeTab ? (
+              <button
+                type="button"
+                role="tab"
+                aria-selected={tab === "logigramme"}
+                className={`doc-preview-tab ${tab === "logigramme" ? "active" : ""}`}
+                onClick={() => setTab("logigramme")}
+              >
+                Logigramme
+              </button>
+            ) : null}
           </div>
         ) : null}
 
@@ -133,7 +150,14 @@ export default function DocumentPreviewModal({ name, categoryHint, onClose }) {
                   {renderFormattedMessage(preview.markdown)}
                 </div>
               ) : null}
-              {!showDocxTab && !showMdTab ? (
+              {tab === "logigramme" && showLogigrammeTab ? (
+                <div className="doc-preview-logigramme">
+                  <Suspense fallback={<p className="doc-preview-status">Chargement du diagramme…</p>}>
+                    <MermaidDiagram code={preview.logigramme} />
+                  </Suspense>
+                </div>
+              ) : null}
+              {!showTabs ? (
                 <p className="doc-preview-status">Aucun contenu disponible pour ce document.</p>
               ) : null}
             </>

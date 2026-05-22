@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app_config.settings import settings
+from core.logigrammes_store import append_to_document_text
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "data" / "documents"
@@ -461,6 +462,7 @@ class DocStore:
 
             def ingest(name: str, text: str) -> None:
                 nonlocal total_len
+                text = append_to_document_text(cat_name, name, text)
                 if not text.strip():
                     return
                 toks = _tokenize(text)

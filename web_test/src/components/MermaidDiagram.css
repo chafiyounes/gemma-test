@@ -1,0 +1,29 @@
+.mermaid-diagram-wrap {
+  width: 100%;
+  overflow: auto;
+}
+
+.mermaid-diagram {
+  min-height: 120px;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-diagram-empty {
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.mermaid-diagram-fallback {
+  margin-top: 0.75rem;
+  padding: 0.65rem;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border);
+  background: var(--bg-page);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  overflow: auto;
+}

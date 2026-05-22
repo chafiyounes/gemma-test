@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Tuple
 from app_config.settings import settings
 from core.documents import DOCS_DIR, DOCS_MD_DIR, DOCS_TXT_DIR, _read_docx, _read_md, _read_txt
 from core.docx_to_md import convert_docx_to_markdown
+from core.logigrammes_store import exists as logigramme_exists
 
 logger = logging.getLogger(__name__)
 
@@ -119,14 +120,31 @@ def _active_source(category: str) -> str:
 
 def _list_files(category: str, source: str) -> List[dict]:
     files: List[dict] = []
+    is_procedures = category == "procedures"
+
+    def _with_logigramme(entry: dict, stem: str) -> dict:
+        if is_procedures:
+            entry["has_logigramme"] = logigramme_exists(category, stem)
+        return entry
+
     if source == "md":
         for p in sorted((DOCS_MD_DIR / category).glob("*.md")):
             text = _read_md(p)
-            files.append({"name": p.name, "stem": p.stem, "source": "md", "chars": len(text)})
+            files.append(
+                _with_logigramme(
+                    {"name": p.name, "stem": p.stem, "source": "md", "chars": len(text)},
+                    p.stem,
+                )
+            )
     elif source == "txt":
         for p in sorted((DOCS_TXT_DIR / category).glob("*.txt")):
             text = _read_txt(p)
-            files.append({"name": p.name, "stem": p.stem, "source": "txt", "chars": len(text)})
+            files.append(
+                _with_logigramme(
+                    {"name": p.name, "stem": p.stem, "source": "txt", "chars": len(text)},
+                    p.stem,
+                )
+            )
     else:
         for p in sorted((DOCS_DIR / category).glob("*.docx")):
             md_path = DOCS_MD_DIR / category / f"{p.stem}.md"
@@ -135,13 +153,16 @@ def _list_files(category: str, source: str) -> List[dict]:
             else:
                 text = _read_docx(p)
             files.append(
-                {
-                    "name": p.name,
-                    "stem": p.stem,
-                    "source": "docx",
-                    "chars": len(text),
-                    "has_md_export": md_path.exists(),
-                }
+                _with_logigramme(
+                    {
+                        "name": p.name,
+                        "stem": p.stem,
+                        "source": "docx",
+                        "chars": len(text),
+                        "has_md_export": md_path.exists(),
+                    },
+                    p.stem,
+                )
             )
     return files
 

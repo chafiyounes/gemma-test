@@ -75,3 +75,20 @@ Markdown under **`data/documents_md/<category>/`** can embed UI captures as **`!
 - **Sizing:** Prefer reasonable resolution; **`data:`** URIs inside sources are stripped for the LLM context by **`core/sop_text_clean.py`** so prompts stay bounded.
 
 Related: [`ARCHITECTURE.md`](ARCHITECTURE.md) §7.2 (« où cliquer »).
+
+---
+
+## 8. Procedure logigrammes (Mermaid sidecars)
+
+Confirmed flowcharts live beside the corpus as **sidecar files**, not inside the Word/MD tree:
+
+```
+data/logigrammes/procedures/<stem>.mmd
+```
+
+- **Key:** `(category, stem)` — same as DocStore / document preview resolver.
+- **Created via:** `/admin` Documents → **Créer / Modifier logigramme** (managers + administrators).
+- **RAG:** On index load, when a sidecar exists, its Mermaid block is appended to the parent procedure text (see `core/logigrammes_store.py`, `core/documents.py`).
+- **Preview:** Chat source modal tab **Logigramme** when `has_logigramme` is true.
+
+See [`LOGIGRAMME.md`](LOGIGRAMME.md).

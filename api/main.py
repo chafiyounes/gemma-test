@@ -30,6 +30,10 @@ from api.schemas import (
     CategoryInfo,
     ChatRequest,
     DocumentPreviewResponse,
+    LogigrammeGenerateRequest,
+    LogigrammeGenerateResponse,
+    LogigrammeSaveRequest,
+    LogigrammeStatusResponse,
     ChatResponse,
     FeedbackRequest,
     HealthResponse,
@@ -47,6 +51,13 @@ from core.documents_admin import (
     upload_document,
 )
 from core.document_preview import build_preview_payload, validate_file_request
+from core.logigramme_service import (
+    LogigrammeServiceError,
+    generate_mermaid,
+    get_status,
+    remove_logigramme,
+    save_logigramme,
+)
 from core.documents import DOCS_MD_DIR, get_store as get_doc_store, reload_document_store
 from core.pipeline import GemmaPipeline
 from core.persistence import InteractionStore
@@ -1200,6 +1211,68 @@ async def admin_documents_apply_plan(
     if warnings:
         payload["warnings"] = warnings
     return payload
+
+
+@app.get("/api/admin/logigramme", response_model=LogigrammeStatusResponse)
+async def admin_logigramme_get(
+    category: str = "procedures",
+    stem: str = "",
+    _mgr: dict = Depends(_require_docs_manager),
+):
+    try:
+        return LogigrammeStatusResponse(**get_status(category=category, stem=stem))
+    except LogigrammeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/api/admin/logigramme/generate", response_model=LogigrammeGenerateResponse)
+async def admin_logigramme_generate(
+    body: LogigrammeGenerateRequest,
+    _mgr: dict = Depends(_require_docs_manager),
+):
+    try:
+        result = generate_mermaid(
+            category=body.category,
+            stem=body.stem,
+            messages=[m.model_dump() for m in body.messages],
+            current_mermaid=body.current_mermaid,
+        )
+        return LogigrammeGenerateResponse(**result)
+    except LogigrammeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Logigramme generate failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=502, detail="Logigramme generation failed") from exc
+
+
+@app.post("/api/admin/logigramme/save")
+async def admin_logigramme_save(
+    body: LogigrammeSaveRequest,
+    _mgr: dict = Depends(_require_docs_manager),
+):
+    try:
+        out = save_logigramme(category=body.category, stem=body.stem, mermaid=body.mermaid)
+        reload_document_store()
+        return {**out, "overview": get_documents_overview()}
+    except LogigrammeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.error("Logigramme save failed: %s", exc, exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to save logigramme") from exc
+
+
+@app.delete("/api/admin/logigramme")
+async def admin_logigramme_delete(
+    category: str = "procedures",
+    stem: str = "",
+    _mgr: dict = Depends(_require_docs_manager),
+):
+    try:
+        out = remove_logigramme(category=category, stem=stem)
+        reload_document_store()
+        return {**out, "overview": get_documents_overview()}
+    except LogigrammeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 # ── Static serving ────────────────────────────────────────────────────────────

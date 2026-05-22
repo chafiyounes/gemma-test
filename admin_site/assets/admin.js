@@ -1,14 +1,69 @@
 /** Theme (shared with chat via sendbotSyncTheme / theme-core.js). */
 (function initSendbotTheme() {
-  const api = window.sendbotSyncTheme;
-  if (!api) return;
+  var PAGE_BG = { light: "#e8e4dc", dark: "#0f1419" };
 
-  document.addEventListener("DOMContentLoaded", () => {
-    const btn = document.getElementById("theme-toggle");
-    if (btn) {
-      btn.addEventListener("click", () => api.toggleTheme());
+  function getTheme() {
+    try {
+      var t = localStorage.getItem("sendbot_theme");
+      if (t === "dark" || t === "light") return t;
+    } catch (e) { /* ignore */ }
+    return "light";
+  }
+
+  function applyThemeInline(theme) {
+    var light = document.getElementById("sendbot-theme-light");
+    var dark = document.getElementById("sendbot-theme-dark");
+    if (light) light.disabled = theme !== "light";
+    if (dark) dark.disabled = theme !== "dark";
+    var html = document.documentElement;
+    html.setAttribute("data-theme", theme);
+    html.style.colorScheme = theme;
+    html.style.backgroundColor = PAGE_BG[theme] || PAGE_BG.light;
+  }
+
+  function toggleThemeInline() {
+    var next = getTheme() === "dark" ? "light" : "dark";
+    try {
+      localStorage.setItem("sendbot_theme", next);
+    } catch (e) { /* ignore */ }
+    applyThemeInline(next);
+    updateIcon(next);
+  }
+
+  function updateIcon(theme) {
+    var btn = document.getElementById("theme-toggle");
+    if (!btn) return;
+    var isDark = theme === "dark";
+    btn.setAttribute("aria-label", isDark ? "Mode clair" : "Mode sombre");
+    btn.setAttribute("title", isDark ? "Mode clair" : "Mode sombre");
+    btn.innerHTML = isDark
+      ? '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>'
+      : '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+  }
+
+  function bindToggle() {
+    var btn = document.getElementById("theme-toggle");
+    if (!btn || btn.dataset.themeBound) return;
+    btn.dataset.themeBound = "1";
+    btn.addEventListener("click", function () {
+      var api = window.sendbotSyncTheme;
+      if (api && typeof api.toggleTheme === "function") {
+        api.toggleTheme();
+      } else {
+        toggleThemeInline();
+      }
+    });
+  }
+
+  bindToggle();
+  document.addEventListener("DOMContentLoaded", function () {
+    bindToggle();
+    var api = window.sendbotSyncTheme;
+    if (api && typeof api.updateThemeToggleIcon === "function") {
+      api.updateThemeToggleIcon();
+    } else {
+      updateIcon(getTheme());
     }
-    api.updateThemeToggleIcon();
   });
 })();
 
@@ -605,6 +660,12 @@ function docFileKindLabel(filename) {
   if (n.endsWith(".txt")) return "TXT";
   if (n.endsWith(".md")) return "MD";
   return "FILE";
+}
+
+function fileStem(filename) {
+  const n = String(filename || "");
+  const dot = n.lastIndexOf(".");
+  return dot > 0 ? n.slice(0, dot) : n;
 }
 
 async function addFilesToDraftFromFileList(fileList) {
@@ -1208,6 +1269,16 @@ function renderDocuments() {
           const warn = isDup
             ? `<span class="doc-dup-icon" title="Conflit ou nom en double dans ce corpus" aria-hidden="true">⚠</span>`
             : "";
+          const stem = file.stem || fileStem(file.name);
+          const isProcedures = cat.name === "procedures";
+          const liveFile = (live?.files || []).find((f) => f.name === file.name || f.stem === stem);
+          const hasLogigramme = Boolean(isProcedures && liveFile?.has_logigramme);
+          const logigrammeBadge = isProcedures
+            ? `<span class="pill ${hasLogigramme ? "logigramme-pill-ok" : "logigramme-pill-none"}">${hasLogigramme ? "Logigramme ✓" : "Sans logigramme"}</span>`
+            : "";
+          const logigrammeBtn = isProcedures
+            ? `<button type="button" class="doc-file-btn doc-file-btn-log" data-logigramme-button data-category="${escapeHtml(cat.name)}" data-stem="${escapeHtml(stem)}" data-name="${escapeHtml(file.name)}">${hasLogigramme ? "Modifier logigramme" : "Créer logigramme"}</button>`
+            : "";
           return `
           <div class="doc-file ${file.isPending ? "pending" : ""}${dupPart}" data-doc-cat="${escapeHtml(cat.name)}" data-doc-name="${escapeHtml(file.name)}" data-doc-src="${escapeHtml(file.source)}">
             <span class="doc-file-kind" title="Type">${kind}</span>
@@ -1217,10 +1288,12 @@ function renderDocuments() {
               <span class="doc-file-meta">
                 <span class="pill">${escapeHtml(file.source)}</span>
                 <span class="pill">${file.chars} car.</span>
+                ${logigrammeBadge}
                 ${file.pendingOp ? `<span class="pill conv-pill">${escapeHtml(file.pendingOp)}</span>` : ""}
               </span>
             </div>
             <div class="doc-file-toolbar">
+              ${logigrammeBtn}
               <select class="doc-move-select" aria-label="Déplacer vers une catégorie" data-move-select data-from="${escapeHtml(cat.name)}" data-name="${escapeHtml(file.name)}" data-source="${escapeHtml(file.source)}">
                 <option value="">Vers…</option>
                 ${categoryOptions}
@@ -1341,6 +1414,19 @@ function renderDocuments() {
       renderDocuments();
     });
   });
+
+  documentsCategories.querySelectorAll("[data-logigramme-button]").forEach((btn) => {
+    btn.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      openLogigrammeModal({
+        category: btn.dataset.category || "procedures",
+        stem: btn.dataset.stem || "",
+        name: btn.dataset.name || "",
+      });
+    });
+  });
+
   updatePendingSummary();
   flushDocsRevealScroll();
 }
@@ -2001,6 +2087,203 @@ if (reasonFilter) {
 function handleLoadError(error) {
   interactionList.innerHTML = `<div class="detail-empty">${escapeHtml(error.message || "Chargement impossible.")}</div>`;
   interactionDetail.innerHTML = '<div class="detail-empty">Verification necessaire.</div>';
+}
+
+const LOGIGRAMME_API = "/api/admin/logigramme";
+const logigrammeModal = document.getElementById("logigramme-modal");
+const logigrammeTitle = document.getElementById("logigramme-modal-title");
+const logigrammePreview = document.getElementById("logigramme-preview");
+const logigrammeSource = document.getElementById("logigramme-source");
+const logigrammeRefineInput = document.getElementById("logigramme-refine-input");
+const logigrammeStatus = document.getElementById("logigramme-status");
+const logigrammeGenerateBtn = document.getElementById("logigramme-generate-btn");
+const logigrammeRefineBtn = document.getElementById("logigramme-refine-btn");
+const logigrammeSaveBtn = document.getElementById("logigramme-save-btn");
+const logigrammeCloseBtn = document.getElementById("logigramme-close-btn");
+const logigrammeCancelBtn = document.getElementById("logigramme-cancel-btn");
+
+const logigrammeState = {
+  category: "procedures",
+  stem: "",
+  name: "",
+  mermaid: "",
+  messages: [],
+  busy: false,
+};
+
+let mermaidLoaderPromise = null;
+
+function ensureMermaidLib() {
+  if (window.mermaid) return Promise.resolve(window.mermaid);
+  if (mermaidLoaderPromise) return mermaidLoaderPromise;
+  mermaidLoaderPromise = new Promise((resolve, reject) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js";
+    s.async = true;
+    s.onload = () => {
+      try {
+        window.mermaid.initialize({ startOnLoad: false, securityLevel: "strict", theme: "neutral" });
+        resolve(window.mermaid);
+      } catch (err) {
+        reject(err);
+      }
+    };
+    s.onerror = () => reject(new Error("Impossible de charger Mermaid"));
+    document.head.appendChild(s);
+  });
+  return mermaidLoaderPromise;
+}
+
+async function renderLogigrammePreview(code) {
+  if (!logigrammePreview) return;
+  const src = (code || "").trim();
+  if (!src) {
+    logigrammePreview.innerHTML = '<p class="logigramme-preview-empty">Aucun diagramme pour l’instant.</p>';
+    return;
+  }
+  try {
+    const mermaid = await ensureMermaidLib();
+    const id = "logigramme-render-" + Date.now();
+    const { svg } = await mermaid.render(id, src);
+    logigrammePreview.innerHTML = svg;
+  } catch (err) {
+    logigrammePreview.innerHTML = `<pre class="logigramme-preview-fallback">${escapeHtml(src)}</pre>`;
+    if (logigrammeStatus) {
+      logigrammeStatus.textContent = "Aperçu Mermaid indisponible — code brut affiché.";
+    }
+  }
+}
+
+function setLogigrammeBusy(on) {
+  logigrammeState.busy = on;
+  [logigrammeGenerateBtn, logigrammeRefineBtn, logigrammeSaveBtn].forEach((b) => {
+    if (b) b.disabled = on;
+  });
+}
+
+function setLogigrammeStatus(msg) {
+  if (logigrammeStatus) logigrammeStatus.textContent = msg || "";
+}
+
+async function openLogigrammeModal({ category, stem, name }) {
+  if (!logigrammeModal) return;
+  logigrammeState.category = category || "procedures";
+  logigrammeState.stem = stem || "";
+  logigrammeState.name = name || stem;
+  logigrammeState.mermaid = "";
+  logigrammeState.messages = [];
+  if (logigrammeTitle) logigrammeTitle.textContent = `Logigramme — ${logigrammeState.name}`;
+  if (logigrammeRefineInput) logigrammeRefineInput.value = "";
+  if (logigrammeSource) logigrammeSource.textContent = "";
+  setLogigrammeStatus("");
+  logigrammeModal.classList.remove("hidden");
+  document.body.classList.add("logigramme-modal-open");
+
+  try {
+    const qs = new URLSearchParams({ category: logigrammeState.category, stem: logigrammeState.stem });
+    const res = await apiFetch(`${LOGIGRAMME_API}?${qs.toString()}`);
+    const data = await res.json();
+    if (data.mermaid) {
+      logigrammeState.mermaid = data.mermaid;
+      if (logigrammeSource) logigrammeSource.textContent = data.mermaid;
+      await renderLogigrammePreview(data.mermaid);
+      setLogigrammeStatus(data.exists ? "Logigramme existant chargé." : "");
+    } else {
+      await renderLogigrammePreview("");
+    }
+  } catch (err) {
+    setLogigrammeStatus(err.message || "Impossible de charger le logigramme.");
+    await renderLogigrammePreview("");
+  }
+}
+
+function closeLogigrammeModal() {
+  if (!logigrammeModal) return;
+  logigrammeModal.classList.add("hidden");
+  document.body.classList.remove("logigramme-modal-open");
+}
+
+async function runLogigrammeGenerate({ refine = false } = {}) {
+  if (logigrammeState.busy) return;
+  setLogigrammeBusy(true);
+  setLogigrammeStatus(refine ? "Affinage en cours…" : "Génération en cours…");
+  try {
+    const refineText = (logigrammeRefineInput?.value || "").trim();
+    const messages = refine && refineText
+      ? [...logigrammeState.messages, { role: "user", content: refineText }]
+      : logigrammeState.messages;
+
+    const res = await apiFetch(`${LOGIGRAMME_API}/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        category: logigrammeState.category,
+        stem: logigrammeState.stem,
+        messages,
+        current_mermaid: logigrammeState.mermaid,
+      }),
+    });
+    const data = await res.json();
+    if (!data.mermaid) {
+      throw new Error(data.error || "Génération vide");
+    }
+    logigrammeState.mermaid = data.mermaid;
+    logigrammeState.messages = messages;
+    if (refine && refineText && logigrammeRefineInput) logigrammeRefineInput.value = "";
+    if (logigrammeSource) logigrammeSource.textContent = data.mermaid;
+    await renderLogigrammePreview(data.mermaid);
+    setLogigrammeStatus(
+      data.syntax_valid ? "Diagramme prêt — vérifiez puis enregistrez." : "Syntaxe Mermaid douteuse — affinez ou régénérez.",
+    );
+  } catch (err) {
+    setLogigrammeStatus(err.message || "Échec génération logigramme.");
+  } finally {
+    setLogigrammeBusy(false);
+  }
+}
+
+async function saveLogigrammeDraft() {
+  if (logigrammeState.busy || !logigrammeState.mermaid.trim()) return;
+  setLogigrammeBusy(true);
+  setLogigrammeStatus("Enregistrement…");
+  try {
+    const res = await apiFetch(`${LOGIGRAMME_API}/save`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        category: logigrammeState.category,
+        stem: logigrammeState.stem,
+        mermaid: logigrammeState.mermaid,
+      }),
+    });
+    const data = await res.json();
+    if (data.overview) state.docsOverview = data.overview;
+    initDocsDraft();
+    renderDocuments();
+    setLogigrammeStatus("Logigramme enregistré.");
+    setTimeout(closeLogigrammeModal, 600);
+  } catch (err) {
+    setLogigrammeStatus(err.message || "Échec enregistrement.");
+  } finally {
+    setLogigrammeBusy(false);
+  }
+}
+
+if (logigrammeGenerateBtn) {
+  logigrammeGenerateBtn.addEventListener("click", () => runLogigrammeGenerate({ refine: false }));
+}
+if (logigrammeRefineBtn) {
+  logigrammeRefineBtn.addEventListener("click", () => runLogigrammeGenerate({ refine: true }));
+}
+if (logigrammeSaveBtn) {
+  logigrammeSaveBtn.addEventListener("click", saveLogigrammeDraft);
+}
+if (logigrammeCloseBtn) logigrammeCloseBtn.addEventListener("click", closeLogigrammeModal);
+if (logigrammeCancelBtn) logigrammeCancelBtn.addEventListener("click", closeLogigrammeModal);
+if (logigrammeModal) {
+  logigrammeModal.addEventListener("click", (ev) => {
+    if (ev.target === logigrammeModal) closeLogigrammeModal();
+  });
 }
 
 loadSession()

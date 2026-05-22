@@ -150,5 +150,38 @@ class DocumentPreviewResponse(BaseModel):
     title: str
     has_docx: bool
     has_md: bool
+    has_logigramme: bool = False
     markdown: str = ""
+    logigramme: str = ""
     docx_url: Optional[str] = None
+
+
+class LogigrammeMessage(BaseModel):
+    role: str = "user"
+    content: str = ""
+
+
+class LogigrammeGenerateRequest(BaseModel):
+    category: str = "procedures"
+    stem: str
+    messages: List[LogigrammeMessage] = Field(default_factory=list)
+    current_mermaid: str = ""
+
+
+class LogigrammeGenerateResponse(BaseModel):
+    mermaid: str = ""
+    syntax_valid: bool = False
+    retried: bool = False
+    latency_ms: int = 0
+    error: str = ""
+
+
+class LogigrammeSaveRequest(BaseModel):
+    category: str = "procedures"
+    stem: str
+    mermaid: str
+
+
+class LogigrammeStatusResponse(BaseModel):
+    exists: bool
+    mermaid: str = ""

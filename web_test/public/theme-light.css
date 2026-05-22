@@ -1,9 +1,7 @@
 /* SendBot LIGHT — warm sepia / paper-like (no pure white). */
 
 html[data-theme="light"],
-html[data-theme="light"] .sendbot-theme-island,
-html,
-.sendbot-theme-island {
+html[data-theme="light"] .sendbot-theme-island {
   color-scheme: only light !important;
   background-color: #e8e4dc !important;
 
@@ -63,8 +61,7 @@ html,
   --danger: var(--error);
 }
 
-html[data-theme="light"] body,
-html body {
+html[data-theme="light"] body {
   color-scheme: only light !important;
   background-color: #e8e4dc !important;
   color: #2c2824;

@@ -1,111 +1,86 @@
-# Logigrammes (procedure flowcharts) — SSH evaluation only
+# Logigrammes (procedure flowcharts)
 
-**Status:** Experimental. **Not integrated in web_test or `/chat`** until format evaluation passes on the pod.
+**Status:** Integrated for **procedures** only — admin/manager creation, RAG sidecar, preview tab. Normal chat is unchanged (no global logigramme intent).
 
 **Related:** [`ARCHITECTURE.md`](ARCHITECTURE.md), [`DATA_LAYOUT.md`](DATA_LAYOUT.md)
 
 ---
 
-## Why SSH-only?
+## Format
 
-Before showing logigrammes in the chat UI, we must confirm that Gemma can **reliably** turn SENDIT procedures into valid diagram code. Evaluation runs on the RunPod via direct vLLM calls — no API or frontend changes.
+**Mermaid** `flowchart TD` — chosen after pod eval (100% syntax valid across 3 procedures × 3 trials).
 
----
-
-## Formats under test
-
-| Format | Output | Validator |
-|--------|--------|-----------|
-| **mermaid** | `flowchart TD` | Starts with `flowchart` / `graph` |
-| **dot** | Graphviz `digraph { ... }` | Brace structure; optional `dot -Tsvg` |
-| **plantuml** | `@startuml` … `@enduml` | Marker presence |
-| **svg** | Minimal `<svg>` with rects/text | XML parse |
-| **html** | `<div class="flow"><div class="step">…` | HTML markers |
-| **json_graph** | `{"nodes":[],"edges":[]}` | JSON schema |
-
-Implementation: [`core/logigramme_llm.py`](../core/logigramme_llm.py)
+Implementation: [`core/logigramme_llm.py`](../core/logigramme_llm.py), [`core/logigramme_service.py`](../core/logigramme_service.py)
 
 ---
 
-## Run evaluation (pod)
+## Storage
 
-```bash
-cd /workspace/gemma-test
-python scripts/eval_logigramme_formats.py \
-  --stems "Gestion des colis endommag_,Demande de remboursement - colis endommag_,Pr_paration des colis" \
-  --trials 3 \
-  --formats mermaid,dot,plantuml,svg,html,json_graph
+Sidecar files keyed by `(category, stem)`:
+
+```
+data/logigrammes/procedures/<stem>.mmd
 ```
 
-Outputs:
-- Artifacts: `outputs/logigramme_eval/<stem>_<format>_t<n>.<ext>`
-- Reports: `outputs/logigramme_eval/report_<timestamp>.json` and `.md`
+Module: [`core/logigrammes_store.py`](../core/logigrammes_store.py)
 
-### Single-format prototype (Mermaid only)
+On DocStore load, when a sidecar exists, the procedure text is augmented with:
 
-```bash
-python scripts/prototype_logigramme.py --stem "Gestion des colis endommag_"
+```markdown
+## Logigramme (flowchart)
+```mermaid
+...
+```
 ```
 
----
-
-## Scoring
-
-### Automated (script)
-
-1. **Syntax valid** (0/1) — parser/validator pass
-2. **Structure count** — edges/steps/nodes ≥ 2
-3. **Retry rate** — second prompt fired after invalid output
-4. **Latency** — vLLM round-trip ms
-
-### Manual (required before web integration)
-
-Open saved artifacts. Score **fidelity** 1–5 per trial:
-- Steps match the source procedure
-- No invented branches or missing decision points
-- Labels readable in French
-
-Record scores in the report markdown or a follow-up note.
+So RAG can retrieve diagram content with the parent procedure — without a separate chat hook.
 
 ---
 
-## Evaluation results (2026-05-21, pod)
+## Admin / manager workflow
 
-Run: 3 procedures × 3 trials × 6 formats (54 generations). Report on pod:
-`outputs/logigramme_eval/report_20260521T163814Z.json` (+ `.md`).
+On **Documents** (`/admin`), each row in the **procedures** category shows:
 
-| Format | Valid | Total | Valid % |
-|--------|-------|-------|---------|
-| **mermaid** | 9 | 9 | **100%** |
-| **dot** | 9 | 9 | **100%** |
-| **plantuml** | 9 | 9 | **100%** |
-| svg | 3 | 9 | 33% |
-| **html** | 9 | 9 | **100%** |
-| **json_graph** | 9 | 9 | **100%** |
+- Badge: **Logigramme ✓** or **Sans logigramme**
+- Button: **Créer / Modifier logigramme** → modal with generate, refine chat, preview, **Enregistrer**
 
-**Syntax winners:** mermaid, dot, plantuml, html, json_graph (all ≥80%).
+Auth: `_require_docs_manager` (gestionnaires + administrateurs).
 
-**SVG** failed often on first pass (`invalid svg output`); retries recovered some trials.
+API:
 
-**Next:** Manual fidelity review (1–5) on saved artifacts for mermaid vs html vs json_graph before picking a web renderer. **Chat integration remains OFF.**
+| Method | Path |
+|--------|------|
+| GET | `/api/admin/logigramme?category=procedures&stem=…` |
+| POST | `/api/admin/logigramme/generate` |
+| POST | `/api/admin/logigramme/save` |
+| DELETE | `/api/admin/logigramme?category=procedures&stem=…` |
+
+Generation uses dedicated admin endpoints — **not** `POST /chat`.
 
 ---
 
-Re-enable chat/UI only when **all** are true:
+## Chat preview
 
-1. One format reaches **≥80% syntax valid** across 3 procedures × 3 trials
-2. Manual fidelity **≥4/5** on at least 2 procedures for that format
-3. Clear rendering path chosen (likely Mermaid or SVG)
+When a user clicks a **Source** hint, [`DocumentPreviewModal`](../web_test/src/components/DocumentPreviewModal.jsx) shows tabs:
 
-Until then:
-- No `mermaid` npm dependency in `web_test`
+**Word | Markdown | Logigramme** (Logigramme tab only when a sidecar exists).
+
+Mermaid renders only in the preview modal (lazy-loaded) — not in chat message bodies.
+
+---
+
+## Pod evaluation (reference)
+
+Multi-format eval (May 2026): mermaid/dot/plantuml/html/json_graph at 100% syntax; svg 33%.
+
+Report on pod: `outputs/logigramme_eval/report_20260521T163814Z.json`
+
+Scripts: [`scripts/eval_logigramme_formats.py`](../scripts/eval_logigramme_formats.py), [`scripts/prototype_logigramme.py`](../scripts/prototype_logigramme.py)
+
+---
+
+## Explicit non-goals (normal chat safety)
+
 - No logigramme intent in [`core/llm.py`](../core/llm.py)
 - No `generate_logigramme` agentic tool
-
----
-
-## Reversibility
-
-- Read-only on procedure corpus
-- Outputs in `outputs/logigramme_eval/` (safe to delete)
-- No database changes
+- No Mermaid rendering in [`messageFormat.jsx`](../web_test/src/lib/messageFormat.jsx)
