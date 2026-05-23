@@ -24,6 +24,12 @@ from core.documents import (
     condense_sop_plaintext,
     get_store,
 )
+from core.logigrammes_store import (
+    PROCEDURES_CATEGORY,
+    excerpt_preserving_logigramme,
+    format_logigramme_block,
+    read,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -38,9 +44,11 @@ Documents are in French. Users may write in French, Darija (Arabic/Arabizi), or 
 
 You MUST answer ONLY from retrieved documents. Never answer from memory.
 
-You have one tool:
+You have two tools:
 - request_documents(ids: string[])
   It returns full text chunks for the requested document IDs.
+- request_logigramme(ids: string[])
+  It returns published Mermaid flowchart code for procedure document IDs when the user asks for a logigramme/diagram or you need the flowchart source to answer accurately.
 
 Workflow rules:
 1) Read the document catalog below (each row has id, path, objective, section_1).
@@ -67,6 +75,7 @@ without calling `request_documents` when documents might help, you fail the task
 
 Tool:
 - `request_documents(ids: string[])` — returns the **full** text body for each document `id` listed in the catalog.
+- `request_logigramme(ids: string[])` — returns published **Mermaid** flowchart code for procedure ids when the user wants a logigramme/diagram or you need the flowchart to answer or adapt steps.
 
 Rules:
 1) Read the JSON catalog. Each item has: `id`, `path`, `objective` (procedure goal when detected), `section_1` (first section slice).
@@ -304,11 +313,16 @@ def format_retrieved_documents_for_prompt(
         if len(body) <= max_body:
             block = header + body + "\n"
         else:
-            excerpt = _best_window_for_query(
+            excerpt = excerpt_preserving_logigramme(
                 body,
                 q or "",
                 max_body,
-                expand_fr_darija_hints=expand_fr_darija_hints,
+                lambda b, query, limit: _best_window_for_query(
+                    b,
+                    query,
+                    limit,
+                    expand_fr_darija_hints=expand_fr_darija_hints,
+                ),
             )
             block = header + excerpt + "\n"
         parts.append(block)
@@ -337,6 +351,30 @@ REQUEST_DOCUMENTS_TOOL = {
     },
 }
 
+REQUEST_LOGIGRAMME_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "request_logigramme",
+        "description": (
+            "Fetch published Mermaid flowchart code for procedure document ids when the user "
+            "asks for a logigramme/diagram or you need the flowchart source."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ids": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Procedure document IDs from the catalog",
+                }
+            },
+            "required": ["ids"],
+        },
+    },
+}
+
+AGENTIC_TOOLS = [REQUEST_DOCUMENTS_TOOL, REQUEST_LOGIGRAMME_TOOL]
+
 
 def _parse_tool_args(arguments: Optional[str]) -> Dict[str, Any]:
     if not arguments or not str(arguments).strip():
@@ -351,6 +389,48 @@ def _parse_tool_args(arguments: Optional[str]) -> Dict[str, Any]:
             except json.JSONDecodeError:
                 pass
         return {}
+
+
+def _parse_catalog_id(doc_id: str, default_category: str) -> Tuple[str, str]:
+    raw = (doc_id or "").strip()
+    if "/" in raw:
+        cat, stem = raw.split("/", 1)
+        return cat.strip(), stem.strip()
+    return (default_category or "").strip(), raw
+
+
+def _request_logigrammes(
+    store: DocStore,
+    category: str,
+    ids: List[str],
+    *,
+    max_ids_per_round: int,
+) -> Dict[str, Any]:
+    if max_ids_per_round <= 0:
+        clean = [str(x).strip() for x in ids if str(x).strip()]
+        return {"found": [], "not_found": clean}
+    unique_ids: List[str] = []
+    for raw in ids:
+        doc_id = str(raw or "").strip()
+        if not doc_id or doc_id in unique_ids:
+            continue
+        unique_ids.append(doc_id)
+        if len(unique_ids) >= max_ids_per_round:
+            break
+
+    found: List[Dict[str, str]] = []
+    not_found: List[str] = []
+    for doc_id in unique_ids:
+        cat, stem = _parse_catalog_id(doc_id, category)
+        if cat != PROCEDURES_CATEGORY:
+            not_found.append(doc_id)
+            continue
+        mermaid = read(cat, stem)
+        if not mermaid:
+            not_found.append(doc_id)
+            continue
+        found.append({"id": doc_id, "stem": stem, "mermaid": mermaid})
+    return {"found": found, "not_found": not_found}
 
 
 def _request_documents(
@@ -402,6 +482,22 @@ async def _handle_tool_call_async(
             result: Dict[str, Any] = {"found": [], "not_found": [str(x) for x in ids]}
         else:
             result = _request_documents(
+                store,
+                category,
+                [str(x) for x in ids],
+                max_ids_per_round=cap,
+            )
+        return json.dumps(result, ensure_ascii=False)
+
+    if name == "request_logigramme":
+        ids = args.get("ids") or []
+        if not isinstance(ids, list):
+            ids = [str(ids)]
+        cap = max_ids_per_round if per_round_cap is None else per_round_cap
+        if cap <= 0:
+            result = {"found": [], "not_found": [str(x) for x in ids]}
+        else:
+            result = _request_logigrammes(
                 store,
                 category,
                 [str(x) for x in ids],
@@ -468,7 +564,7 @@ async def run_agentic_tool_loop(
             "max_tokens": max_tokens,
             "temperature": temperature,
             "top_p": top_p,
-            "tools": [REQUEST_DOCUMENTS_TOOL],
+            "tools": AGENTIC_TOOLS,
             "tool_choice": "auto",
         }
         resp = await _post_chat_completions_with_retries(client, payload)
@@ -513,6 +609,15 @@ async def run_agentic_tool_loop(
                         meta["documents_in_prompt"] = int(meta["documents_in_prompt"]) + 1
                 except json.JSONDecodeError:
                     pass
+            elif name == "request_logigramme":
+                try:
+                    parsed = json.loads(content)
+                    fetched = parsed.get("found") or []
+                    if fetched:
+                        meta["logigramme_tool_used"] = True
+                        meta.setdefault("logigrammes_fetched", []).extend(fetched)
+                except json.JSONDecodeError:
+                    pass
             messages.append({"role": "tool", "tool_call_id": tid, "content": content})
 
     return AGENTIC_NOT_FOUND, meta
@@ -541,6 +646,7 @@ async def run_agentic_router_phase(
         "context_chars": 0,
         "documents_in_prompt": 0,
         "retrieved_ids": [],
+        "logigrammes_fetched": [],
     }
     messages = list(base_messages)
     retrieved: Dict[str, str] = {}
@@ -552,7 +658,7 @@ async def run_agentic_router_phase(
             "max_tokens": max_tokens,
             "temperature": temperature,
             "top_p": top_p,
-            "tools": [REQUEST_DOCUMENTS_TOOL],
+            "tools": AGENTIC_TOOLS,
             "tool_choice": (
                 {"type": "function", "function": {"name": "request_documents"}}
                 if round_i == 0
@@ -609,6 +715,15 @@ async def run_agentic_router_phase(
                             break
                 meta["context_chars"] = sum(len(t) for t in retrieved.values())
                 meta["documents_in_prompt"] = len(retrieved)
+            elif name == "request_logigramme":
+                try:
+                    result = json.loads(content)
+                except json.JSONDecodeError:
+                    result = {"found": [], "not_found": []}
+                fetched = result.get("found") or []
+                if fetched:
+                    meta["logigramme_tool_used"] = True
+                    meta.setdefault("logigrammes_fetched", []).extend(fetched)
             messages.append({"role": "tool", "tool_call_id": tid, "content": content})
 
         if len(retrieved) >= cap:
@@ -619,6 +734,20 @@ async def run_agentic_router_phase(
     meta["context_chars"] = sum(len(t) for t in retrieved.values())
     meta["documents_in_prompt"] = len(retrieved)
     return retrieved, meta
+
+
+def append_logigramme_blocks_to_context(ctx: str, logigrammes: List[Dict[str, Any]]) -> str:
+    """Append explicit Mermaid blocks fetched via request_logigramme."""
+    parts: List[str] = [ctx.rstrip()] if ctx and ctx.strip() else []
+    for row in logigrammes or []:
+        mermaid = (row.get("mermaid") or "").strip()
+        stem = (row.get("stem") or row.get("id") or "").strip()
+        if not mermaid:
+            continue
+        parts.append(f"### Logigramme Mermaid : {stem}" + format_logigramme_block(mermaid).rstrip())
+    if not parts:
+        return ctx or ""
+    return "\n\n".join(parts) + "\n"
 
 
 async def run_agentic_answer_phase(

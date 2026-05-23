@@ -126,6 +126,29 @@ def _call_situational_mermaid(
     return None
 
 
+def should_attach_logigramme(message: str, rag_meta: dict) -> bool:
+    meta = rag_meta or {}
+    if wants_logigramme(message):
+        return True
+    if meta.get("logigramme_tool_used"):
+        return True
+    if meta.get("logigrammes_fetched"):
+        return True
+    return False
+
+
+def logigramme_from_fetched(rag_meta: dict) -> Optional[Dict[str, str]]:
+    for row in (rag_meta or {}).get("logigrammes_fetched") or []:
+        cleaned = normalize_mermaid((row.get("mermaid") or "").strip())
+        if validate_mermaid(cleaned):
+            return {
+                "mermaid": cleaned,
+                "stem": (row.get("stem") or row.get("id") or "").strip(),
+                "source": "fetched",
+            }
+    return None
+
+
 def resolve_logigramme_for_chat(
     *,
     user_message: str,
@@ -136,6 +159,10 @@ def resolve_logigramme_for_chat(
 ) -> Optional[Dict[str, str]]:
     """Return logigramme payload for chat metadata, or None on failure."""
     meta = rag_meta or {}
+    fetched = logigramme_from_fetched(meta)
+    if fetched:
+        return fetched
+
     stem = primary_procedure_stem(meta)
     doc_store = store or get_store()
 
@@ -180,8 +207,8 @@ def attach_logigramme_if_requested(
     store: Optional[DocStore] = None,
     model: Optional[str] = None,
 ) -> Dict[str, Any]:
-    """Mutate rag_meta with logigramme block when user explicitly asked."""
-    if not wants_logigramme(message):
+    """Mutate rag_meta with logigramme when user asked or agent fetched Mermaid."""
+    if not should_attach_logigramme(message, rag_meta):
         return rag_meta
     payload = resolve_logigramme_for_chat(
         user_message=message,

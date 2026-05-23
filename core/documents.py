@@ -24,7 +24,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from app_config.settings import settings
-from core.logigrammes_store import append_to_document_text
+from core.logigrammes_store import append_to_document_text, excerpt_preserving_logigramme
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DOCS_DIR = REPO_ROOT / "data" / "documents"
@@ -318,11 +318,16 @@ def _greedy_inject_document_blocks(
             break
         if max_body < min_partial:
             break
-        excerpt = _best_window_for_query(
+        excerpt = excerpt_preserving_logigramme(
             body,
             q,
             max_body,
-            expand_fr_darija_hints=expand_fr_darija_hints,
+            lambda b, query, limit: _best_window_for_query(
+                b,
+                query,
+                limit,
+                expand_fr_darija_hints=expand_fr_darija_hints,
+            ),
         )
         block = header + excerpt + "\n"
         out.append(block)
@@ -842,11 +847,16 @@ class DocStore:
                 parts.append(block)
                 budget -= len(block)
             else:
-                excerpt = _best_window_for_query(
+                excerpt = excerpt_preserving_logigramme(
                     body,
                     query,
                     max_body,
-                    expand_fr_darija_hints=expand_fr_darija_hints,
+                    lambda b, q, limit: _best_window_for_query(
+                        b,
+                        q,
+                        limit,
+                        expand_fr_darija_hints=expand_fr_darija_hints,
+                    ),
                 )
                 block = header + excerpt + "\n"
                 parts.append(block)
@@ -970,11 +980,16 @@ class DocStore:
                     suffix = "\n"
                 else:
                     if query and query.strip() and cap > 120:
-                        chunk = _best_window_for_query(
+                        chunk = excerpt_preserving_logigramme(
                             body,
                             query,
                             cap,
-                            expand_fr_darija_hints=expand_for_retrieval,
+                            lambda b, q, limit: _best_window_for_query(
+                                b,
+                                q,
+                                limit,
+                                expand_fr_darija_hints=expand_for_retrieval,
+                            ),
                         )
                         suffix = "\n"
                     else:

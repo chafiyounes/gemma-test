@@ -2611,6 +2611,13 @@ function setLogigrammeStatus(msg) {
   if (logigrammeStatus) logigrammeStatus.textContent = msg || "";
 }
 
+function applyDocsOverviewFromLogigramme(overview) {
+  if (overview) state.docsOverview = overview;
+  renderDocuments();
+}
+
+let logigrammeAutosaveErrorAt = 0;
+
 async function autosaveLogigrammeDraft({ quiet = true } = {}) {
   syncLogigrammeFromEditor();
   if (logigrammeState.busy || !logigrammeState.mermaid.trim()) return;
@@ -2627,15 +2634,17 @@ async function autosaveLogigrammeDraft({ quiet = true } = {}) {
     });
     const data = await res.json();
     logigrammeState.savedDraftMermaid = logigrammeState.mermaid;
-    if (data.overview) state.docsOverview = data.overview;
-    initDocsDraft();
-    renderDocuments();
+    applyDocsOverviewFromLogigramme(data.overview);
     if (!quiet) setLogigrammeStatus("Brouillon enregistré.");
     else if (!logigrammeState.previewError && !logigrammeState.busy) {
       setLogigrammeStatus("Brouillon enregistré automatiquement.");
     }
   } catch (err) {
-    if (!quiet) setLogigrammeStatus(err.message || "Erreur brouillon.");
+    const now = Date.now();
+    if (!quiet || now - logigrammeAutosaveErrorAt > 8000) {
+      setLogigrammeStatus(err.message || "Erreur enregistrement brouillon.");
+      logigrammeAutosaveErrorAt = now;
+    }
   } finally {
     logigrammeState.autosaving = false;
   }
@@ -2695,10 +2704,25 @@ async function openLogigrammeModal({ category, stem, name }) {
   }
 }
 
-function closeLogigrammeModal() {
+async function closeLogigrammeModal() {
   if (!logigrammeModal) return;
   if (logigrammePreviewTimer) clearTimeout(logigrammePreviewTimer);
-  if (logigrammeAutosaveTimer) clearTimeout(logigrammeAutosaveTimer);
+  if (logigrammeAutosaveTimer) {
+    clearTimeout(logigrammeAutosaveTimer);
+    logigrammeAutosaveTimer = null;
+  }
+  syncLogigrammeFromEditor();
+  const pendingSave =
+    logigrammeState.mermaid.trim()
+    && logigrammeState.mermaid !== logigrammeState.savedDraftMermaid
+    && !logigrammeState.busy;
+  if (pendingSave) {
+    try {
+      await autosaveLogigrammeDraft({ quiet: true });
+    } catch {
+      /* status already set in autosave */
+    }
+  }
   logigrammeModal.classList.add("hidden");
   document.body.classList.remove("logigramme-modal-open");
 }
@@ -2755,8 +2779,8 @@ async function runLogigrammeGenerate({ refine = false } = {}) {
     logigrammeState.messages = messages;
     if (refine && refineText && logigrammeRefineInput) logigrammeRefineInput.value = "";
     const rendered = await renderLogigrammePreview(data.mermaid);
-    if (rendered) {
-      await autosaveLogigrammeDraft({ quiet: false });
+    if (logigrammeState.mermaid.trim()) {
+      await autosaveLogigrammeDraft({ quiet: rendered });
     }
     setLogigrammeStatus(
       rendered
@@ -2798,9 +2822,7 @@ async function publishLogigramme() {
     const data = await res.json();
     logigrammeState.savedDraftMermaid = logigrammeState.mermaid;
     logigrammeState.publishedExists = true;
-    if (data.overview) state.docsOverview = data.overview;
-    initDocsDraft();
-    renderDocuments();
+    applyDocsOverviewFromLogigramme(data.overview);
     setLogigrammeStatus("Logigramme publié.");
     setTimeout(closeLogigrammeModal, 600);
   } catch (err) {

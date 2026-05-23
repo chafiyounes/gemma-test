@@ -8,7 +8,7 @@ const ZOOM_STEP = 1.25;
 const ZOOM_MAX = 3;
 const DBLCLICK_FACTOR = 2;
 
-function getMermaidThemeConfig() {
+function getMermaidThemeConfig({ embedded = false } = {}) {
   const dark = document.documentElement.getAttribute("data-theme") === "dark";
   if (dark) {
     return {
@@ -23,13 +23,13 @@ function getMermaidThemeConfig() {
       themeVariables: {
         fontSize: "16px",
         fontFamily: "system-ui, Segoe UI, sans-serif",
-        background: "#1a2332",
+        background: embedded ? "transparent" : "#1a2332",
         primaryColor: "#2d3a4d",
         primaryTextColor: "#e8eaed",
         primaryBorderColor: "#3d4f66",
         lineColor: "#94a3b8",
-        secondaryColor: "#151d28",
-        tertiaryColor: "#0f1419",
+        secondaryColor: embedded ? "transparent" : "#151d28",
+        tertiaryColor: embedded ? "transparent" : "#0f1419",
       },
     };
   }
@@ -45,14 +45,15 @@ function getMermaidThemeConfig() {
     themeVariables: {
       fontSize: "16px",
       fontFamily: "system-ui, Segoe UI, sans-serif",
+      background: embedded ? "transparent" : undefined,
     },
   };
 }
 
-async function loadMermaid() {
+async function loadMermaid({ embedded = false } = {}) {
   const mod = await import("mermaid");
   mermaidModule = mod.default;
-  mermaidModule.initialize(getMermaidThemeConfig());
+  mermaidModule.initialize(getMermaidThemeConfig({ embedded }));
   return mermaidModule;
 }
 
@@ -90,6 +91,8 @@ export default function MermaidDiagram({
   const reactId = useId();
   const dimsRef = useRef({ baseWidth: 0, baseHeight: 0, fitScale: 1, currentScale: 1 });
   const panRef = useRef(null);
+  const renderGenRef = useRef(0);
+  const panHandlersRef = useRef({});
 
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
@@ -209,25 +212,26 @@ export default function MermaidDiagram({
     }
 
     let cancelled = false;
+    const gen = ++renderGenRef.current;
     setReady(false);
     setError("");
 
     (async () => {
       try {
-        const mermaid = await loadMermaid();
-        if (cancelled) return;
+        const mermaid = await loadMermaid({ embedded });
+        if (cancelled || gen !== renderGenRef.current) return;
         const renderId = `mmd-${reactId.replace(/:/g, "")}-${Date.now()}`;
         const { svg } = await mermaid.render(renderId, src);
-        if (cancelled) return;
+        if (cancelled || gen !== renderGenRef.current) return;
         canvas.innerHTML = `<div class="mermaid-diagram-viewport">${svg}</div>`;
         requestAnimationFrame(() => {
-          if (!cancelled) {
+          if (!cancelled && gen === renderGenRef.current) {
             prepareSvgLayout();
             setReady(true);
           }
         });
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && gen === renderGenRef.current) {
           canvas.innerHTML = "";
           setError(err?.message || "Diagramme invalide");
           setReady(false);
@@ -238,7 +242,7 @@ export default function MermaidDiagram({
     return () => {
       cancelled = true;
     };
-  }, [code, reactId, themeKey, prepareSvgLayout]);
+  }, [code, reactId, themeKey, embedded, prepareSvgLayout]);
 
   const handleDownload = () => {
     const svg = canvasRef.current?.querySelector("svg");
@@ -297,14 +301,18 @@ export default function MermaidDiagram({
     scrollRef.current?.classList.remove("mermaid-diagram-scroll--panning");
   };
 
+  panHandlersRef.current = { handlePanMove, handlePanEnd };
+
   useEffect(() => {
-    window.addEventListener("mousemove", handlePanMove);
-    window.addEventListener("mouseup", handlePanEnd);
+    const onMove = (ev) => panHandlersRef.current.handlePanMove?.(ev);
+    const onUp = () => panHandlersRef.current.handlePanEnd?.();
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
     return () => {
-      window.removeEventListener("mousemove", handlePanMove);
-      window.removeEventListener("mouseup", handlePanEnd);
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
     };
-  });
+  }, []);
 
   if (!(code || "").trim()) {
     return <p className="mermaid-diagram-empty">Aucun logigramme.</p>;

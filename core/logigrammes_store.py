@@ -165,5 +165,47 @@ def append_to_document_text(category: str, stem: str, text: str) -> str:
     mermaid = read(category, stem)
     if not mermaid:
         return text
-    block = f"\n\n## Logigramme (flowchart)\n```mermaid\n{mermaid}\n```\n"
+    block = format_logigramme_block(mermaid)
     return (text or "").rstrip() + block
+
+
+LOGIGRAMME_APPENDIX_RE = re.compile(
+    r"\n\n## Logigramme \(flowchart\)\n```mermaid\n[\s\S]*?\n```\n?\Z"
+)
+
+
+def format_logigramme_block(mermaid: str) -> str:
+    cleaned = strip_code_fence((mermaid or "").strip())
+    if not cleaned:
+        return ""
+    return f"\n\n## Logigramme (flowchart)\n```mermaid\n{cleaned}\n```\n"
+
+
+def split_logigramme_appendix(text: str) -> tuple[str, str]:
+    """Return (body_without_appendix, appendix_suffix_or_empty)."""
+    raw = text or ""
+    match = LOGIGRAMME_APPENDIX_RE.search(raw)
+    if not match:
+        return raw.rstrip(), ""
+    return raw[: match.start()].rstrip(), match.group(0)
+
+
+def excerpt_preserving_logigramme(
+    text: str,
+    query: str,
+    max_chars: int,
+    window_fn,
+) -> str:
+    """Truncate *text* but keep a trailing published logigramme appendix when possible."""
+    body, appendix = split_logigramme_appendix(text)
+    if not appendix:
+        return window_fn(body or text, query, max_chars)
+    reserve = len(appendix)
+    inner_max = max(120, max_chars - reserve)
+    if len(body) <= inner_max:
+        return body + appendix
+    excerpt = window_fn(body, query, inner_max)
+    combined = excerpt.rstrip() + appendix
+    if len(combined) <= max_chars:
+        return combined
+    return window_fn(body or text, query, max_chars)

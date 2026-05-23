@@ -23,6 +23,7 @@ from core.chat_policy import (
 )
 from core.agentic_rag import (
     AGENTIC_NOT_FOUND,
+    append_logigramme_blocks_to_context,
     format_retrieved_documents_for_prompt,
     make_agentic_system_prompt,
     make_router_system_prompt,
@@ -816,6 +817,17 @@ class GemmaModel:
                     anchor_query=rq,
                     expand_fr_darija_hints=expand_hints,
                 )
+                ctx = append_logigramme_blocks_to_context(
+                    ctx,
+                    rag_meta.get("logigrammes_fetched") or [],
+                )
+                rag_meta["context_full"] = ctx
+                cap = max(0, int(settings.RAG_ADMIN_FULL_CONTEXT_MAX_CHARS))
+                if cap > 0:
+                    rag_meta["context_full"] = ctx[:cap]
+                else:
+                    rag_meta["context_full"] = ctx
+                rag_meta["context_preview"] = ctx[:900] + ("…" if len(ctx) > 900 else "")
                 cat_hint = f" (catégories : {', '.join(cats)})" if cats else ""
                 sys_with_docs = (
                     SYSTEM_PROMPT.strip()
