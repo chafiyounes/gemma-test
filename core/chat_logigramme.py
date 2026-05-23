@@ -33,7 +33,40 @@ DOC_HEADER_RE = re.compile(
 
 LOGIGRAMME_CHAT_INSTRUCTION = (
     "\n\n[Instruction logigramme: réponds d'abord par les étapes numérotées adaptées "
-    "à la situation décrite. Ne produis pas de code Mermaid dans le texte.]"
+    "à la situation. Ne décris pas le Mermaid en prose (« le diagramme est intégré… »). "
+    "Le diagramme publié s'affiche automatiquement quand il est dans les documents. "
+    "Si tu dois montrer une version adaptée, place le code UNIQUEMENT dans un bloc:\n"
+    "```logigramme\nflowchart TD\n...\n```\n"
+    "Sans autre texte dans ce bloc.]"
+)
+
+LOGIGRAMME_SYSTEM_SECTION = """
+## Logigrammes (diagrammes de flux)
+- Ne remplace jamais un logigramme par une description textuelle du flux quand l'utilisateur en demande un.
+- Si le Mermaid figure dans **DOCUMENTS DE RÉFÉRENCE** (section `## Logigramme (flowchart)` ou bloc ` ```mermaid `), réponds par les **étapes numérotées** adaptées ; le chat affiche le diagramme séparément.
+- Pour une **variante adaptée** à la situation, ajoute un bloc dédié (seul contenu du bloc) :
+```logigramme
+flowchart TD
+...
+```
+- N'écris pas de code Mermaid hors de ce bloc `logigramme`.
+""".strip()
+
+LOGIGRAMME_AGENTIC_TOOL_HINT = (
+    "When the user asks for a logigramme / flowchart / diagramme de flux, call "
+    "`request_logigramme` with the same catalog **id**(s) as the procedure "
+    "(e.g. `procedures/Proc-produits_interdits` or the plain stem when the catalog uses stems only). "
+    "Load the procedure with `request_documents` first if needed."
+)
+
+LOGIGRAMME_RESPONSE_FENCE_RE = re.compile(
+    r"```(?:logigramme|mermaid)\s*\n([\s\S]*?)```",
+    re.IGNORECASE,
+)
+
+MERMAID_IN_CONTEXT_RE = re.compile(
+    r"```mermaid\s*\n([\s\S]*?)\n```",
+    re.IGNORECASE,
 )
 
 SITUATIONAL_SYSTEM = (
@@ -66,6 +99,73 @@ def augment_message_for_logigramme(message: str) -> str:
     if not wants_logigramme(message):
         return message
     return message + LOGIGRAMME_CHAT_INSTRUCTION
+
+
+def extract_logigramme_fences(text: str) -> tuple[str, list[str]]:
+    """Strip ```logigramme / ```mermaid fences from assistant text for display."""
+    codes: list[str] = []
+
+    def repl(match: re.Match[str]) -> str:
+        code = (match.group(1) or "").strip()
+        if code:
+            codes.append(code)
+        return ""
+
+    stripped = LOGIGRAMME_RESPONSE_FENCE_RE.sub(repl, text or "")
+    stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()
+    return stripped, codes
+
+
+def procedure_stem_from_rag(rag_meta: dict) -> Optional[str]:
+    stem = primary_procedure_stem(rag_meta)
+    if stem:
+        return stem
+    for doc_id in (rag_meta or {}).get("retrieved_ids") or []:
+        raw = str(doc_id or "").strip()
+        if not raw:
+            continue
+        if "/" in raw:
+            cat, st = raw.split("/", 1)
+            if cat.strip() == PROCEDURES_CATEGORY and st.strip():
+                return st.strip()
+        else:
+            return raw
+    for row in (rag_meta or {}).get("logigrammes_fetched") or []:
+        st = (row.get("stem") or row.get("id") or "").strip()
+        if st:
+            if "/" in st:
+                cat, rest = st.split("/", 1)
+                if cat.strip() == PROCEDURES_CATEGORY:
+                    return rest.strip()
+            return st
+    return None
+
+
+def mermaid_from_context(rag_meta: dict) -> Optional[Dict[str, str]]:
+    ctx = (rag_meta or {}).get("context_full") or (rag_meta or {}).get("context_preview") or ""
+    if not ctx.strip():
+        return None
+    for match in MERMAID_IN_CONTEXT_RE.finditer(ctx):
+        cleaned = normalize_mermaid(match.group(1))
+        if validate_mermaid(cleaned):
+            return {
+                "mermaid": cleaned,
+                "stem": procedure_stem_from_rag(rag_meta) or "",
+                "source": "context",
+            }
+    return None
+
+
+def inline_logigramme_payload(codes: list[str], rag_meta: dict) -> Optional[Dict[str, str]]:
+    for raw in reversed(codes or []):
+        cleaned = normalize_mermaid(raw)
+        if validate_mermaid(cleaned):
+            return {
+                "mermaid": cleaned,
+                "stem": procedure_stem_from_rag(rag_meta) or "",
+                "source": "inline",
+            }
+    return None
 
 
 def primary_procedure_stem(rag_meta: dict) -> Optional[str]:
@@ -163,7 +263,11 @@ def resolve_logigramme_for_chat(
     if fetched:
         return fetched
 
-    stem = primary_procedure_stem(meta)
+    from_context = mermaid_from_context(meta)
+    if from_context:
+        return from_context
+
+    stem = procedure_stem_from_rag(meta)
     doc_store = store or get_store()
 
     if stem:
@@ -220,3 +324,30 @@ def attach_logigramme_if_requested(
     if payload:
         rag_meta["logigramme"] = payload
     return rag_meta
+
+
+def process_chat_logigramme(
+    *,
+    message: str,
+    step_answer: str,
+    rag_meta: Dict[str, Any],
+    store: Optional[DocStore] = None,
+    model: Optional[str] = None,
+) -> tuple[str, Dict[str, Any]]:
+    """Strip inline fences, attach diagram metadata, return display text + rag_meta."""
+    meta = dict(rag_meta or {})
+    display_text, inline_codes = extract_logigramme_fences(step_answer)
+
+    inline_payload = inline_logigramme_payload(inline_codes, meta)
+    if inline_payload:
+        meta["logigramme"] = inline_payload
+        return display_text, meta
+
+    meta = attach_logigramme_if_requested(
+        message=message,
+        step_answer=display_text,
+        rag_meta=meta,
+        store=store,
+        model=model,
+    )
+    return display_text, meta

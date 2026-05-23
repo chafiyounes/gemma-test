@@ -116,6 +116,37 @@ function normalizeLine(line) {
   return normalized;
 }
 
+/** Split assistant text into alternating prose and logigramme diagram segments. */
+export function splitMessageSegments(content) {
+  const segments = [];
+  const re = /```(?:logigramme|mermaid)\s*\n([\s\S]*?)```/gi;
+  const raw = content || "";
+  let lastIndex = 0;
+  let match = re.exec(raw);
+
+  while (match) {
+    if (match.index > lastIndex) {
+      const chunk = raw.slice(lastIndex, match.index).trim();
+      if (chunk) segments.push({ type: "text", content: chunk });
+    }
+    const code = (match[1] || "").trim();
+    if (code) segments.push({ type: "logigramme", code });
+    lastIndex = match.index + match[0].length;
+    match = re.exec(raw);
+  }
+
+  if (lastIndex < raw.length) {
+    const chunk = raw.slice(lastIndex).trim();
+    if (chunk) segments.push({ type: "text", content: chunk });
+  }
+
+  if (!segments.length && raw.trim()) {
+    segments.push({ type: "text", content: raw.trim() });
+  }
+
+  return segments;
+}
+
 /**
  * @param {string} content
  * @param {{ onSourceClick?: (sourceText: string) => void }} [options]

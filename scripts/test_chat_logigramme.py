@@ -58,7 +58,21 @@ def test_augment_message_appends_instruction() -> None:
     assert plain == "Bonjour"
     augmented = augment_message_for_logigramme("Donne un logigramme")
     assert "étapes numérotées" in augmented
-    assert "Ne produis pas de code Mermaid" in augmented
+    assert "```logigramme" in augmented
+
+
+def test_extract_logigramme_fences() -> None:
+    from core.chat_logigramme import extract_logigramme_fences
+
+    raw = (
+        "Voici les étapes.\n\n"
+        "```logigramme\nflowchart TD\nA-->B\n```\n\n"
+        "Source: Proc-test"
+    )
+    text, codes = extract_logigramme_fences(raw)
+    assert "flowchart TD" not in text
+    assert "Voici les étapes" in text
+    assert codes == ["flowchart TD\nA-->B"]
 
 
 def main() -> None:
@@ -66,6 +80,7 @@ def main() -> None:
     test_wants_logigramme_negative()
     test_primary_procedure_stem()
     test_augment_message_appends_instruction()
+    test_extract_logigramme_fences()
     print("test_chat_logigramme: OK")
 
 

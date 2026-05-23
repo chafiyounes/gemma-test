@@ -5,7 +5,7 @@ import "./MermaidDiagram.css";
 let mermaidModule = null;
 
 const ZOOM_STEP = 1.25;
-const ZOOM_MAX = 3;
+const ZOOM_MAX = 4;
 const DBLCLICK_FACTOR = 2;
 
 function getMermaidThemeConfig({ embedded = false } = {}) {

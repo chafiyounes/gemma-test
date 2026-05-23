@@ -30,6 +30,7 @@ from core.logigrammes_store import (
     format_logigramme_block,
     read,
 )
+from core.chat_logigramme import LOGIGRAMME_AGENTIC_TOOL_HINT
 
 logger = logging.getLogger(__name__)
 
@@ -57,8 +58,11 @@ Workflow rules:
 4) If retrieved docs are insufficient, or the loaded bodies look like the **wrong** procedure while **other** catalog rows remain plausible, call request_documents again with **different** IDs.
 5) Max **{max_rounds}** tool rounds total. If still insufficient, answer exactly with:
    "{not_found}"
-6) Final answer must be in the same language style as the user.
-7) Never expose internal tool details or catalog internals to the user.
+6) When the user asks for a logigramme / flowchart, call `request_logigramme` with the same catalog id(s) as the loaded procedure (see tool hint below).
+7) Final answer must be in the same language style as the user.
+8) Never expose internal tool details or catalog internals to the user.
+
+{logigramme_tool_hint}
 
 Document catalog (JSON). Each **id** is either `category/document_stem` when multiple corpora are merged, or a plain stem for a single category:
 {catalog_json}
@@ -82,7 +86,10 @@ Rules:
 2) Pick **1–{max_ids_round}** ids per tool call that are most likely to contain evidence for the **latest user message** (use conversation history only for disambiguation).
 3) Call `request_documents` with those ids. Aim for **~{target_docs}** relevant documents when the question needs it, **up to {max_total}** unique ids loaded in total across rounds.
 4) If results look **off-topic** but **other** catalog rows could still hold the answer, you **must** call `request_documents` again in a later round with different ids (max **{max_rounds}** tool rounds total).
-5) Stop calling tools when you have enough sources or when no catalog entry plausibly matches. You may output a short neutral line like "OK" before stopping **only after** you have finished all needed tool calls; the system will **ignore** free-text and use tool payloads only.
+5) When the user asks for a logigramme / flowchart / diagramme de flux, call `request_logigramme` with the **same catalog id(s)** as the relevant procedure after loading it (e.g. `procedures/Proc-produits_interdits`).
+6) Stop calling tools when you have enough sources or when no catalog entry plausibly matches. You may output a short neutral line like "OK" before stopping **only after** you have finished all needed tool calls; the system will **ignore** free-text and use tool payloads only.
+
+{logigramme_tool_hint}
 
 Catalog (JSON):
 {catalog_json}
@@ -254,6 +261,7 @@ def make_agentic_system_prompt(catalog: List[MapEntry]) -> str:
         max_total=max_total,
         max_rounds=rounds,
         target_docs=target,
+        logigramme_tool_hint=LOGIGRAMME_AGENTIC_TOOL_HINT,
     )
 
 
@@ -266,6 +274,7 @@ def make_router_system_prompt(catalog: List[MapEntry]) -> str:
         max_rounds=rounds,
         max_total=max_total,
         target_docs=target,
+        logigramme_tool_hint=LOGIGRAMME_AGENTIC_TOOL_HINT,
     )
 
 
@@ -356,8 +365,9 @@ REQUEST_LOGIGRAMME_TOOL = {
     "function": {
         "name": "request_logigramme",
         "description": (
-            "Fetch published Mermaid flowchart code for procedure document ids when the user "
-            "asks for a logigramme/diagram or you need the flowchart source."
+            "Fetch published Mermaid flowchart code for procedure catalog ids when the user "
+            "asks for a logigramme/diagram or you need the flowchart source. "
+            "Use the same id as in the catalog JSON (e.g. procedures/Proc-produits_interdits)."
         ),
         "parameters": {
             "type": "object",

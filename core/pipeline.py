@@ -2,7 +2,7 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
-from core.chat_logigramme import attach_logigramme_if_requested, augment_message_for_logigramme
+from core.chat_logigramme import augment_message_for_logigramme, process_chat_logigramme
 from core.llm import GemmaModel
 from app_config.settings import settings
 
@@ -41,14 +41,14 @@ class GemmaPipeline:
                 system_prompt=system_prompt,
                 category=category,
             )
-            rag_meta = attach_logigramme_if_requested(
+            display_text, rag_meta = process_chat_logigramme(
                 message=message,
                 step_answer=out.text,
                 rag_meta=dict(out.rag or {}),
                 model=self.model_name,
             )
             return PipelineResult(
-                response=out.text,
+                response=display_text,
                 model=self.model_name,
                 rag_meta=rag_meta,
             )
@@ -74,14 +74,14 @@ class GemmaPipeline:
                 history=history or [],
                 category=category,
             )
-            rag_meta = attach_logigramme_if_requested(
+            display_text, rag_meta = process_chat_logigramme(
                 message=message,
                 step_answer=out.text,
                 rag_meta=dict(out.rag or {}),
                 model=self.model_name,
             )
             return PipelineResult(
-                response=out.text,
+                response=display_text,
                 model=self.model_name,
                 rag_meta=rag_meta,
             )

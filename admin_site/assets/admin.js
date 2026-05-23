@@ -2135,7 +2135,7 @@ const logigrammeCancelBtn = document.getElementById("logigramme-cancel-btn");
 const logigrammeDownloadBtn = document.getElementById("logigramme-download-btn");
 
 const LOGIGRAMME_ZOOM_STEP = 1.25;
-const LOGIGRAMME_ZOOM_MAX = 3;
+const LOGIGRAMME_ZOOM_MAX = 4;
 const LOGIGRAMME_DBLCLICK_FACTOR = 2;
 
 const logigrammeState = {

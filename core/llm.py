@@ -21,6 +21,7 @@ from core.chat_policy import (
     retrieval_anchor_query,
     unsupported_latin_language_message,
 )
+from core.chat_logigramme import LOGIGRAMME_SYSTEM_SECTION
 from core.agentic_rag import (
     AGENTIC_NOT_FOUND,
     append_logigramme_blocks_to_context,
@@ -211,7 +212,7 @@ def _vllm_unavailable_message(base_url: str, bucket: str, *, after_retries: bool
 # System prompt: keep ONE place for behaviour (language, RAG, continuations).
 # Retrieval: French/Darija queries may get French synonym expansion for BM25;
 # English queries stay English-only (see core/documents.py).
-SYSTEM_PROMPT = """
+SYSTEM_PROMPT = ("""
 ## Rôle
 Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu aides les collaborateurs sur les **procédures officielles (SOP)** décrites dans les documents fournis.
 
@@ -259,7 +260,8 @@ Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu
 ## Limites
 - Pas de conseil juridique/médical général hors procédures.
 - Si un message est **totalement hors** logistique SENDIT **et** aucun document ne s’y rattache, applique la règle « information absente ».
-""".strip()
+
+""" + LOGIGRAMME_SYSTEM_SECTION).strip()
 
 
 class GemmaModel:

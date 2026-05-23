@@ -1,5 +1,5 @@
-import { lazy, Suspense, useState } from "react";
-import { renderFormattedMessage } from "../lib/messageFormat";
+import { lazy, Suspense, useMemo, useState } from "react";
+import { renderFormattedMessage, splitMessageSegments } from "../lib/messageFormat";
 import "./MessageBubble.css";
 
 const DocumentPreviewModal = lazy(() => import("./DocumentPreviewModal"));
@@ -30,6 +30,13 @@ export default function MessageBubble({ message, onSubmitFeedback }) {
   const logigrammeMeta = message.metadata?.logigramme;
   const logigrammeCode = logigrammeMeta?.mermaid;
   const logigrammeFilename = `${(logigrammeMeta?.stem || "logigramme").replace(/[^\w.-]+/g, "_")}-logigramme.png`;
+
+  const messageSegments = useMemo(
+    () => (isUser || isError ? [] : splitMessageSegments(message.content)),
+    [isUser, isError, message.content],
+  );
+  const inlineDiagrams = messageSegments.filter((seg) => seg.type === "logigramme");
+  const showMetadataDiagram = Boolean(logigrammeCode) && inlineDiagrams.length === 0;
 
   const handleSourceClick = (name) => {
     const trimmed = (name || "").trim();
@@ -82,13 +89,34 @@ export default function MessageBubble({ message, onSubmitFeedback }) {
             </svg>
           </div>
         )}
-        <div className={`msg-bubble ${isUser ? "user-bubble" : "bot-bubble"} ${isError ? "error-bubble" : ""}${!isUser && logigrammeCode ? " msg-bubble--diagram" : ""}`}>
+        <div className={`msg-bubble ${isUser ? "user-bubble" : "bot-bubble"} ${isError ? "error-bubble" : ""}${!isUser && (showMetadataDiagram || inlineDiagrams.length) ? " msg-bubble--diagram" : ""}`}>
           <div className="msg-text" dir={textDir}>
             {isUser || isError
               ? message.content
-              : renderFormattedMessage(message.content, { onSourceClick: handleSourceClick })}
+              : messageSegments.length
+                ? messageSegments.map((segment, index) =>
+                    segment.type === "logigramme" ? (
+                      <div key={`log-${index}`} className="msg-logigramme-block">
+                        <p className="msg-logigramme-title">Logigramme</p>
+                        <Suspense fallback={<p className="msg-logigramme-loading">Chargement du diagramme…</p>}>
+                          <MermaidDiagram
+                            code={segment.code}
+                            compact
+                            showDownload
+                            showZoomControls
+                            downloadFilename={logigrammeFilename}
+                          />
+                        </Suspense>
+                      </div>
+                    ) : (
+                      <div key={`txt-${index}`} className="msg-text-segment">
+                        {renderFormattedMessage(segment.content, { onSourceClick: handleSourceClick })}
+                      </div>
+                    ),
+                  )
+                : renderFormattedMessage(message.content, { onSourceClick: handleSourceClick })}
           </div>
-          {!isUser && !isError && logigrammeCode ? (
+          {!isUser && !isError && showMetadataDiagram ? (
             <div className="msg-logigramme-block">
               <p className="msg-logigramme-title">Logigramme</p>
               <Suspense fallback={<p className="msg-logigramme-loading">Chargement du diagramme…</p>}>
