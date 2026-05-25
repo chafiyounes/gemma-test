@@ -245,6 +245,199 @@ NOT_FOUND: dict[str, str] = {
 }
 
 
+POLICY_GREETING: dict[str, str] = {
+    "fr": "Bonjour ! Comment puis-je vous aider sur les procédures SENDIT ?",
+    "en": "Hello! How can I help you with SENDIT procedures?",
+    "ar": "مرحبًا! كيف يمكنني مساعدتك في إجراءات SENDIT؟",
+    "darija": "Salam! Kifach n9der n3awnk f procedures dyal SENDIT?",
+}
+
+
+POLICY_HELP: dict[str, str] = {
+    "fr": (
+        "Je suis l’assistant SENDIT pour les **procédures internes** (colis, livraison, "
+        "vendeur, retour, remboursement, etc.). Posez votre question sur un cas concret."
+    ),
+    "en": (
+        "I am the SENDIT assistant for **internal procedures** (parcels, delivery, "
+        "vendor, returns, refunds, etc.). Ask a concrete question about your case."
+    ),
+    "ar": (
+        "أنا مساعد SENDIT لل**إجراءات الداخلية** (الطرود، التسليم، البائع، الإرجاع، "
+        "الاسترداد، إلخ). اطرح سؤالك عن حالة محددة."
+    ),
+    "darija": (
+        "Ana assistant dyal SENDIT l **procedures internes** (colis, livraison, vendeur, "
+        "retour, remboursement…). Sa2al 3la cas concret dyalek."
+    ),
+}
+
+
+POLICY_OFF_TOPIC: dict[str, str] = {
+    "fr": (
+        "Je ne traite que les **procédures SENDIT** (logistique, livraison, colis, "
+        "support client interne). Merci de poser une question liée à SENDIT."
+    ),
+    "en": (
+        "I only handle **SENDIT procedures** (logistics, delivery, parcels, internal "
+        "customer support). Please ask a question related to SENDIT."
+    ),
+    "ar": (
+        "أتعامل فقط مع **إجراءات SENDIT** (اللوجستيات، التسليم، الطرود، دعم العملاء "
+        "الداخلي). يُرجى طرح سؤال متعلق بـ SENDIT."
+    ),
+    "darija": (
+        "Kan traiti ghir **procedures SENDIT** (logistique, livraison, colis, support "
+        "client interne). Sa2al chi haja m3a SENDIT."
+    ),
+}
+
+
+POLICY_THANKS: dict[str, str] = {
+    "fr": "Avec plaisir. N’hésitez pas si vous avez une autre question sur les procédures SENDIT.",
+    "en": "You're welcome. Feel free to ask if you have another question about SENDIT procedures.",
+    "ar": "على الرحب والسعة. لا تتردد إذا كان لديك سؤال آخر حول إجراءات SENDIT.",
+    "darija": "Marhba. Ma t7tajch tssal 3la chi so2al akhor 3la procedures SENDIT.",
+}
+
+
+_GREETING_EXACT = frozenset(
+    _nfkc_lower(w)
+    for w in (
+        "hi", "hello", "hey", "yo", "hola", "bonjour", "salut", "coucou", "bonsoir",
+        "good morning", "good evening", "good afternoon", "hello there",
+        "salam", "slm", "labas", "kif dayr", "kifach dayr", "kif dayra",
+        "مرحبا", "السلام عليكم", "سلام", "أهلا", "اهلا",
+    )
+)
+
+_HELP_ONLY = re.compile(
+    r"^\s*(?:"
+    r"can you help(?: me)?|could you help(?: me)?|help me(?: please)?|"
+    r"peux[- ]?tu m['’]?aider|pouvez[- ]?vous m['’]?aider|"
+    r"pourriez[- ]?vous m['’]?aider|"
+    r"besoin d['’]?aide|j['’]?ai besoin d['’]?aide|"
+    r"how can you help(?: me)?|what can you help(?: me)? with|"
+    r"i need help|need help|"
+    r"tu peux m['’]?aider|vous pouvez m['’]?aider|"
+    r"عندك مساعدة|تقدر تساعدني|واش تقدر تساعدني"
+    r")\s*[.!?…]*\s*$",
+    re.IGNORECASE,
+)
+
+_META_ONLY = re.compile(
+    r"^\s*(?:"
+    r"what can you do|who are you|what do you do|what are you|"
+    r"comment [çc]a marche|c['’]est quoi|tu fais quoi|"
+    r"what is this|how does this work"
+    r")\s*[.!?…]*\s*$",
+    re.IGNORECASE,
+)
+
+_THANKS_ONLY = re.compile(
+    r"^\s*(?:"
+    r"merci(?: beaucoup)?|thank you|thanks(?: a lot)?|thx|ty|"
+    r"شكرا|شكرًا|متشكر|baraka llah fik|choukran|chokran"
+    r")\s*[.!?…]*\s*$",
+    re.IGNORECASE,
+)
+
+_SENDIT_DOMAIN = re.compile(
+    r"\b("
+    r"sendit|colis|livraison|livrer|ramassage|expédition|expedition|exped|"
+    r"vendeur|vendor|client|tracking|retour|remboursement|litige|"
+    r"adresse|facture|stock|procédure|procedure|sop|injoignable|"
+    r"tournée|tournee|pickup|warehouse|entrepôt|entrepot|"
+    r"coordonn|téléphone|telephone|numéro|numero|gsm|portable|"
+    r"plateforme|dashboard|boutique|expéditeur|expediteur|"
+    r"statut|envoi|distribu|livreur|koli|livrez|ramas"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_OFF_TOPIC_MARKERS = re.compile(
+    r"\b("
+    r"weather|météo|meteo|forecast|"
+    r"capital of|world cup|football|soccer|basketball|"
+    r"recipe|cook(?:ing)?|pasta|pizza|"
+    r"joke|blague|funny story|"
+    r"movie|film|music|song|album|"
+    r"president|election|politic|"
+    r"bitcoin|crypto|stock market|"
+    r"restaurant|hotel|vacation|holiday|travel|visa|"
+    r"homework|math problem|physics|"
+    r"who won|who is the|tell me about the history of"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_QUESTIONISH = re.compile(
+    r"(?:\?|\b(?:comment|pourquoi|quand|où|ou|quel|quelle|quels|quelles|"
+    r"what|how|why|when|where|which|who|can i|do i|is there|are there|"
+    r"ash|wach|chno|chnowa|kifach|3lach|fin)\b)",
+    re.IGNORECASE,
+)
+
+
+def _intent_bucket(user_message: str) -> str:
+    b = detect_lang_bucket(user_message)
+    if b == "es":
+        return "en"
+    return b if b in POLICY_GREETING else "fr"
+
+
+def _strip_for_intent(text: str) -> str:
+    t = _nfkc_lower(text or "")
+    t = re.sub(r"[^\w\s\u0600-\u06FF']+", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def has_sendit_domain_markers(text: str) -> bool:
+    return bool(_SENDIT_DOMAIN.search(text or ""))
+
+
+def classify_conversation_intent(message: str) -> str | None:
+    """Return greeting/help/thanks/off_topic, or None for a procedure-style query."""
+    raw = (message or "").strip()
+    if not raw:
+        return None
+    if is_continuation_message(raw):
+        return None
+    norm = _strip_for_intent(raw)
+    if not norm:
+        return None
+    if norm in _GREETING_EXACT or (len(norm) <= 18 and norm.split()[0] in _GREETING_EXACT):
+        return "greeting"
+    if _THANKS_ONLY.match(raw):
+        return "thanks"
+    if _HELP_ONLY.match(raw) or _META_ONLY.match(raw):
+        return "help_request"
+    if has_sendit_domain_markers(raw):
+        return None
+    if _OFF_TOPIC_MARKERS.search(raw):
+        return "off_topic"
+    if _QUESTIONISH.search(raw) and len(norm.split()) >= 3:
+        return "off_topic"
+    return None
+
+
+def conversation_preflight_response(message: str) -> tuple[str, str] | None:
+    """Fixed reply before RAG/LLM when the turn is not a procedure question."""
+    intent = classify_conversation_intent(message)
+    if not intent:
+        return None
+    bucket = _intent_bucket(message)
+    if intent == "greeting":
+        return intent, POLICY_GREETING.get(bucket, POLICY_GREETING["fr"])
+    if intent == "help_request":
+        return intent, POLICY_HELP.get(bucket, POLICY_HELP["fr"])
+    if intent == "thanks":
+        return intent, POLICY_THANKS.get(bucket, POLICY_THANKS["fr"])
+    if intent == "off_topic":
+        return intent, POLICY_OFF_TOPIC.get(bucket, POLICY_OFF_TOPIC["fr"])
+    return None
+
+
 _NOT_FOUND_MARKERS = (
     "je n'ai pas trouvé cette information",
     "je nai pas trouvé",

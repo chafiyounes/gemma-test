@@ -14,6 +14,7 @@ from core.chat_policy import (
     answer_language_instruction_suffix,
     claims_absent_in_docs_response,
     continuation_followup_message,
+    conversation_preflight_response,
     detect_lang_bucket,
     has_unsupported_script,
     message_contains_profanity,
@@ -259,7 +260,9 @@ Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu
 
 ## Limites
 - Pas de conseil juridique/médical général hors procédures.
-- Si un message est **totalement hors** logistique SENDIT **et** aucun document ne s’y rattache, applique la règle « information absente ».
+- **Salutations / demande d’aide générale** (« bonjour », « peux-tu m’aider ? ») : réponds brièvement et invite à poser une **question SENDIT concrète** — ne dis pas que l’information est absente des procédures.
+- **Hors sujet SENDIT** (météo, cuisine, blague, etc.) : rappelle poliment que tu ne traites que les **procédures SENDIT** — ne dis pas « absent des documents ».
+- **Question métier SENDIT sans réponse dans les documents** : une phrase courte du type « information absente des procédures disponibles » (même langue que la question).
 
 """ + LOGIGRAMME_SYSTEM_SECTION).strip()
 
@@ -358,6 +361,13 @@ class GemmaModel:
         wrong_lang = unsupported_latin_language_message(message)
         if wrong_lang:
             return LLMGenerateResult(text=wrong_lang, rag=rag_meta)
+
+        preflight = conversation_preflight_response(message)
+        if preflight:
+            intent, reply = preflight
+            rag_meta["intent"] = intent
+            rag_meta["context_chars"] = 0
+            return LLMGenerateResult(text=reply, rag=rag_meta)
 
         user_msg = _user_message_for_model(message, bucket)
 
@@ -719,6 +729,13 @@ class GemmaModel:
         wrong_lang = unsupported_latin_language_message(message)
         if wrong_lang:
             return LLMGenerateResult(text=wrong_lang, rag=rag_meta)
+
+        preflight = conversation_preflight_response(message)
+        if preflight:
+            intent, reply = preflight
+            rag_meta["intent"] = intent
+            rag_meta["context_chars"] = 0
+            return LLMGenerateResult(text=reply, rag=rag_meta)
 
         user_msg = _user_message_for_model(message, bucket)
 
