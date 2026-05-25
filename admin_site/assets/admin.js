@@ -137,6 +137,12 @@ const documentsView = document.getElementById("documents-view");
 const viewInteractionsButton = document.getElementById("view-interactions-button");
 const viewDocumentsButton = document.getElementById("view-documents-button");
 const viewUsersButton = document.getElementById("view-users-button");
+const viewSettingsButton = document.getElementById("view-settings-button");
+const settingsView = document.getElementById("settings-view");
+const settingsContent = document.getElementById("settings-content");
+const settingsLoading = document.getElementById("settings-loading");
+const settingsError = document.getElementById("settings-error");
+const settingsRefreshButton = document.getElementById("settings-refresh-button");
 const usersView = document.getElementById("users-view");
 const usersTableWrap = document.getElementById("users-table-wrap");
 const usersError = document.getElementById("users-error");
@@ -328,24 +334,33 @@ function setAdminView(view) {
     state.adminView = "documents";
   } else if (view === "users") {
     state.adminView = "users";
+  } else if (view === "settings") {
+    state.adminView = "settings";
   } else {
     state.adminView = "interactions";
   }
   if (interactionsView) interactionsView.classList.toggle("hidden", state.adminView !== "interactions");
   if (documentsView) documentsView.classList.toggle("hidden", state.adminView !== "documents");
   if (usersView) usersView.classList.toggle("hidden", state.adminView !== "users");
+  if (settingsView) settingsView.classList.toggle("hidden", state.adminView !== "settings");
   if (viewInteractionsButton) viewInteractionsButton.classList.toggle("active", state.adminView === "interactions");
   if (viewDocumentsButton) viewDocumentsButton.classList.toggle("active", state.adminView === "documents");
   if (viewUsersButton) viewUsersButton.classList.toggle("active", state.adminView === "users");
+  if (viewSettingsButton) viewSettingsButton.classList.toggle("active", state.adminView === "settings");
   const toolbarSub = document.querySelector(".toolbar-subtitle");
   if (toolbarSub) {
     if (state.adminView === "documents") {
       toolbarSub.textContent = "Corpus RAG, import et enregistrement sur le disque.";
     } else if (state.adminView === "users") {
       toolbarSub.textContent = "Gérer les comptes, rôles et mots de passe.";
+    } else if (state.adminView === "settings") {
+      toolbarSub.textContent = "RAG classique vs agentic, variables .env et ops.";
     } else {
       toolbarSub.textContent = "Filtrer les interactions et consulter le détail.";
     }
+  }
+  if (state.adminView === "settings" && isAdministratorRole(state.session?.role)) {
+    loadAdminSettings().catch((err) => showSettingsError(err.message || "Impossible de charger les paramètres."));
   }
 }
 
@@ -359,6 +374,173 @@ function clearUsersError() {
   if (!usersError) return;
   usersError.textContent = "";
   usersError.classList.add("hidden");
+}
+
+function showSettingsError(message) {
+  if (!settingsError) return;
+  settingsError.textContent = message || "Erreur";
+  settingsError.classList.remove("hidden");
+  if (settingsLoading) settingsLoading.classList.add("hidden");
+}
+
+function clearSettingsError() {
+  if (!settingsError) return;
+  settingsError.textContent = "";
+  settingsError.classList.add("hidden");
+}
+
+function renderBoolPill(value, onLabel = "ON", offLabel = "OFF") {
+  const cls = value ? "settings-pill-on" : "settings-pill-off";
+  return `<span class="pill settings-pill ${cls}">${value ? onLabel : offLabel}</span>`;
+}
+
+function renderSettingsPage(data) {
+  if (!settingsContent) return;
+  const rag = data.rag_mode || {};
+  const runtime = data.runtime || {};
+  const agenticOn = Boolean(rag.agentic_available);
+  const modeClass = agenticOn ? "settings-mode-agentic" : "settings-mode-classic";
+
+  let html = `<div class="settings-hero ${modeClass}">
+    <div class="settings-hero-main">
+      <div class="settings-hero-kicker">Mode RAG effectif</div>
+      <h3 class="settings-hero-title">${escapeHtml(rag.label || "—")}</h3>
+      <p class="settings-hero-summary">${escapeHtml(rag.summary || "")}</p>
+      ${rag.agentic_phase_label ? `<p class="settings-hero-meta"><strong>Agentic :</strong> ${escapeHtml(rag.agentic_phase_label)}</p>` : ""}
+      ${rag.env_hint ? `<p class="settings-hero-hint">${escapeHtml(rag.env_hint)}</p>` : ""}
+    </div>
+    <div class="settings-hero-badges">
+      ${renderBoolPill(agenticOn, "Agentic dispo", "Agentic off")}
+      ${agenticOn ? renderBoolPill(data.groups?.find((g) => g.id === "agentic")?.items?.find((i) => i.key === "AGENTIC_RAG_TWO_PHASE")?.value === "true", "2 phases", "1 boucle") : ""}
+    </div>
+  </div>`;
+
+  if (Array.isArray(rag.rules) && rag.rules.length) {
+    html += `<section class="settings-block"><h3 class="settings-block-title">Quand le chat utilise quoi</h3><ul class="settings-rules">`;
+    rag.rules.forEach((rule) => {
+      html += `<li>${escapeHtml(String(rule).replace(/\*\*/g, ""))}</li>`;
+    });
+    html += `</ul></section>`;
+  }
+
+  html += `<section class="settings-block settings-runtime">
+    <h3 class="settings-block-title">Runtime (session API)</h3>
+    <div class="settings-runtime-grid">
+      <div class="settings-runtime-card">
+        <div class="settings-runtime-label">Évaluation auto</div>
+        <div class="settings-runtime-value">${renderBoolPill(runtime.eval_enabled)}</div>
+        <button type="button" id="settings-eval-toggle" class="toolbar-button secondary settings-action-btn" ${runtime.eval_available ? "" : "disabled"}>
+          Basculer Eval
+        </button>
+        ${runtime.eval_reason ? `<p class="settings-runtime-note">${escapeHtml(runtime.eval_reason)}</p>` : ""}
+      </div>
+      <div class="settings-runtime-card">
+        <div class="settings-runtime-label">Git pull (console)</div>
+        <div class="settings-runtime-value">${renderBoolPill(runtime.git_refresh_allowed, "Autorisé", "Désactivé")}</div>
+        <button type="button" id="settings-git-btn" class="toolbar-button secondary settings-action-btn" ${runtime.git_refresh_allowed ? "" : "disabled"}>Git: MAJ code</button>
+      </div>
+      <div class="settings-runtime-card">
+        <div class="settings-runtime-label">Index RAG</div>
+        <button type="button" id="settings-rag-btn" class="toolbar-button secondary settings-action-btn">Recharger BM25</button>
+      </div>
+      <div class="settings-runtime-card">
+        <div class="settings-runtime-label">Cache réponses likées</div>
+        <div class="settings-runtime-value">${renderBoolPill(runtime.liked_answer_cache_enabled, "Activé", "Off")}</div>
+        <button type="button" id="settings-cache-btn" class="toolbar-button secondary settings-action-btn">Vider le cache</button>
+      </div>
+    </div>
+  </section>`;
+
+  (data.groups || []).forEach((group) => {
+    html += `<section class="settings-block">
+      <h3 class="settings-block-title">${escapeHtml(group.title || group.id)}</h3>
+      ${group.description ? `<p class="settings-block-desc">${escapeHtml(group.description)}</p>` : ""}
+      <div class="settings-table-wrap"><table class="settings-table">
+        <thead><tr><th>Variable</th><th>Valeur</th></tr></thead><tbody>`;
+    (group.items || []).forEach((item) => {
+      html += `<tr><td><code>${escapeHtml(item.key)}</code></td><td>${escapeHtml(item.value)}</td></tr>`;
+    });
+    html += `</tbody></table></div></section>`;
+  });
+
+  if (Array.isArray(data.notes) && data.notes.length) {
+    html += `<section class="settings-block settings-notes"><h3 class="settings-block-title">Notes</h3><ul class="settings-rules">`;
+    data.notes.forEach((note) => {
+      html += `<li>${escapeHtml(note)}</li>`;
+    });
+    html += `</ul></section>`;
+  }
+
+  settingsContent.innerHTML = html;
+  settingsContent.classList.remove("hidden");
+
+  const evalBtn = document.getElementById("settings-eval-toggle");
+  if (evalBtn) evalBtn.addEventListener("click", () => handleEvalToggle().then(() => loadAdminSettings()));
+
+  const gitBtn = document.getElementById("settings-git-btn");
+  if (gitBtn) {
+    gitBtn.addEventListener("click", async () => {
+      if (!window.confirm("Git pull + build frontend sur le pod ?")) return;
+      setToggleLoading(gitBtn, "Git…", true);
+      try {
+        await apiFetch("/admin/git-refresh", { method: "POST" });
+        await loadAdminSettings();
+      } catch (err) {
+        alert(err.message || "Échec git refresh");
+      } finally {
+        setToggleLoading(gitBtn, "Git: MAJ code", false);
+      }
+    });
+  }
+
+  const ragBtn = document.getElementById("settings-rag-btn");
+  if (ragBtn) {
+    ragBtn.addEventListener("click", async () => {
+      setToggleLoading(ragBtn, "RAG…", true);
+      try {
+        await apiFetch("/admin/rag-reload", { method: "POST" });
+        alert("Index RAG rechargé.");
+      } catch (err) {
+        alert(err.message || "Échec rechargement RAG");
+      } finally {
+        setToggleLoading(ragBtn, "Recharger BM25", false);
+      }
+    });
+  }
+
+  const cacheBtn = document.getElementById("settings-cache-btn");
+  if (cacheBtn) {
+    cacheBtn.addEventListener("click", async () => {
+      if (!window.confirm("Vider le cache des réponses « Utile » ?")) return;
+      setToggleLoading(cacheBtn, "…", true);
+      try {
+        const res = await apiFetch("/admin/cache-flush", { method: "POST" });
+        const data = await res.json();
+        alert(data.message || "Cache vidé.");
+      } catch (err) {
+        alert(err.message || "Échec");
+      } finally {
+        setToggleLoading(cacheBtn, "Vider le cache", false);
+      }
+    });
+  }
+}
+
+async function loadAdminSettings() {
+  if (!isAdministratorRole(state.session?.role)) return;
+  clearSettingsError();
+  if (settingsLoading) settingsLoading.classList.remove("hidden");
+  if (settingsContent) settingsContent.classList.add("hidden");
+  const res = await apiFetch("/api/admin/settings");
+  const data = await res.json();
+  if (settingsLoading) settingsLoading.classList.add("hidden");
+  renderSettingsPage(data);
+  if (evalToggle && data.runtime) {
+    evalToggle.dataset.available = data.runtime.eval_available ? "true" : "false";
+    evalToggle.textContent = `Eval: ${data.runtime.eval_enabled ? "ON" : "OFF"}`;
+    evalToggle.classList.toggle("active", Boolean(data.runtime.eval_enabled));
+    evalToggle.disabled = !data.runtime.eval_available;
+  }
 }
 
 async function loadUsersList() {
@@ -1972,6 +2154,14 @@ if (viewUsersButton) {
   viewUsersButton.addEventListener("click", () => {
     setAdminView("users");
     loadUsersList().catch(() => {});
+  });
+}
+if (viewSettingsButton) {
+  viewSettingsButton.addEventListener("click", () => setAdminView("settings"));
+}
+if (settingsRefreshButton) {
+  settingsRefreshButton.addEventListener("click", () => {
+    loadAdminSettings().catch((err) => showSettingsError(err.message));
   });
 }
 if (usersRefreshButton) {

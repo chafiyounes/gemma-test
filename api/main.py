@@ -39,7 +39,7 @@ from api.schemas import (
     HealthResponse,
     ModelInfo,
 )
-from app_config.settings import settings
+from core.admin_settings_snapshot import build_admin_settings_snapshot
 from core.chat_policy import detect_lang_bucket, retrieval_anchor_query
 from core.documents_admin import (
     apply_plan as apply_documents_plan,
@@ -1051,6 +1051,17 @@ async def admin_update_user(
 
 
 # ── Stub endpoints (eval / Darija toggle / cache — kept for UI compatibility) ─
+
+@app.get("/admin/settings")
+@app.get("/api/admin/settings")
+async def admin_settings(_admin: dict = Depends(_require_administrator)):
+    """Read-only platform settings + effective RAG mode (administrator only)."""
+    return build_admin_settings_snapshot(
+        eval_enabled=_eval_pipeline_enabled,
+        eval_available=True,
+        eval_reason="Evaluator job not wired; toggle is preparatory",
+    )
+
 
 @app.get("/admin/eval-status")
 async def admin_eval_status(_admin: dict = Depends(_require_administrator)):

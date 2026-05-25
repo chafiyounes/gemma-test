@@ -965,7 +965,9 @@ body.admin-console-manager .toolbar-button.git-refresh,
 body.admin-console-manager .toolbar-button.eval-toggle,
 body.admin-console-manager #refresh-button,
 body.admin-console-manager #view-interactions-button,
-body.admin-console-manager #view-users-button {
+body.admin-console-manager #view-users-button,
+body.admin-console-manager #view-settings-button,
+body.admin-console-manager .admin-only-nav {
   display: none !important;
 }
 
@@ -1965,4 +1967,198 @@ body.logigramme-modal-open {
   .logigramme-modal-col-source {
     min-height: 100px;
   }
+}
+
+/* ── Platform settings (administrator) ─────────────────────────────────── */
+.admin-settings-view .settings-panel {
+  max-width: 1100px;
+}
+
+.settings-panel-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+
+.settings-panel-title {
+  margin: 0 0 6px;
+  font-size: 1.25rem;
+}
+
+.settings-panel-lead {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.92rem;
+  max-width: 640px;
+}
+
+.settings-status {
+  color: var(--text-muted);
+  padding: 12px 0;
+}
+
+.settings-hero {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  margin-bottom: 20px;
+  background: var(--bg-elevated);
+}
+
+.settings-hero.settings-mode-classic {
+  border-color: rgba(59, 130, 246, 0.35);
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.settings-hero.settings-mode-agentic {
+  border-color: rgba(16, 185, 129, 0.35);
+  background: rgba(16, 185, 129, 0.06);
+}
+
+.settings-hero-kicker {
+  font-size: 0.75rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.settings-hero-title {
+  margin: 0 0 8px;
+  font-size: 1.15rem;
+}
+
+.settings-hero-summary,
+.settings-hero-meta,
+.settings-hero-hint {
+  margin: 0 0 8px;
+  font-size: 0.9rem;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+
+.settings-hero-hint {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
+.settings-hero-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.settings-pill-on {
+  background: rgba(16, 185, 129, 0.15);
+  color: #059669;
+}
+
+.settings-pill-off {
+  background: rgba(148, 163, 184, 0.2);
+  color: var(--text-muted);
+}
+
+.settings-block {
+  margin-bottom: 22px;
+}
+
+.settings-block-title {
+  margin: 0 0 8px;
+  font-size: 1rem;
+}
+
+.settings-block-desc {
+  margin: 0 0 10px;
+  font-size: 0.88rem;
+  color: var(--text-muted);
+}
+
+.settings-rules {
+  margin: 0;
+  padding-left: 1.2rem;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.settings-rules li + li {
+  margin-top: 6px;
+}
+
+.settings-runtime-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.settings-runtime-card {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+
+.settings-runtime-label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+
+.settings-runtime-value {
+  margin-bottom: 10px;
+}
+
+.settings-runtime-note {
+  margin: 8px 0 0;
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.settings-action-btn {
+  width: 100%;
+}
+
+.settings-table-wrap {
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+
+.settings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.settings-table th,
+.settings-table td {
+  padding: 8px 12px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.settings-table th {
+  background: var(--bg-elevated);
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.settings-table code {
+  font-size: 0.82rem;
+}
+
+.settings-notes {
+  padding-top: 8px;
+  border-top: 1px dashed var(--border);
 }

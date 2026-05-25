@@ -23,7 +23,7 @@
       title="sendbot-theme"
     />
     <link rel="stylesheet" href="/admin-static/theme-base.css?v=20260524" />
-    <link rel="stylesheet" href="/admin-static/admin.css?v=20260537" />
+    <link rel="stylesheet" href="/admin-static/admin.css?v=20260538" />
     <script src="/admin-static/theme-sync.js?v=20260524"></script>
     <script>
       (function () {
@@ -113,6 +113,9 @@
             <button id="view-users-button" type="button" class="toolbar-button secondary">
               Utilisateurs
             </button>
+            <button id="view-settings-button" type="button" class="toolbar-button secondary admin-only-nav">
+              Paramètres
+            </button>
             <span class="toolbar-actions-gap" aria-hidden="true"></span>
             <button id="git-refresh-button" type="button" class="toolbar-button git-refresh" title="Git: pull + build web_test (sans recharger l’index RAG)">
               Git: MAJ code
@@ -199,6 +202,25 @@
                   <button id="users-create-button" type="button" class="toolbar-button">Créer</button>
                 </div>
               </div>
+            </section>
+          </div>
+
+          <div id="settings-view" class="hidden admin-settings-view">
+            <section class="panel settings-panel" aria-label="Paramètres plateforme">
+              <header class="settings-panel-head">
+                <div>
+                  <h2 class="settings-panel-title">Paramètres plateforme</h2>
+                  <p class="settings-panel-lead">
+                    État effectif de la RAG, variables .env et actions ops. Réservé aux <strong>administrateurs</strong>.
+                  </p>
+                </div>
+                <button id="settings-refresh-button" type="button" class="toolbar-button secondary">
+                  Actualiser
+                </button>
+              </header>
+              <div id="settings-error" class="login-error hidden" role="alert"></div>
+              <div id="settings-loading" class="settings-status">Chargement…</div>
+              <div id="settings-content" class="settings-content hidden"></div>
             </section>
           </div>
 
@@ -379,6 +401,6 @@
       </div>
     </div>
 
-    <script src="/admin-static/admin.js?v=20260537" defer></script>
+    <script src="/admin-static/admin.js?v=20260538" defer></script>
   </body>
   </html>
