@@ -39,6 +39,7 @@ from api.schemas import (
     HealthResponse,
     ModelInfo,
 )
+from app_config.settings import settings
 from core.admin_settings_snapshot import build_admin_settings_snapshot
 from core.chat_policy import detect_lang_bucket, retrieval_anchor_query
 from core.documents_admin import (
