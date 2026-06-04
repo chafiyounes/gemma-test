@@ -152,6 +152,25 @@ def main():
         ),
     )
 
+    print(f"\n[{time.strftime('%H:%M:%S')}] Running stack verification (pod)...")
+    import subprocess
+
+    verify = subprocess.run(
+        [sys.executable, str(_ROOT / "scripts" / "verify_full_stack.py")],
+        cwd=str(_ROOT),
+        check=False,
+    )
+    if verify.returncode != 0:
+        print(
+            f"[{time.strftime('%H:%M:%S')}] WARN: verify_full_stack.py failed — "
+            "check vLLM still loading or run: python scripts/verify_full_stack.py",
+            file=sys.stderr,
+        )
+    else:
+        print(f"[{time.strftime('%H:%M:%S')}] Stack verification passed on pod.")
+        print("  Tunnel: ssh -N -L 8000:localhost:8000 -L 8002:localhost:8002 runpod")
+        print("  Chat UI: http://localhost:8000")
+
 
 if __name__ == "__main__":
     main()

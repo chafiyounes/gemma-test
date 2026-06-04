@@ -25,8 +25,39 @@ async function apiFetch(path, options = {}) {
   return response;
 }
 
+/** Same-origin when SPA is served by FastAPI at :8000 (RunPod tunnel or local). */
 export function getApiUrl() {
-  return localStorage.getItem(API_URL_STORAGE_KEY) || DEFAULT_API_URL;
+  const stored = (localStorage.getItem(API_URL_STORAGE_KEY) || "").replace(/\/+$/, "");
+  if (stored) {
+    return stored;
+  }
+  if (DEFAULT_API_URL) {
+    return DEFAULT_API_URL;
+  }
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return window.location.origin;
+  }
+  return "";
+}
+
+/**
+ * Align API base with how the SPA is opened.
+ * - :8000 (pod tunnel / FastAPI): use current origin (fixes stale localhost:9000 in localStorage).
+ * - :5173 (Vite dev): clear stored URL so relative paths hit the dev proxy.
+ */
+export function resetApiUrlToCurrentOrigin() {
+  if (typeof window === "undefined" || !window.location?.origin) {
+    return "";
+  }
+  const port = window.location.port;
+  if (port === "5173") {
+    localStorage.removeItem(API_URL_STORAGE_KEY);
+    return "";
+  }
+  if (port === "8000" || !localStorage.getItem(API_URL_STORAGE_KEY)) {
+    localStorage.setItem(API_URL_STORAGE_KEY, window.location.origin);
+  }
+  return getApiUrl();
 }
 
 /** Display labels for API auth roles (administrator | manager | user). */

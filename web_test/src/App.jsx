@@ -3,7 +3,7 @@ import { ChatProvider } from "./context/ChatContext";
 import Sidebar from "./components/Sidebar";
 import ChatArea from "./components/ChatArea";
 import AuthScreen from "./components/AuthScreen";
-import { getSession, login, logout } from "./services/api";
+import { getSession, login, logout, resetApiUrlToCurrentOrigin } from "./services/api";
 
 export default function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -11,6 +11,10 @@ export default function App() {
   const [loadingSession, setLoadingSession] = useState(true);
   const [authBusy, setAuthBusy] = useState(false);
   const [authError, setAuthError] = useState("");
+
+  useEffect(() => {
+    resetApiUrlToCurrentOrigin();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
