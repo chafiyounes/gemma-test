@@ -574,6 +574,14 @@
 - Composite classic RAG tests (`0f402fb`, `1b81df5`)
 - Logigramme zoom to 400% (`7ad7066`)
 
+### Phase 8 — Thread + Darija pipeline (Jun 2026)
+| | |
+|---|---|
+| **Symptom** | Darija annulation dispute misread; English follow-up (“where is history”) blocked as off-topic; answers drift to French |
+| **Root cause** | Preflight catch-all without `history`; BM25 on isolated turn; sparse Darija→FR hints; per-turn language only |
+| **Fix** | Thread-aware preflight + `retrieval_anchor_query`; broader `_SENDIT_DOMAIN`; `conversation_answer_bucket` (no per-phrase canned answers) |
+| **Tests** | `scripts/test_conversation_intent.py`, `test_retrieval_anchor.py`, `eval_thread_regression.py` |
+
 ---
 
 ## 10. Known remaining issues & mitigations
@@ -589,6 +597,7 @@
 | CI/CD automation | Planned | GitHub Actions smoke tests |
 | Untracked local scripts | Open | `pod_rag_stats.py`, `rag_mode_stats.py` — commit or document |
 | Eval toggle stub (admin) | Open | UI stub only (`3227a5f`); no full eval pipeline |
+| Darija annulation thread quality | Mitigated (Jun 2026) | Run `eval_thread_regression.py`; pod `rag_audit.py` on anchored queries |
 
 ---
 

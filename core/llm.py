@@ -15,12 +15,17 @@ from core.chat_policy import (
     claims_absent_in_docs_response,
     continuation_followup_message,
     conversation_preflight_response,
-    detect_lang_bucket,
     has_unsupported_script,
     message_contains_profanity,
     normalize_not_found_response,
+    resolve_answer_language,
     retrieval_anchor_query,
     unsupported_latin_language_message,
+)
+from core.language_compliance import (
+    compose_system_prompt_with_language,
+    language_repair_followup_content,
+    response_matches_bucket,
 )
 from core.chat_logigramme import LOGIGRAMME_SYSTEM_SECTION
 from core.agentic_rag import (
@@ -220,6 +225,8 @@ Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu
 ## Priorité — question actuelle
 - La **dernière question utilisateur** fait foi. Ne la remplace pas par un autre cas métier parce que les documents parlent surtout d’exemples différents.
 - Réponds **au point demandé d’abord** (réponse directe ou première étape), puis détaille par **étapes numérotées** si la procédure l’exige. Évite les digressions et les scénarios non demandés.
+- Ne déduis **aucun** fait, cause, statut ou acteur (client, livreur, vendeur, refus, annulation, etc.) que l’utilisateur ou l’historique du fil n’ont **pas** énoncés.
+- Si la dernière phrase est une **précision** dans un fil (où, comment, laquelle), réponds à **cette** précision en t’appuyant sur l’historique ; ne relance pas un autre cas métier.
 
 ## Documents fournis (contexte RAG)
 - Après ce bloc, tu peux recevoir une section **DOCUMENTS DE RÉFÉRENCE** : extraits ou dossier (parfois tronqué) d’une catégorie (ex. `procedures`).
@@ -232,12 +239,8 @@ Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu
 - Si **aucun passage** ne répond mot pour mot mais que le contexte décrit une situation **du même domaine** (ex. mise à jour de **téléphone / adresse**, colis **en cours de livraison** vs en préparation, **injoignable**, litige), **applique** les règles et étapes **les plus proches** en les reliant clairement à la question : étapes numérotées, limites éventuelles (« les documents précisent surtout le cas X ; pour une livraison déjà engagée, cela implique… ») uniquement si c’est **déductible** des textes fournis.
 - Réserver la phrase type **« information absente des documents »** au cas où le contexte **ne traite vraiment aucun angle utile** du sujet (pas uniquement parce qu’une formulation exacte manque).
 
-## Langue de réponse (alignée sur l’utilisateur)
-1. Toute la réponse suit la **langue dominante de la question** (intro, étapes, conclusion). Question en darija / arabizi ⇒ **darija** comme au §5 (y compris les **amorces** de phrase), sans glisser vers du français « administratif ».
-2. **Français** : question en français, ou ambiguë sans marqueurs darija.
-3. **Anglais** : question en anglais ⇒ réponse entière en anglais.
-4. **Arabe standard (MSA)** : question en fusha ⇒ MSA professionnel.
-5. **Darija** : question en darija ⇒ **darija naturelle du début à la fin** — pas d’introductions ni tournures **françaises** (« D’abord… », « Il faut… », « On doit… », « Ensuite… » mises comme en français). Tu peux garder **tels quels** les termes / noms d’outils métier souvent en français ou international : *colis*, *stock*, *ramassage*, *livraison*, *vendor* / *vendeur*, *SENDIT*, *API*, *tracking*, noms propres. La phrase doit **sonner** comme une réponse darija, pas comme du français traduit mot à mot. **Si la question est écrite en latin (arabizi)**, réponds en **latin** ; évite de basculer vers l’alphabet arabe si l’utilisateur n’a pas écrit en arabe.
+## Langue de réponse
+- Follow the **OUTPUT LANGUAGE / LANGUE DE SORTIE** block injected above (it overrides this section and any French examples below).
 
 ## Structure des réponses
 - Procédures : étapes **numérotées** ou puces, ordre fidèle au document.
@@ -301,6 +304,37 @@ class GemmaModel:
         except Exception:
             return False
 
+    async def _language_repair_turn(
+        self,
+        base_messages: list[dict],
+        bad_answer: str,
+        payload: dict,
+        *,
+        expected_bucket: str,
+        user_question: str,
+    ) -> str:
+        """One rewrite when the answer language clearly mismatches the user message."""
+        msgs = list(base_messages) + [
+            {"role": "assistant", "content": bad_answer},
+            {
+                "role": "user",
+                "content": language_repair_followup_content(
+                    expected_bucket, user_question
+                ),
+            },
+        ]
+        repair_payload = {
+            **payload,
+            "messages": msgs,
+            "temperature": _RAG_REPAIR_TEMPERATURE,
+        }
+        resp = await self._client.post("/v1/chat/completions", json=repair_payload)
+        resp.raise_for_status()
+        data = resp.json()
+        choice = data["choices"][0]
+        msg = choice.get("message") or {}
+        return (msg.get("content") or "").strip()
+
     async def _rag_repair_turn(
         self,
         base_messages: list[dict],
@@ -347,7 +381,8 @@ class GemmaModel:
             )
 
         hist = history or []
-        bucket = detect_lang_bucket(message)
+        bucket = resolve_answer_language(message, hist)
+        rag_meta["answer_language"] = bucket
 
         if message_contains_profanity(message):
             return LLMGenerateResult(text=POLICY_PROFANITY.get(bucket, POLICY_PROFANITY["fr"]), rag=rag_meta)
@@ -362,7 +397,7 @@ class GemmaModel:
         if wrong_lang:
             return LLMGenerateResult(text=wrong_lang, rag=rag_meta)
 
-        preflight = conversation_preflight_response(message)
+        preflight = conversation_preflight_response(message, hist)
         if preflight:
             intent, reply = preflight
             rag_meta["intent"] = intent
@@ -371,7 +406,8 @@ class GemmaModel:
 
         user_msg = _user_message_for_model(message, bucket)
 
-        sys_prompt = (system_prompt or SYSTEM_PROMPT).strip()
+        base_sys = (system_prompt or SYSTEM_PROMPT).strip()
+        sys_prompt = compose_system_prompt_with_language(base_sys, bucket)
         mt_for_budget = max_tokens if max_tokens is not None else settings.MAX_NEW_TOKENS
         inject_cap = _compute_rag_inject_limit_chars(
             system_prompt_base=sys_prompt,
@@ -604,6 +640,29 @@ class GemmaModel:
                         rag_meta["rag_repair"] = True
                 except Exception as exc:
                     logger.error("RAG repair turn failed: %s", exc)
+            if (
+                settings.LANGUAGE_REPAIR_ENABLED
+                and raw
+                and not response_matches_bucket(raw, bucket)
+            ):
+                logger.warning(
+                    "Language repair: expected=%s detected_preview=%r",
+                    bucket,
+                    (raw or "")[:120],
+                )
+                try:
+                    lang_fixed = await self._language_repair_turn(
+                        messages,
+                        raw,
+                        payload,
+                        expected_bucket=bucket,
+                        user_question=message,
+                    )
+                    if lang_fixed:
+                        raw = lang_fixed
+                        rag_meta["language_repair"] = True
+                except Exception as exc:
+                    logger.error("Language repair turn failed: %s", exc)
             return LLMGenerateResult(
                 text=normalize_not_found_response(
                     message, raw, rag_context_chars=ctx_len
@@ -715,7 +774,8 @@ class GemmaModel:
             )
 
         hist = history or []
-        bucket = detect_lang_bucket(message)
+        bucket = resolve_answer_language(message, hist)
+        rag_meta["answer_language"] = bucket
 
         if message_contains_profanity(message):
             return LLMGenerateResult(text=POLICY_PROFANITY.get(bucket, POLICY_PROFANITY["fr"]), rag=rag_meta)
@@ -730,7 +790,7 @@ class GemmaModel:
         if wrong_lang:
             return LLMGenerateResult(text=wrong_lang, rag=rag_meta)
 
-        preflight = conversation_preflight_response(message)
+        preflight = conversation_preflight_response(message, hist)
         if preflight:
             intent, reply = preflight
             rag_meta["intent"] = intent
@@ -784,8 +844,9 @@ class GemmaModel:
         messages_router.append({"role": "user", "content": message})
 
         mt = max_tokens or settings.MAX_NEW_TOKENS
+        composed_sys = compose_system_prompt_with_language(SYSTEM_PROMPT.strip(), bucket)
         inject_cap = _compute_rag_inject_limit_chars(
-            system_prompt_base=SYSTEM_PROMPT.strip(),
+            system_prompt_base=composed_sys,
             history=hist,
             message=user_msg,
             max_new_tokens=int(mt),
@@ -849,7 +910,7 @@ class GemmaModel:
                 rag_meta["context_preview"] = ctx[:900] + ("…" if len(ctx) > 900 else "")
                 cat_hint = f" (catégories : {', '.join(cats)})" if cats else ""
                 sys_with_docs = (
-                    SYSTEM_PROMPT.strip()
+                    composed_sys
                     + f"\n\n--- DOCUMENTS DE RÉFÉRENCE{cat_hint} ---\n"
                     + ctx
                     + "\n--- FIN DES DOCUMENTS ---"
@@ -876,8 +937,37 @@ class GemmaModel:
                 rag_meta["mode"] = "agentic_rag_two_phase"
                 rag_meta["fetch_count"] = int(rag_meta.get("documents_in_prompt") or 0)
                 ctx_len = int(rag_meta.get("context_chars") or 0)
+                out_text = text
+                if (
+                    settings.LANGUAGE_REPAIR_ENABLED
+                    and out_text
+                    and not response_matches_bucket(out_text, bucket)
+                ):
+                    try:
+                        repair_payload = {
+                            "model": self._model_name,
+                            "messages": answer_messages
+                            + [{"role": "assistant", "content": out_text}],
+                            "max_tokens": mt,
+                            "temperature": _RAG_REPAIR_TEMPERATURE,
+                            "top_p": settings.TOP_P,
+                        }
+                        lang_fixed = await self._language_repair_turn(
+                            answer_messages,
+                            out_text,
+                            repair_payload,
+                            expected_bucket=bucket,
+                            user_question=message,
+                        )
+                        if lang_fixed:
+                            out_text = lang_fixed
+                            rag_meta["language_repair"] = True
+                    except Exception as exc:
+                        logger.error("Agentic language repair failed: %s", exc)
                 return LLMGenerateResult(
-                    text=normalize_not_found_response(message, text, rag_context_chars=ctx_len),
+                    text=normalize_not_found_response(
+                        message, out_text, rag_context_chars=ctx_len
+                    ),
                     rag=rag_meta,
                 )
 

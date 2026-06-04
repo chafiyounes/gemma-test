@@ -154,10 +154,10 @@ FastAPI serves `web_test/dist/` at `/`. **Rebuild after every UI change** before
 
 **Theme:** Sun/moon toggle; stored as `localStorage.sendbot_theme` (`light` | `dark`).
 
-**SSH tunnel (local dev against pod):**
+**SSH tunnel (local dev against pod)** — **direct TCP SSH** only (`ssh.runpod.io` cannot forward ports). See [`DEPLOYMENT.md`](DEPLOYMENT.md) §5.
 ```powershell
-ssh -N -L 8000:localhost:8000 -L 8002:localhost:8002 <pod-alias>
-# App API URL: http://localhost:8000
+python scripts/start_tunnel.py   # leave running
+# http://localhost:8000
 ```
 
 ---
@@ -297,6 +297,8 @@ python scripts/rag_audit.py "texte de la question" procedures
 - Best for single-category questions (e.g. `procedures` only)
 
 **Preflight (no LLM):** Greetings, help requests, and off-topic messages get instant fixed replies (`core/chat_policy.py`). **Continuation:** saying *suite* / *continue* reuses your last question for retrieval.
+
+**Answer language:** `resolve_answer_language` (langdetect + function-word bias; logistics terms stripped) sets `metadata.answer_language`. A mandatory **OUTPUT LANGUAGE** block is injected into the system prompt; optional **language repair** rewrites if the model still opens in the wrong language (`LANGUAGE_REPAIR_ENABLED`).
 
 ### 4.2 Agentic RAG (optional)
 

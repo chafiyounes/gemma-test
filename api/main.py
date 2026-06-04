@@ -203,6 +203,8 @@ def _chat_response_metadata(
         "category_used": category_used_label,
         "rag": _rag_for_client(rag_meta),
     }
+    if isinstance(rag_meta, dict) and rag_meta.get("answer_language"):
+        metadata["answer_language"] = rag_meta["answer_language"]
     logigramme = rag_meta.get("logigramme") if isinstance(rag_meta, dict) else None
     if logigramme:
         metadata["logigramme"] = logigramme

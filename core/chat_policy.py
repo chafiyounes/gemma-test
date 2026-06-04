@@ -5,6 +5,12 @@ import re
 import unicodedata
 from typing import List
 
+# Max prior user turns scanned for thread context (preflight + retrieval anchor).
+_THREAD_CONTEXT_USER_TURNS = 3
+
+# Short follow-ups without logistics lemmas still anchor BM25 on the prior question.
+_RETRIEVAL_ANCHOR_MAX_CHARS = 220
+
 # Short follow-ups that carry no topical tokens for BM25 — anchor on prior user turn.
 _CONTINUATION_ONLY = re.compile(
     r"^\s*(continue|continuer|suite|more|next|go on|carry on|further|\.{2,}|…|"
@@ -24,17 +30,26 @@ def is_continuation_message(message: str) -> bool:
     return False
 
 
-def retrieval_anchor_query(message: str, history: List[dict] | None) -> str:
-    """BM25 needs real terms. Re-use last substantive user question for 'continue'-style turns."""
-    if not is_continuation_message(message):
-        return message.strip()
+def _last_substantive_user_turns(
+    history: List[dict] | None, *, max_turns: int = _THREAD_CONTEXT_USER_TURNS
+) -> List[str]:
+    """Recent user messages (newest first), excluding empty / continuation-only."""
+    out: List[str] = []
     for turn in reversed(history or []):
         if turn.get("role") != "user":
             continue
         prev = (turn.get("content") or "").strip()
-        if prev and not is_continuation_message(prev):
-            return f"{prev}\n{message.strip()}"
-    return message.strip()
+        if not prev or is_continuation_message(prev):
+            continue
+        out.append(prev)
+        if len(out) >= max_turns:
+            break
+    return out
+
+
+def _prior_substantive_user_question(history: List[dict] | None) -> str:
+    prior = _last_substantive_user_turns(history, max_turns=1)
+    return prior[0] if prior else ""
 
 
 # ── Profanity (short list; extend as needed) ──────────────────────────────
@@ -167,6 +182,97 @@ def continuation_followup_message(bucket: str) -> str:
     )
 
 
+# Logistics terms shared EN/FR — strip before langid so "client" does not vote French.
+_DOMAIN_STRIP_FOR_LANGID = re.compile(
+    r"\b("
+    r"sendit|colis|livraison|livrer|livreur|ramassage|ramasse|expedition|expédition|"
+    r"expediteur|expéditeur|client|clients|vendor|vendeur|tracking|retour|statut|"
+    r"pickup|parcel|parcels|delivery|deliver|delivered|canceled|cancelled|cancel|"
+    r"annul|annule|annulé|refus|refuse|seller|commande|order|marked|message|messaged|"
+    r"person|support|plateforme|procedure|procédure|sop"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_EN_FUNCTION_WORDS = re.compile(
+    r"\b("
+    r"i|i'm|i've|i'd|he|she|they|we|you|but|said|says|no|not|ever|was|were|is|are|"
+    r"have|has|had|the|this|that|what|how|where|when|why|who|which|can|could|"
+    r"called|marked|him|her|my|your|their|there|then|than|about|with"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_FR_FUNCTION_WORDS = re.compile(
+    r"\b("
+    r"je|j'|j’|il|elle|on|nous|vous|mais|pas|plus|est|sont|été|etait|étaient|"
+    r"que|qui|quoi|comment|pourquoi|où|ou|le|la|les|des|du|de|un|une|chez|"
+    r"affirme|présenté|présente|avoir|été|donc|car|ni|ne"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def strip_domain_tokens_for_langdetect(text: str) -> str:
+    """Remove domain vocabulary that pollutes EN/FR language detection."""
+    t = _DOMAIN_STRIP_FOR_LANGID.sub(" ", text or "")
+    return re.sub(r"\s+", " ", t).strip()
+
+
+def _function_word_language_bias(low: str) -> str | None:
+    en_n = len(_EN_FUNCTION_WORDS.findall(low))
+    fr_n = len(_FR_FUNCTION_WORDS.findall(low))
+    if en_n >= 2 and en_n > fr_n:
+        return "en"
+    if fr_n >= 2 and fr_n > en_n:
+        return "fr"
+    if en_n > fr_n:
+        return "en"
+    if fr_n > en_n:
+        return "fr"
+    return None
+
+
+def _langdetect_latin_code(sample: str) -> str | None:
+    if not (sample or "").strip():
+        return None
+    try:
+        from langdetect import detect  # noqa: PLC0415
+
+        code = detect(sample)
+        if code in ("en", "fr"):
+            return code
+    except Exception:
+        pass
+    return None
+
+
+def _detect_lang_bucket_latin(text: str) -> str:
+    low = (text or "").lower()
+    if _NON_SERVICE_LATIN_HINTS.search(low):
+        return "es"
+    if _DARIJA_HINTS.search(low):
+        return "darija"
+    stripped = strip_domain_tokens_for_langdetect(text)
+    sample_low = (stripped or text or "").lower()
+    bias = _function_word_language_bias(sample_low)
+    if bias:
+        return bias
+    sample = stripped if len(stripped.split()) >= 3 else (text or "").strip()
+    code = _langdetect_latin_code(sample)
+    if code == "en":
+        return "en"
+    if code == "fr":
+        return "fr"
+    en_n = len(_ENGLISH_HINTS.findall(sample_low))
+    fr_n = len(_FRENCH_HINTS.findall(sample_low))
+    if en_n > fr_n:
+        return "en"
+    if fr_n > en_n:
+        return "fr"
+    return "en"
+
+
 def detect_lang_bucket(text: str) -> str:
     """Bucket for templated replies: 'fr' | 'en' | 'ar' | 'darija' | 'es'."""
     t = text or ""
@@ -176,18 +282,19 @@ def detect_lang_bucket(text: str) -> str:
         ):
             return "darija"
         return "ar"
-    low = t.lower()
-    if _NON_SERVICE_LATIN_HINTS.search(low):
-        return "es"
-    if _DARIJA_HINTS.search(low):
-        return "darija"
-    en_n = len(_ENGLISH_HINTS.findall(low))
-    fr_n = len(_FRENCH_HINTS.findall(low))
-    if en_n > fr_n + 1:
-        return "en"
-    if fr_n > en_n + 1:
-        return "fr"
-    return "fr"
+    return _detect_lang_bucket_latin(t)
+
+
+def resolve_answer_language(
+    message: str, history: List[dict] | None = None
+) -> str:
+    """Language for the model answer: latest user message wins; continuation inherits prior."""
+    current = (message or "").strip()
+    if is_continuation_message(current) and history:
+        prior = _prior_substantive_user_question(history)
+        if prior:
+            return detect_lang_bucket(prior)
+    return detect_lang_bucket(current)
 
 
 POLICY_UNSUPPORTED_LANG: dict[str, str] = {
@@ -350,8 +457,24 @@ _SENDIT_DOMAIN = re.compile(
     r"tournée|tournee|pickup|warehouse|entrepôt|entrepot|"
     r"coordonn|téléphone|telephone|numéro|numero|gsm|portable|"
     r"plateforme|dashboard|boutique|expéditeur|expediteur|"
-    r"statut|envoi|distribu|livreur|koli|livrez|ramas"
+    r"statut|envoi|distribu|livreur|koli|livrez|ramas|"
+    r"annul|annule|annulé|annulee|cancel|cancellation|cancleation|"
+    r"refus|refuse|refusé|seller|commande|order|parcel|"
+    r"history|historique|verify|vérifier|verifier|proof|preuve|"
+    r"sms|support|delivery|deliveries"
     r")\b",
+    re.IGNORECASE,
+)
+
+_THREAD_FOLLOWUP_CUES = re.compile(
+    r"(?:"
+    r"\b(?:this|that|it|these|those|same|above)\b|"
+    r"\bwhere\s+is\b|\bhow\s+do\s+i\b|\bcan\s+you\b|"
+    r"\bverify\b|\bvérifier\b|\bverifier\b|"
+    r"\bhistory\b|\bhistorique\b|"
+    r"\bcancellation\b|\bcancel(?:lation)?\b|\bcancleation\b|"
+    r"\bannul(?:ation|é|e)?\b"
+    r")",
     re.IGNORECASE,
 )
 
@@ -396,7 +519,71 @@ def has_sendit_domain_markers(text: str) -> bool:
     return bool(_SENDIT_DOMAIN.search(text or ""))
 
 
-def classify_conversation_intent(message: str) -> str | None:
+def is_thread_follow_up_message(message: str, history: List[dict] | None) -> bool:
+    """True when the turn should inherit topic from a prior user question (BM25 / preflight)."""
+    raw = (message or "").strip()
+    if not _prior_substantive_user_question(history):
+        return False
+    if not raw or is_continuation_message(raw):
+        return True
+    if _THREAD_FOLLOWUP_CUES.search(raw):
+        return True
+    norm_words = len(_strip_for_intent(raw).split())
+    if has_sendit_domain_markers(raw) and _QUESTIONISH.search(raw) and norm_words >= 8:
+        return False
+    if has_sendit_domain_markers(raw):
+        return norm_words < 6 or len(raw) <= 60
+    if len(raw) <= _RETRIEVAL_ANCHOR_MAX_CHARS:
+        return True
+    return False
+
+
+def conversation_has_sendit_thread_context(history: List[dict] | None) -> bool:
+    """True if recent user turns look like an in-progress SENDIT support thread."""
+    for prev in _last_substantive_user_turns(history):
+        if has_sendit_domain_markers(prev) or _DARIJA_HINTS.search(prev):
+            return True
+    return False
+
+
+def retrieval_anchor_query(message: str, history: List[dict] | None) -> str:
+    """BM25 needs real terms. Merge prior substantive user turn for continuations and follow-ups."""
+    current = (message or "").strip()
+    if not is_continuation_message(current) and not is_thread_follow_up_message(
+        current, history
+    ):
+        return current
+    prev = _prior_substantive_user_question(history)
+    if prev:
+        return f"{prev}\n{current}"
+    return current
+
+
+def conversation_answer_bucket(
+    message: str, history: List[dict] | None = None
+) -> str:
+    """Alias for resolve_answer_language (latest message wins)."""
+    return resolve_answer_language(message, history)
+
+
+def _should_catchall_off_topic(message: str, history: List[dict] | None) -> bool:
+    """Narrow catch-all: generic questions without SENDIT markers and without thread context."""
+    raw = (message or "").strip()
+    if not _QUESTIONISH.search(raw):
+        return False
+    norm = _strip_for_intent(raw)
+    if len(norm.split()) < 3:
+        return False
+    if has_sendit_domain_markers(raw) or _THREAD_FOLLOWUP_CUES.search(raw):
+        return False
+    if conversation_has_sendit_thread_context(history):
+        return False
+    return True
+
+
+def classify_conversation_intent(
+    message: str, history: List[dict] | None = None
+) -> str | None:
     """Return greeting/help/thanks/off_topic, or None for a procedure-style query."""
     raw = (message or "").strip()
     if not raw:
@@ -416,17 +603,23 @@ def classify_conversation_intent(message: str) -> str | None:
         return None
     if _OFF_TOPIC_MARKERS.search(raw):
         return "off_topic"
-    if _QUESTIONISH.search(raw) and len(norm.split()) >= 3:
+    if _should_catchall_off_topic(raw, history):
         return "off_topic"
     return None
 
 
-def conversation_preflight_response(message: str) -> tuple[str, str] | None:
+def conversation_preflight_response(
+    message: str, history: List[dict] | None = None
+) -> tuple[str, str] | None:
     """Fixed reply before RAG/LLM when the turn is not a procedure question."""
-    intent = classify_conversation_intent(message)
+    intent = classify_conversation_intent(message, history)
     if not intent:
         return None
-    bucket = _intent_bucket(message)
+    bucket = conversation_answer_bucket(message, history)
+    if bucket == "es":
+        bucket = "en"
+    if bucket not in POLICY_GREETING:
+        bucket = _intent_bucket(message)
     if intent == "greeting":
         return intent, POLICY_GREETING.get(bucket, POLICY_GREETING["fr"])
     if intent == "help_request":

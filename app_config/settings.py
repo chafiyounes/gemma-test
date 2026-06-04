@@ -58,6 +58,8 @@ class Settings(BaseSettings):
     # If True (default), run a second vLLM turn when the model claims “not in docs” despite a large inject.
     # Disable for debugging or if repair adds latency without benefit.
     RAG_REPAIR_ENABLED: bool = True
+    # Second vLLM turn when the answer language clearly mismatches the user message.
+    LANGUAGE_REPAIR_ENABLED: bool = True
     # Replay answers only after explicit user « like »; dislikes remove the entry for that Q.
     LIKED_ANSWER_CACHE_ENABLED: bool = True
     # Default document corpus folder under data/documents_md|txt|…/<name>/ and the

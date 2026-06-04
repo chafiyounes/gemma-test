@@ -16,9 +16,11 @@ should surface them — use admin RAG preview or raise ``RAG_INJECT_MAX_CHARS``.
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from pathlib import Path
+from typing import Any, List
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -50,8 +52,16 @@ def main() -> None:
         default="",
         help="Subfolder under data/documents/ (default: from settings or first available)",
     )
+    parser.add_argument(
+        "--history-json",
+        default="",
+        help="Path to JSON array of {role, content} turns for thread-aware BM25 anchor",
+    )
     args = parser.parse_args()
     q = args.question.strip()
+    hist: List[dict[str, Any]] = []
+    if args.history_json.strip():
+        hist = json.loads(Path(args.history_json).read_text(encoding="utf-8"))
     store = get_store()
     cats = sorted(store.indexes.keys())
     if not cats:
@@ -69,7 +79,7 @@ def main() -> None:
         label = category
 
     bucket = detect_lang_bucket(q)
-    rq = retrieval_anchor_query(q, [])
+    rq = retrieval_anchor_query(q, hist)
     expand = bucket in ("fr", "darija", "en")
     expanded = expand_query_for_retrieval_fr_darija(rq) if expand else rq
     top = store.retrieve(

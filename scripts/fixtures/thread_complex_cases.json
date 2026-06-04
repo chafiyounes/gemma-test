@@ -1,0 +1,55 @@
+{
+  "cases": [
+    {
+      "id": "injoignable_followup_en",
+      "seed": "Vendor 3tani colis f statut injoignable walakin client kaygoul ma-jawbch 3lih l-livreur — wach n3awed tentative wla ndir chi haja khra?",
+      "history_prefix": [
+        {
+          "role": "user",
+          "content": "Vendor 3tani colis f statut injoignable walakin client kaygoul ma-jawbch 3lih l-livreur — wach n3awed tentative wla ndir chi haja khra?"
+        },
+        {
+          "role": "assistant",
+          "content": "Placeholder assistant reply about injoignable procedure."
+        }
+      ],
+      "follow_up": "where can I see delivery attempt history for this parcel?",
+      "expect_bucket": "en",
+      "expect_off_topic": false
+    },
+    {
+      "id": "remboursement_thread_fr",
+      "seed": "Le vendeur insiste pour un remboursement alors que le colis est encore « en cours de livraison » et le client final n’a pas confirmé le refus — quelle procédure ?",
+      "history_prefix": [
+        {
+          "role": "user",
+          "content": "Le vendeur insiste pour un remboursement alors que le colis est encore « en cours de livraison » et le client final n’a pas confirmé le refus — quelle procédure ?"
+        },
+        {
+          "role": "assistant",
+          "content": "Placeholder about remboursement and statuts."
+        }
+      ],
+      "follow_up": "what about the 200 dh validation threshold?",
+      "expect_bucket": "en",
+      "expect_off_topic": false
+    },
+    {
+      "id": "stock_sortie_short_followup",
+      "seed": "Bghit ndir demande sortie stock pour produit li t7ayad mn catalogue mais l-vendor ma-fhemch fin yklik — chno n9oul lih?",
+      "history_prefix": [
+        {
+          "role": "user",
+          "content": "Bghit ndir demande sortie stock pour produit li t7ayad mn catalogue mais l-vendor ma-fhemch fin yklik — chno n9oul lih?"
+        },
+        {
+          "role": "assistant",
+          "content": "Placeholder stock sortie steps."
+        }
+      ],
+      "follow_up": "which menu exactly?",
+      "expect_bucket": "en",
+      "expect_off_topic": false
+    }
+  ]
+}

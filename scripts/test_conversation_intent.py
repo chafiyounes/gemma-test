@@ -2,6 +2,7 @@
 """Unit tests for greeting / help / off-topic preflight in chat_policy."""
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -14,6 +15,7 @@ from core.chat_policy import (  # noqa: E402
     conversation_preflight_response,
 )
 
+FIXTURE = Path(__file__).resolve().parent / "fixtures" / "thread_complex_cases.json"
 
 CASES = [
     ("hi", "greeting"),
@@ -57,10 +59,26 @@ def main() -> int:
             else:
                 print(f"OK   {message!r} -> {expected}")
 
+    thread_cases = json.loads(FIXTURE.read_text(encoding="utf-8"))["cases"]
+    for case in thread_cases:
+        msg = case["follow_up"]
+        hist = case["history_prefix"]
+        got = classify_conversation_intent(msg, hist)
+        if got is not None:
+            print(f"FAIL thread [{case['id']}] intent={got!r}")
+            failed += 1
+            continue
+        pre = conversation_preflight_response(msg, hist)
+        if pre is not None:
+            print(f"FAIL thread [{case['id']}] preflight={pre[0]!r}")
+            failed += 1
+        else:
+            print(f"OK   thread [{case['id']}] -> procedure query")
+
     if failed:
         print(f"\n{failed} failure(s)")
         return 1
-    print(f"\nAll {len(CASES)} cases passed")
+    print(f"\nAll {len(CASES)} + {len(thread_cases)} thread cases passed")
     return 0
 
 
