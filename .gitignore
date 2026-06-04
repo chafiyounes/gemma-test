@@ -2,14 +2,8 @@
 __pycache__/
 *.pyc
 *.pyo
-data/*.db
-data/models/
-data/documents/*
-!data/documents/procedures/
-!data/documents/procedures/**
-# Local / pod-managed corpora (not versioned; upload via your own workflow)
-data/documents_md/
-data/documents_txt/
+# All runtime data: local PC + RunPod pod only — never commit to GitHub
+data/
 sendit_docs/
 scripts/fixtures/documents_temp/
 # Generated per environment from DocStore (see scripts/bootstrap_agentic_map.py)

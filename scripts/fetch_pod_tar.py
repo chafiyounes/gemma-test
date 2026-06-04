@@ -24,12 +24,13 @@ from pathlib import Path
 
 import paramiko
 
-HOST = "ssh.runpod.io"
-USER = "l8lnmi6ofx0tpz-64411278"
-KEY_PATH = os.path.expanduser("~/.ssh/id_ed25519")
-ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.runpod_ssh import HOST, KEY_PATH, USER
+
+ANSI_RE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
 def _recv_until_marker(shell: paramiko.Channel, end: bytes, timeout: float = 900.0) -> bytes:

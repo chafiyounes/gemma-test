@@ -23,8 +23,8 @@ In short: **`.docx` → often mirrored or built into `documents_md` on the serve
 
 ## 3. What is versioned vs ignored
 
-- `.gitignore` excludes **`data/documents/`** and **`data/documents_md/`** by default so bulk corpora are not committed accidentally.
-- A **`data/documents/procedures/`** snapshot may be **force-added** when you want the repo to carry a reference corpus for local dev or review (optional).
+- **Entire `data/` tree is gitignored** — corpus, SQLite (`interactions.db`), logigrammes, and indexes live on **your PC** and the **pod** only, never on GitHub.
+- After cloning, create `data/` locally or sync from the pod (`scripts/fetch_pod_tar.py`, admin uploads, scp).
 
 ---
 

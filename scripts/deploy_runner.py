@@ -28,10 +28,13 @@ import time
 import os
 import sys
 import re
+from pathlib import Path
 
-HOST = "ssh.runpod.io"
-USER = "l8lnmi6ofx0tpz-64411278"
-KEY_PATH = os.path.expanduser("~/.ssh/id_ed25519")
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from scripts.runpod_ssh import HOST, KEY_PATH, USER
 
 ANSI_RE = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
