@@ -28,5 +28,5 @@ def _load_env_file() -> None:
 _load_env_file()
 
 HOST: str = os.environ.get("RUNPOD_SSH_HOST", "ssh.runpod.io")
-USER: str = os.environ.get("RUNPOD_SSH_USER", "l8lnmi6ofx0tpz-64411278")
+USER: str = os.environ.get("RUNPOD_SSH_USER", "dvy5w58nwyz155-64411299")
 KEY_PATH: str = os.environ.get("RUNPOD_SSH_KEY", os.path.expanduser("~/.ssh/id_ed25519"))
