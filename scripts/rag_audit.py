@@ -27,6 +27,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from app_config.settings import settings  # noqa: E402
+from core.case_brief import parse_case_brief_payload, retrieval_query_with_brief  # noqa: E402
 from core.chat_policy import detect_lang_bucket, retrieval_anchor_query  # noqa: E402
 from core.documents import expand_query_for_retrieval_fr_darija, get_store  # noqa: E402
 
@@ -57,6 +58,11 @@ def main() -> None:
         default="",
         help="Path to JSON array of {role, content} turns for thread-aware BM25 anchor",
     )
+    parser.add_argument(
+        "--brief-json",
+        default="",
+        help="Path to case brief JSON (user_goal, retrieval_query_fr, …) to compare BM25 queries",
+    )
     args = parser.parse_args()
     q = args.question.strip()
     hist: List[dict[str, Any]] = []
@@ -79,7 +85,12 @@ def main() -> None:
         label = category
 
     bucket = detect_lang_bucket(q)
-    rq = retrieval_anchor_query(q, hist)
+    anchor_rq = retrieval_anchor_query(q, hist)
+    brief = None
+    if args.brief_json.strip():
+        bobj = json.loads(Path(args.brief_json).read_text(encoding="utf-8"))
+        brief = parse_case_brief_payload(bobj)
+    rq = retrieval_query_with_brief(q, hist, brief) if brief else anchor_rq
     expand = bucket in ("fr", "darija", "en")
     expanded = expand_query_for_retrieval_fr_darija(rq) if expand else rq
     top = store.retrieve(
@@ -94,7 +105,11 @@ def main() -> None:
     print(f"Category     : {label}")
     print(f"Categories   : {', '.join(cats)}")
     print(f"Lang bucket  : {bucket}")
-    print(f"Raw anchor   : {rq[:200]}{'…' if len(rq) > 200 else ''}")
+    print(f"Raw anchor   : {anchor_rq[:200]}{'…' if len(anchor_rq) > 200 else ''}")
+    if brief:
+        print(f"Brief RQ FR  : {brief.retrieval_query_fr[:200]}")
+        print(f"Brief goal   : {brief.user_goal[:160]}")
+    print(f"BM25 query   : {rq[:200]}{'…' if len(rq) > 200 else ''}")
     print(f"Expanded Q   : {expanded[:260]}{'…' if len(expanded) > 260 else ''}")
     print()
 

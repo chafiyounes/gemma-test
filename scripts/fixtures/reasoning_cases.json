@@ -1,0 +1,53 @@
+{
+  "cases": [
+    {
+      "id": "annule_livreur_pas_passe",
+      "question": "J'ai un colis en statut Annulé mais le client dit que le livreur n'est jamais passé — que vérifier en premier ?",
+      "category": "procedures",
+      "must_not_contain": ["ma-bghach", "a refusé", "n'a pas pu livrer", "n’a pas pu livrer"],
+      "must_retrieve_any": ["statut", "liste", "colis", "annul", "verifier", "vérifier"],
+      "prefer_retrieve_over": ["frais", "10 dh", "20%"]
+    },
+    {
+      "id": "darija_annule_verify",
+      "question": "tl3at lia commande annule 3iat 3la lclien galia ma3iat lih ta livreur chno ndir?",
+      "category": "procedures",
+      "must_not_contain": [],
+      "must_retrieve_any": ["statut", "colis", "annul", "liste", "verifier", "vérifier", "livraison"]
+    },
+    {
+      "id": "injoignable_history_en_followup",
+      "history": [
+        {
+          "role": "user",
+          "content": "Vendor 3tani colis f statut injoignable walakin client kaygoul ma-jawbch 3lih l-livreur — wach n3awed tentative wla ndir chi haja khra?"
+        },
+        {
+          "role": "assistant",
+          "content": "Placeholder about injoignable."
+        }
+      ],
+      "question": "where can I see delivery attempt history for this parcel?",
+      "category": "procedures",
+      "must_not_contain": [],
+      "must_retrieve_any": ["tentative", "historique", "injoignable", "livraison", "colis"]
+    },
+    {
+      "id": "remboursement_threshold_en",
+      "history": [
+        {
+          "role": "user",
+          "content": "Le vendeur insiste pour un remboursement alors que le colis est encore en cours de livraison — quelle procédure ?"
+        },
+        {
+          "role": "assistant",
+          "content": "Placeholder remboursement."
+        }
+      ],
+      "question": "what about the 200 dh validation threshold?",
+      "category": "procedures",
+      "must_not_contain": [],
+      "must_retrieve_any": ["remboursement", "200", "validation", "seuil"]
+    }
+  ]
+}

@@ -300,6 +300,8 @@ python scripts/rag_audit.py "texte de la question" procedures
 
 **Answer language:** `resolve_answer_language` (langdetect + function-word bias; logistics terms stripped) sets `metadata.answer_language`. A mandatory **OUTPUT LANGUAGE** block is injected into the system prompt; optional **language repair** rewrites if the model still opens in the wrong language (`LANGUAGE_REPAIR_ENABLED`).
 
+**Case brief (reasoning):** When `CASE_BRIEF_ENABLED=true`, one low-temperature vLLM step extracts JSON (`user_goal`, `stated_facts`, `do_not_assume`, `retrieval_query_fr`) before BM25. The **CAS UTILISATEUR** block grounds answers; `REASONING_REPAIR_ENABLED` can rewrite answers that assert forbidden assumptions. Default off in repo; enable on the pod to test. See `scripts/eval_reasoning.py`.
+
 ### 4.2 Agentic RAG (optional)
 
 Enable in `.env`:

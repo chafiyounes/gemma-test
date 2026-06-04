@@ -168,8 +168,11 @@ def main():
         )
     else:
         print(f"[{time.strftime('%H:%M:%S')}] Stack verification passed on pod.")
-        print("  Tunnel: ssh -N -L 8000:localhost:8000 -L 8002:localhost:8002 runpod")
-        print("  Chat UI: http://localhost:8000")
+        print("  Public UI (if HTTP port 8000 exposed on this pod):")
+        print("    https://<POD_ID>-8000.proxy.runpod.net/")
+        print("  Check POD_ID: python scripts/pod_cmd.py \"printenv RUNPOD_POD_ID\"")
+        print("  Tunnel (optional): python scripts/start_tunnel.py")
+        print("  Local UI: http://localhost:8000")
 
 
 if __name__ == "__main__":

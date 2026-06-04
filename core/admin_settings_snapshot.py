@@ -123,6 +123,11 @@ def _setting_groups(s: Settings) -> List[Dict[str, Any]]:
                     "RAG_GREEDY_FULL_DOCS",
                     "RAG_CONDENSE_DOCUMENTS",
                     "RAG_REPAIR_ENABLED",
+                    "LANGUAGE_REPAIR_ENABLED",
+                    "CASE_BRIEF_ENABLED",
+                    "CASE_BRIEF_TEMPERATURE",
+                    "CASE_BRIEF_MAX_TOKENS",
+                    "REASONING_REPAIR_ENABLED",
                     "RAG_ADMIN_FULL_CONTEXT_MAX_CHARS",
                     "LIKED_ANSWER_CACHE_ENABLED",
                 ]

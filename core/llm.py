@@ -22,10 +22,21 @@ from core.chat_policy import (
     retrieval_anchor_query,
     unsupported_latin_language_message,
 )
+from core.case_brief import (
+    CaseBrief,
+    agentic_router_user_content,
+    build_case_brief,
+    retrieval_query_with_brief,
+)
 from core.language_compliance import (
     compose_system_prompt_with_language,
     language_repair_followup_content,
     response_matches_bucket,
+)
+from core.reasoning_compliance import (
+    compose_system_prompt_with_case_brief,
+    reasoning_repair_followup_content,
+    violates_case_brief,
 )
 from core.chat_logigramme import LOGIGRAMME_SYSTEM_SECTION
 from core.agentic_rag import (
@@ -234,10 +245,14 @@ Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu
 - **Ancrage factuel** : n’invente pas de faits qui ne figurent pas dans ces documents. Tu peux **ordonner, reformuler et regrouper** ce qui y est écrit.
 - **Si la section DOCUMENTS DE RÉFÉRENCE est présente et non vide** : considère que l’information pertinente s’y trouve **quelque part** (même avec une formulation différente de la question). Cherche des passages sur le **même cas métier** avant toute réponse du type « absent des documents ».
 
-## Procédures voisines et reformulation métier (important)
-- Les questions (surtout en **darija / mélange FR**) utilisent souvent des mots différents des SOP (ex. « modifier numéro », « colis f livraison »). **Traduis mentalement** vers les notions des procédures : coordonnées, contact, client, colis, statut, livraison, expédition, ramassage, retour, litige, etc.
-- Si **aucun passage** ne répond mot pour mot mais que le contexte décrit une situation **du même domaine** (ex. mise à jour de **téléphone / adresse**, colis **en cours de livraison** vs en préparation, **injoignable**, litige), **applique** les règles et étapes **les plus proches** en les reliant clairement à la question : étapes numérotées, limites éventuelles (« les documents précisent surtout le cas X ; pour une livraison déjà engagée, cela implique… ») uniquement si c’est **déductible** des textes fournis.
-- Réserver la phrase type **« information absente des documents »** au cas où le contexte **ne traite vraiment aucun angle utile** du sujet (pas uniquement parce qu’une formulation exacte manque).
+## Reformulation métier (darija / mélange)
+- Les questions utilisent souvent des mots différents des SOP. **Traduis mentalement** vers les notions des procédures : coordonnées, contact, client, colis, statut, livraison, expédition, ramassage, retour, litige, etc.
+
+## Application des procédures (important)
+- N’applique une procédure **comme cas actuel** que si un **fait énoncé** par l’utilisateur (ou le bloc **CAS UTILISATEUR** s’il est présent) correspond au scénario du document.
+- Sinon : étapes en **conditionnel** (« seulement si le statut est … », « si le client confirme … »), pas comme faits établis.
+- **Une branche principale** par réponse ; cas alternatifs en « si / sinon » uniquement quand une information manque.
+- Réserver **« information absente des documents »** quand aucun angle utile n’existe dans les extraits (pas seulement une formulation exacte manquante).
 
 ## Langue de réponse
 - Follow the **OUTPUT LANGUAGE / LANGUE DE SORTIE** block injected above (it overrides this section and any French examples below).
@@ -335,6 +350,37 @@ class GemmaModel:
         msg = choice.get("message") or {}
         return (msg.get("content") or "").strip()
 
+    async def _reasoning_repair_turn(
+        self,
+        base_messages: list[dict],
+        bad_answer: str,
+        payload_template: dict,
+        *,
+        brief: Any,
+        user_question: str,
+    ) -> str:
+        """One rewrite when the answer asserts facts the case brief forbids."""
+        if not isinstance(brief, CaseBrief):
+            return ""
+        msgs = list(base_messages) + [
+            {"role": "assistant", "content": bad_answer},
+            {
+                "role": "user",
+                "content": reasoning_repair_followup_content(brief, user_question),
+            },
+        ]
+        payload = {
+            **payload_template,
+            "messages": msgs,
+            "temperature": _RAG_REPAIR_TEMPERATURE,
+        }
+        resp = await self._client.post("/v1/chat/completions", json=payload)
+        resp.raise_for_status()
+        data = resp.json()
+        choice = data["choices"][0]
+        msg = choice.get("message") or {}
+        return (msg.get("content") or "").strip()
+
     async def _rag_repair_turn(
         self,
         base_messages: list[dict],
@@ -406,8 +452,20 @@ class GemmaModel:
 
         user_msg = _user_message_for_model(message, bucket)
 
+        brief = None
+        brief_meta: Dict[str, Any] = {}
+        if settings.CASE_BRIEF_ENABLED:
+            brief, brief_meta = await build_case_brief(
+                self._client,
+                self._model_name,
+                message=message,
+                history=hist,
+            )
+            rag_meta.update(brief_meta)
+
         base_sys = (system_prompt or SYSTEM_PROMPT).strip()
         sys_prompt = compose_system_prompt_with_language(base_sys, bucket)
+        sys_prompt = compose_system_prompt_with_case_brief(sys_prompt, brief)
         mt_for_budget = max_tokens if max_tokens is not None else settings.MAX_NEW_TOKENS
         inject_cap = _compute_rag_inject_limit_chars(
             system_prompt_base=sys_prompt,
@@ -425,7 +483,8 @@ class GemmaModel:
             rag_meta["categories_used"] = cats
             rag_meta["rag_inject_budget_chars"] = inject_cap
             if cats:
-                rq = retrieval_anchor_query(message, hist)
+                rq = retrieval_query_with_brief(message, hist, brief)
+                rag_meta["retrieval_query"] = rq[:400]
                 corpus = store.category_corpus_chars_multi(cats)
                 if corpus <= 0:
                     rag_meta["note"] = "category_empty_or_missing"
@@ -641,6 +700,30 @@ class GemmaModel:
                 except Exception as exc:
                     logger.error("RAG repair turn failed: %s", exc)
             if (
+                settings.REASONING_REPAIR_ENABLED
+                and brief
+                and raw
+                and violates_case_brief(raw, brief)
+            ):
+                logger.warning(
+                    "Reasoning repair: goal=%r preview=%r",
+                    brief.user_goal[:120],
+                    (raw or "")[:160],
+                )
+                try:
+                    reason_fixed = await self._reasoning_repair_turn(
+                        messages,
+                        raw,
+                        payload,
+                        brief=brief,
+                        user_question=message,
+                    )
+                    if reason_fixed:
+                        raw = reason_fixed
+                        rag_meta["reasoning_repair"] = True
+                except Exception as exc:
+                    logger.error("Reasoning repair turn failed: %s", exc)
+            if (
                 settings.LANGUAGE_REPAIR_ENABLED
                 and raw
                 and not response_matches_bucket(raw, bucket)
@@ -799,6 +882,16 @@ class GemmaModel:
 
         user_msg = _user_message_for_model(message, bucket)
 
+        brief = None
+        if settings.CASE_BRIEF_ENABLED:
+            brief, brief_meta = await build_case_brief(
+                self._client,
+                self._model_name,
+                message=message,
+                history=hist,
+            )
+            rag_meta.update(brief_meta)
+
         store = get_store()
         cats = store.resolve_rag_scope(category)
         req = (category or "").strip()
@@ -813,7 +906,8 @@ class GemmaModel:
 
         tool_cat = cats[0]
 
-        rq = retrieval_anchor_query(message, hist)
+        rq = retrieval_query_with_brief(message, hist, brief)
+        rag_meta["retrieval_query"] = rq[:400]
         expand_hints = bucket in ("fr", "darija", "en")
         catalog, catalog_full_count = narrow_catalog_for_router(
             store,
@@ -841,10 +935,12 @@ class GemmaModel:
                 messages.append({"role": role, "content": content})
                 messages_router.append({"role": role, "content": content})
         messages.append({"role": "user", "content": user_msg})
-        messages_router.append({"role": "user", "content": message})
+        router_user = agentic_router_user_content(message, brief)
+        messages_router.append({"role": "user", "content": router_user})
 
         mt = max_tokens or settings.MAX_NEW_TOKENS
         composed_sys = compose_system_prompt_with_language(SYSTEM_PROMPT.strip(), bucket)
+        composed_sys = compose_system_prompt_with_case_brief(composed_sys, brief)
         inject_cap = _compute_rag_inject_limit_chars(
             system_prompt_base=composed_sys,
             history=hist,
@@ -886,7 +982,7 @@ class GemmaModel:
                         text=AGENTIC_NOT_FOUND,
                         rag=rag_meta,
                     )
-                rq = retrieval_anchor_query(message, hist)
+                rq_inject = retrieval_query_with_brief(message, hist, brief)
                 expand_hints = bucket in ("fr", "darija", "en")
                 ctx = format_retrieved_documents_for_prompt(
                     category=tool_cat,
@@ -894,7 +990,7 @@ class GemmaModel:
                     ordered_ids=list(retrieved.keys()),
                     max_chars=inject_cap,
                     condense=settings.RAG_CONDENSE_DOCUMENTS,
-                    anchor_query=rq,
+                    anchor_query=rq_inject,
                     expand_fr_darija_hints=expand_hints,
                 )
                 ctx = append_logigramme_blocks_to_context(
@@ -938,6 +1034,33 @@ class GemmaModel:
                 rag_meta["fetch_count"] = int(rag_meta.get("documents_in_prompt") or 0)
                 ctx_len = int(rag_meta.get("context_chars") or 0)
                 out_text = text
+                if (
+                    settings.REASONING_REPAIR_ENABLED
+                    and brief
+                    and out_text
+                    and violates_case_brief(out_text, brief)
+                ):
+                    try:
+                        repair_payload = {
+                            "model": self._model_name,
+                            "messages": answer_messages
+                            + [{"role": "assistant", "content": out_text}],
+                            "max_tokens": mt,
+                            "temperature": _RAG_REPAIR_TEMPERATURE,
+                            "top_p": settings.TOP_P,
+                        }
+                        reason_fixed = await self._reasoning_repair_turn(
+                            answer_messages,
+                            out_text,
+                            repair_payload,
+                            brief=brief,
+                            user_question=message,
+                        )
+                        if reason_fixed:
+                            out_text = reason_fixed
+                            rag_meta["reasoning_repair"] = True
+                    except Exception as exc:
+                        logger.error("Agentic reasoning repair failed: %s", exc)
                 if (
                     settings.LANGUAGE_REPAIR_ENABLED
                     and out_text

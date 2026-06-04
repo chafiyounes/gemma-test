@@ -579,8 +579,17 @@
 |---|---|
 | **Symptom** | Darija annulation dispute misread; English follow-up (“where is history”) blocked as off-topic; answers drift to French |
 | **Root cause** | Preflight catch-all without `history`; BM25 on isolated turn; sparse Darija→FR hints; per-turn language only |
-| **Fix** | Thread-aware preflight + `retrieval_anchor_query`; broader `_SENDIT_DOMAIN`; `conversation_answer_bucket` (no per-phrase canned answers) |
-| **Tests** | `scripts/test_conversation_intent.py`, `test_retrieval_anchor.py`, `eval_thread_regression.py` |
+| **Fix** | Thread-aware preflight + `retrieval_anchor_query`; broader `_SENDIT_DOMAIN`; `resolve_answer_language` + `LANGUAGE_BLOCK` |
+| **Tests** | `scripts/test_conversation_intent.py`, `test_retrieval_anchor.py`, `eval_thread_regression.py`, `test_answer_language.py` |
+
+### Phase 9 — Case brief + reasoning compliance (Jun 2026)
+| | |
+|---|---|
+| **Symptom** | Wrong scenario (invented refusal / failed delivery); BM25 skew to annulation-fee docs; mixed SOP branches in one answer |
+| **Root cause** | Single-shot answer without structured case model; lexical BM25 on `annul` without staff intent |
+| **Fix** | Toggleable `CASE_BRIEF_ENABLED` (`core/case_brief.py`); `CAS UTILISATEUR` + `REASONING_REPAIR_ENABLED` (`core/reasoning_compliance.py`); tighter `SYSTEM_PROMPT` application rules |
+| **Flags** | `CASE_BRIEF_ENABLED`, `CASE_BRIEF_TEMPERATURE`, `CASE_BRIEF_MAX_TOKENS`, `REASONING_REPAIR_ENABLED` in `.env` |
+| **Tests** | `test_case_brief.py`, `eval_reasoning.py`, `fixtures/reasoning_cases.json`; `rag_audit.py --brief-json` |
 
 ---
 
@@ -597,7 +606,7 @@
 | CI/CD automation | Planned | GitHub Actions smoke tests |
 | Untracked local scripts | Open | `pod_rag_stats.py`, `rag_mode_stats.py` — commit or document |
 | Eval toggle stub (admin) | Open | UI stub only (`3227a5f`); no full eval pipeline |
-| Darija annulation thread quality | Mitigated (Jun 2026) | Run `eval_thread_regression.py`; pod `rag_audit.py` on anchored queries |
+| Darija annulation thread quality | Mitigated (Jun 2026) | Enable `CASE_BRIEF_ENABLED=true` on pod; `eval_reasoning.py`; `rag_audit.py --brief-json` |
 
 ---
 
