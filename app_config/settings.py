@@ -45,14 +45,6 @@ class Settings(BaseSettings):
     THREAD_MEMORY_ENABLED: bool = True
     THREAD_MEMORY_MAX_STATED_FACTS: int = 16
     THREAD_MEMORY_MAX_DERIVED_FACTS: int = 12
-    # Append human-escalation hint when the answer is a short not-found.
-    NOT_FOUND_ESCALATION_ENABLED: bool = True
-    NOT_FOUND_ESCALATION_CONTACT_FR: str = (
-        "Contacte l'équipe support SENDIT ou ton responsable opérations pour confirmation."
-    )
-    NOT_FOUND_ESCALATION_CONTACT_EN: str = (
-        "Contact the SENDIT support team or your operations lead for confirmation."
-    )
     RAG_BM25_K: int = 12
     # Rank up to this many documents **across all merged categories** (flat pool;
     # category stays metadata on each chunk). Greedy / max_chars trims what actually
@@ -89,7 +81,7 @@ class Settings(BaseSettings):
     # Comma-separated extra corpus names (must exist under data/documents/<name>/)
     # merged into RAG retrieval together with the primary category from the chat UI.
     # Help-center Markdown under data/documents_md/help_md/ (comma-separated aliases OK).
-    RAG_EXTRA_CATEGORIES: str = "help_md,help_articles,faq"
+    RAG_EXTRA_CATEGORIES: str = "help_md,help_articles"
     # If True, omit SOP cover-sheet-style tables (titre / référence / …) from MD export.
     DOCX_MD_DROP_METADATA_TABLES: bool = False
 

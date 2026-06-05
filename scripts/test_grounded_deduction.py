@@ -49,14 +49,15 @@ def test_thread_memory_merge() -> None:
     assert "48h" in block
 
 
-def test_not_found_escalation() -> None:
+def test_not_found_no_fake_escalation() -> None:
     out = normalize_not_found_response(
         "delivery delays to big cities?",
         "Information absent from docs. I have consulted the following documents: A, B.",
         rag_context_chars=9000,
     )
     assert "couldn't find" in out.lower() or "n'ai pas trouvé" in out.lower()
-    assert "support" in out.lower() or "confirmation" in out.lower()
+    assert "support" not in out.lower()
+    assert "contact" not in out.lower()
 
 
 def test_thread_memory_persistence() -> None:
@@ -87,7 +88,7 @@ def test_thread_memory_persistence() -> None:
 def main() -> None:
     test_extract_deductions()
     test_thread_memory_merge()
-    test_not_found_escalation()
+    test_not_found_no_fake_escalation()
     test_thread_memory_persistence()
     print("All grounded deduction tests passed.")
 

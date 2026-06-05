@@ -625,10 +625,8 @@ class DocStore:
         if not raw or raw in ("all", "__all__", "*", "tout", "both"):
             return self.rag_categories_all()
         norm = raw.replace("-", "_")
-        if norm in ("help", "help_md", "helpmd", "aide", "articles", "helpcenter"):
+        if norm in ("help", "help_md", "helpmd", "aide", "articles", "helpcenter", "faq", "faqs"):
             key = "help_md"
-        elif norm in ("faq", "faqs", "facts", "reference"):
-            key = "faq"
         elif norm in ("procedures", "procedure", "sop", "sops"):
             key = "procedures"
         else:
