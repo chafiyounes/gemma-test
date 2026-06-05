@@ -24,7 +24,7 @@ def test_inventory_collapsed() -> None:
         VERBOSE,
         rag_context_chars=12000,
     )
-    assert out == "I couldn't find this information."
+    assert "couldn't find this information" in out.lower()
     assert "consulted" not in out.lower()
     assert "statuts" not in out
 

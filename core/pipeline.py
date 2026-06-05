@@ -4,6 +4,7 @@ from typing import Any, Dict, List, Optional
 
 from core.chat_logigramme import augment_message_for_logigramme, process_chat_logigramme
 from core.llm import GemmaModel
+from core.thread_memory import ThreadMemory
 from app_config.settings import settings
 
 logger = logging.getLogger(__name__)
@@ -32,6 +33,7 @@ class GemmaPipeline:
         history: List[Dict[str, str]] | None = None,
         system_prompt: Optional[str] = None,
         category: Optional[str] = None,
+        thread_memory: Optional[ThreadMemory] = None,
     ) -> PipelineResult:
         try:
             llm_message = augment_message_for_logigramme(message)
@@ -40,6 +42,7 @@ class GemmaPipeline:
                 history=history or [],
                 system_prompt=system_prompt,
                 category=category,
+                thread_memory=thread_memory,
             )
             display_text, rag_meta = process_chat_logigramme(
                 message=message,
@@ -65,6 +68,7 @@ class GemmaPipeline:
         message: str,
         history: List[Dict[str, str]] | None = None,
         category: Optional[str] = None,
+        thread_memory: Optional[ThreadMemory] = None,
     ) -> PipelineResult:
         """Agentic RAG: map + tools; no naive RAG inject."""
         try:
@@ -73,6 +77,7 @@ class GemmaPipeline:
                 message=llm_message,
                 history=history or [],
                 category=category,
+                thread_memory=thread_memory,
             )
             display_text, rag_meta = process_chat_logigramme(
                 message=message,

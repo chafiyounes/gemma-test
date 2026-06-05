@@ -717,6 +717,35 @@ def should_collapse_to_short_not_found(model_text: str, *, rag_context_chars: in
     return False
 
 
+_NOT_FOUND_ESCALATION: dict[str, str] = {
+    "fr": "Si tu as besoin d'une confirmation humaine : {contact}",
+    "en": "If you need human confirmation: {contact}",
+    "darija": "Ila bghiti confirmation dyal wa7ed mn l'équipe : {contact}",
+    "ar": "إذا احتجت تأكيدًا بشريًا: {contact}",
+}
+
+
+def append_not_found_escalation(user_message: str, model_text: str) -> str:
+    """Append optional escalation CTA after a short not-found phrase."""
+    from app_config.settings import settings  # noqa: PLC0415
+
+    if not settings.NOT_FOUND_ESCALATION_ENABLED:
+        return model_text
+    b = resolve_answer_language(user_message)
+    if b in ("es",):
+        b = "en"
+    contact = (
+        settings.NOT_FOUND_ESCALATION_CONTACT_EN
+        if b == "en"
+        else settings.NOT_FOUND_ESCALATION_CONTACT_FR
+    )
+    template = _NOT_FOUND_ESCALATION.get(b, _NOT_FOUND_ESCALATION["fr"])
+    line = template.format(contact=contact.strip())
+    if line.lower() in (model_text or "").lower():
+        return model_text
+    return f"{model_text.rstrip()}\n\n{line}"
+
+
 def normalize_not_found_response(
     user_message: str, model_text: str, *, rag_context_chars: int = 0
 ) -> str:
@@ -726,4 +755,5 @@ def normalize_not_found_response(
     b = resolve_answer_language(user_message)
     if b in ("es",):
         b = "en"
-    return NOT_FOUND.get(b, NOT_FOUND["fr"])
+    short = NOT_FOUND.get(b, NOT_FOUND["fr"])
+    return append_not_found_escalation(user_message, short)

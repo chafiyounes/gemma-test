@@ -18,7 +18,7 @@ class ChatRequest(BaseModel):
         default=None,
         description=(
             "RAG scope: omit or 'all' / 'tout' → every indexed category; "
-            "'procedures' or 'help_md' (aliases: aide, help) → that corpus only."
+            "'procedures', 'help_md' (aide, help), or 'faq' (facts, reference) → that corpus only."
         ),
     ),
     agentic_rag: Optional[bool] = Field(

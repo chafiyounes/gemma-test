@@ -42,6 +42,7 @@ from api.schemas import (
 from app_config.settings import settings
 from core.admin_settings_snapshot import build_admin_settings_snapshot
 from core.chat_policy import detect_lang_bucket, retrieval_anchor_query
+from core.thread_memory import ThreadMemory, deserialize_memory, thread_memory_enabled
 from core.documents_admin import (
     apply_plan as apply_documents_plan,
     DocumentAdminError,
@@ -632,6 +633,32 @@ async def document_file(
 # ── Chat endpoint ─────────────────────────────────────────────────────────────
 
 
+async def _load_thread_memory(
+    db: InteractionStore, session_id: Optional[str]
+) -> Optional[ThreadMemory]:
+    if not thread_memory_enabled() or not (session_id or "").strip():
+        return None
+    raw = await db.get_thread_memory(str(session_id).strip())
+    mem = deserialize_memory(raw)
+    return None if mem.is_empty() else mem
+
+
+async def _persist_thread_memory_from_rag(
+    db: InteractionStore,
+    session_id: Optional[str],
+    rag_meta: Optional[dict],
+) -> None:
+    if not thread_memory_enabled() or not (session_id or "").strip():
+        return
+    payload = (rag_meta or {}).get("thread_memory")
+    if not isinstance(payload, dict):
+        return
+    await db.save_thread_memory(
+        str(session_id).strip(),
+        json.dumps(payload, ensure_ascii=False),
+    )
+
+
 @app.post("/chat", response_model=ChatResponse)
 async def chat(
     request: Request,
@@ -653,6 +680,7 @@ async def chat(
     rag_cat_key = ",".join(sorted(cats_resolved))
     category_used_label = rag_cat_key if rag_cat_key else "none"
     category: Optional[str] = body.category
+    thread_mem = await _load_thread_memory(db, body.session_id)
 
     want_agentic = False
     agentic_explicit = body.agentic_rag is True
@@ -691,7 +719,9 @@ async def chat(
                 message=body.message,
                 history=history,
                 category=category,
+                thread_memory=thread_mem,
             )
+            await _persist_thread_memory_from_rag(db, body.session_id, result.rag_meta)
             if not body.skip_persist:
                 await db.save_interaction(
                     {
@@ -766,7 +796,9 @@ async def chat(
         history=history,
         system_prompt=body.system_prompt if auth.role_satisfies(session["role"], "administrator") else None,
         category=category,
+        thread_memory=thread_mem,
     )
+    await _persist_thread_memory_from_rag(db, body.session_id, result.rag_meta)
 
     if not body.skip_persist:
         await db.save_interaction(

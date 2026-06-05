@@ -38,6 +38,17 @@ from core.reasoning_compliance import (
     reasoning_repair_followup_content,
     violates_case_brief,
 )
+from core.deduction_policy import (
+    compose_system_prompt_with_deduction,
+    compose_system_prompt_with_thread_memory,
+)
+from core.thread_memory import (
+    ThreadMemory,
+    deserialize_memory,
+    retrieval_query_with_memory,
+    serialize_memory,
+    thread_memory_enabled,
+)
 from core.chat_logigramme import LOGIGRAMME_SYSTEM_SECTION
 from core.agentic_rag import (
     AGENTIC_NOT_FOUND,
@@ -144,6 +155,40 @@ def _user_message_for_model(message: str, bucket: str) -> str:
     return (message or "").rstrip() + answer_language_instruction_suffix(bucket)
 
 
+def _compose_grounded_system_prompt(
+    base_sys: str,
+    *,
+    bucket: str,
+    brief: CaseBrief | None,
+    memory: ThreadMemory | None,
+) -> str:
+    """Language + deduction policy + thread memory + case brief."""
+    sys_prompt = compose_system_prompt_with_language(base_sys, bucket)
+    sys_prompt = compose_system_prompt_with_deduction(sys_prompt)
+    if thread_memory_enabled():
+        sys_prompt = compose_system_prompt_with_thread_memory(sys_prompt, memory)
+    sys_prompt = compose_system_prompt_with_case_brief(sys_prompt, brief)
+    return sys_prompt
+
+
+def _finalize_answer_text(
+    message: str,
+    raw: str,
+    *,
+    ctx_len: int,
+    brief: CaseBrief | None,
+    memory: ThreadMemory | None,
+    rag_meta: Dict[str, Any],
+) -> str:
+    text = normalize_not_found_response(message, raw, rag_context_chars=ctx_len)
+    if thread_memory_enabled():
+        base = memory if memory is not None else ThreadMemory()
+        updated = base.merge_turn(brief=brief, answer=text, user_message=message)
+        rag_meta["thread_memory"] = updated.to_metadata()
+        rag_meta["thread_memory_updated"] = True
+    return text
+
+
 def _compute_rag_inject_limit_chars(
     *,
     system_prompt_base: str,
@@ -163,6 +208,9 @@ def _compute_rag_inject_limit_chars(
         for t in (history or [])
         if t.get("role") in ("user", "assistant")
     )
+    reserve = max(0, int(settings.RAG_CHAT_HISTORY_RESERVE_CHARS))
+    if reserve and hist_chars > reserve:
+        hist_chars = reserve
     msg_len = len(message or "")
     # Wrappers around DOCUMENTS DE RÉFÉRENCE / FIN DES DOCUMENTS
     doc_shell_chars = 120
@@ -236,7 +284,7 @@ Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu
 ## Priorité — question actuelle
 - La **dernière question utilisateur** fait foi. Ne la remplace pas par un autre cas métier parce que les documents parlent surtout d’exemples différents.
 - Réponds **au point demandé d’abord** (réponse directe ou première étape), puis détaille par **étapes numérotées** si la procédure l’exige. Évite les digressions et les scénarios non demandés.
-- Ne déduis **aucun** fait, cause, statut ou acteur (client, livreur, vendeur, refus, annulation, etc.) que l’utilisateur ou l’historique du fil n’ont **pas** énoncés.
+- Ne présente **aucun** fait, cause, statut ou acteur (client, livreur, vendeur, refus, annulation, etc.) comme **établi** s’il n’est pas énoncé par l’utilisateur **ou** écrit dans les documents (ou déduit explicitement selon la section « déductions autorisées »).
 - Si la dernière phrase est une **précision** dans un fil (où, comment, laquelle), réponds à **cette** précision en t’appuyant sur l’historique ; ne relance pas un autre cas métier.
 
 ## Documents fournis (contexte RAG)
@@ -279,7 +327,7 @@ Tu es l’assistant IA interne de **SENDIT** (logistique / livraison, Maroc). Tu
 ## Limites
 - Pas de conseil juridique/médical général hors procédures.
 - **Salutations / demande d’aide générale** (« bonjour », « peux-tu m’aider ? ») : réponds brièvement et invite à poser une **question SENDIT concrète** — ne dis pas que l’information est absente des procédures.
-- **Hors sujet SENDIT** (météo, cuisine, blague, etc.) : rappelle poliment que tu ne traites que les **procédures SENDIT** — ne dis pas « absent des documents ».
+- **Hors sujet SENDIT** (météo, cuisine, blague, etc.) : rappelle poliment que tu ne traites que les **procédures SENDIT** — ne dis pas « absent des documents ». Si le message **mélange** banalités et une question SENDIT, réponds **uniquement** à la partie SENDIT.
 - **Question métier SENDIT sans réponse dans les documents** : une phrase courte du type « je n’ai pas trouvé cette information » (même langue que la question), **sans** inventaire de fichiers.
 
 """ + LOGIGRAMME_SYSTEM_SECTION).strip()
@@ -414,6 +462,7 @@ class GemmaModel:
         max_tokens: int | None = None,
         temperature: float | None = None,
         category: str | None = None,
+        thread_memory: ThreadMemory | None = None,
     ) -> LLMGenerateResult:
         """Call the vLLM OpenAI-compatible chat completions endpoint."""
         rag_meta: Dict[str, Any] = {"category": category}
@@ -463,9 +512,11 @@ class GemmaModel:
             )
             rag_meta.update(brief_meta)
 
+        mem = thread_memory if thread_memory_enabled() else None
         base_sys = (system_prompt or SYSTEM_PROMPT).strip()
-        sys_prompt = compose_system_prompt_with_language(base_sys, bucket)
-        sys_prompt = compose_system_prompt_with_case_brief(sys_prompt, brief)
+        sys_prompt = _compose_grounded_system_prompt(
+            base_sys, bucket=bucket, brief=brief, memory=mem
+        )
         mt_for_budget = max_tokens if max_tokens is not None else settings.MAX_NEW_TOKENS
         inject_cap = _compute_rag_inject_limit_chars(
             system_prompt_base=sys_prompt,
@@ -483,8 +534,13 @@ class GemmaModel:
             rag_meta["categories_used"] = cats
             rag_meta["rag_inject_budget_chars"] = inject_cap
             if cats:
-                rq = retrieval_query_with_brief(message, hist, brief)
+                if thread_memory_enabled():
+                    rq = retrieval_query_with_memory(message, hist, brief, mem)
+                else:
+                    rq = retrieval_query_with_brief(message, hist, brief)
                 rag_meta["retrieval_query"] = rq[:400]
+                if mem and not mem.is_empty():
+                    rag_meta["thread_memory_in_prompt"] = mem.to_metadata()
                 corpus = store.category_corpus_chars_multi(cats)
                 if corpus <= 0:
                     rag_meta["note"] = "category_empty_or_missing"
@@ -747,8 +803,13 @@ class GemmaModel:
                 except Exception as exc:
                     logger.error("Language repair turn failed: %s", exc)
             return LLMGenerateResult(
-                text=normalize_not_found_response(
-                    message, raw, rag_context_chars=ctx_len
+                text=_finalize_answer_text(
+                    message,
+                    raw,
+                    ctx_len=ctx_len,
+                    brief=brief,
+                    memory=mem,
+                    rag_meta=rag_meta,
                 ),
                 rag=rag_meta,
             )
@@ -799,8 +860,13 @@ class GemmaModel:
                         raw = (msg.get("content") or "").strip()
                         rag_meta["max_tokens_reduced"] = reduced
                         return LLMGenerateResult(
-                            text=normalize_not_found_response(
-                                message, raw, rag_context_chars=ctx_len
+                            text=_finalize_answer_text(
+                                message,
+                                raw,
+                                ctx_len=ctx_len,
+                                brief=brief,
+                                memory=mem,
+                                rag_meta=rag_meta,
                             ),
                             rag=rag_meta,
                         )
@@ -842,6 +908,7 @@ class GemmaModel:
         category: Optional[str] = None,
         max_tokens: int | None = None,
         temperature: float | None = None,
+        thread_memory: ThreadMemory | None = None,
     ) -> LLMGenerateResult:
         """Map router (English tool prompt) + full-document fetch, then normal SYSTEM_PROMPT + DOCUMENTS DE RÉFÉRENCE.
 
@@ -892,6 +959,8 @@ class GemmaModel:
             )
             rag_meta.update(brief_meta)
 
+        mem = thread_memory if thread_memory_enabled() else None
+
         store = get_store()
         cats = store.resolve_rag_scope(category)
         req = (category or "").strip()
@@ -906,8 +975,13 @@ class GemmaModel:
 
         tool_cat = cats[0]
 
-        rq = retrieval_query_with_brief(message, hist, brief)
+        if thread_memory_enabled():
+            rq = retrieval_query_with_memory(message, hist, brief, mem)
+        else:
+            rq = retrieval_query_with_brief(message, hist, brief)
         rag_meta["retrieval_query"] = rq[:400]
+        if mem and not mem.is_empty():
+            rag_meta["thread_memory_in_prompt"] = mem.to_metadata()
         expand_hints = bucket in ("fr", "darija", "en")
         catalog, catalog_full_count = narrow_catalog_for_router(
             store,
@@ -939,8 +1013,9 @@ class GemmaModel:
         messages_router.append({"role": "user", "content": router_user})
 
         mt = max_tokens or settings.MAX_NEW_TOKENS
-        composed_sys = compose_system_prompt_with_language(SYSTEM_PROMPT.strip(), bucket)
-        composed_sys = compose_system_prompt_with_case_brief(composed_sys, brief)
+        composed_sys = _compose_grounded_system_prompt(
+            SYSTEM_PROMPT.strip(), bucket=bucket, brief=brief, memory=mem
+        )
         inject_cap = _compute_rag_inject_limit_chars(
             system_prompt_base=composed_sys,
             history=hist,
@@ -982,7 +1057,10 @@ class GemmaModel:
                         text=AGENTIC_NOT_FOUND,
                         rag=rag_meta,
                     )
-                rq_inject = retrieval_query_with_brief(message, hist, brief)
+                if thread_memory_enabled():
+                    rq_inject = retrieval_query_with_memory(message, hist, brief, mem)
+                else:
+                    rq_inject = retrieval_query_with_brief(message, hist, brief)
                 expand_hints = bucket in ("fr", "darija", "en")
                 ctx = format_retrieved_documents_for_prompt(
                     category=tool_cat,
@@ -1088,8 +1166,13 @@ class GemmaModel:
                     except Exception as exc:
                         logger.error("Agentic language repair failed: %s", exc)
                 return LLMGenerateResult(
-                    text=normalize_not_found_response(
-                        message, out_text, rag_context_chars=ctx_len
+                    text=_finalize_answer_text(
+                        message,
+                        out_text,
+                        ctx_len=ctx_len,
+                        brief=brief,
+                        memory=mem,
+                        rag_meta=rag_meta,
                     ),
                     rag=rag_meta,
                 )
@@ -1116,7 +1199,14 @@ class GemmaModel:
             rag_meta["fetch_count"] = int(rag_meta.get("documents_in_prompt") or 0)
             ctx_len = int(rag_meta.get("context_chars") or 0)
             return LLMGenerateResult(
-                text=normalize_not_found_response(message, text, rag_context_chars=ctx_len),
+                text=_finalize_answer_text(
+                    message,
+                    text,
+                    ctx_len=ctx_len,
+                    brief=brief,
+                    memory=mem,
+                    rag_meta=rag_meta,
+                ),
                 rag=rag_meta,
             )
         except httpx.HTTPStatusError as exc:

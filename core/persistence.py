@@ -140,6 +140,12 @@ class InteractionStore:
                     created_at     TEXT NOT NULL,
                     updated_at     TEXT NOT NULL
                 );
+
+                CREATE TABLE IF NOT EXISTS thread_memory (
+                    session_id   TEXT PRIMARY KEY,
+                    memory_json  TEXT NOT NULL,
+                    updated_at   TEXT NOT NULL
+                );
                 """
             )
             self._migrate_legacy_columns(conn)
@@ -853,3 +859,37 @@ class InteractionStore:
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM liked_answer_cache")
             return int(cur.rowcount or 0)
+
+    async def get_thread_memory(self, session_id: str) -> Optional[str]:
+        return await asyncio.to_thread(self._get_thread_memory, session_id)
+
+    def _get_thread_memory(self, session_id: str) -> Optional[str]:
+        sid = (session_id or "").strip()
+        if not sid:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT memory_json FROM thread_memory WHERE session_id = ?",
+                (sid,),
+            ).fetchone()
+        return str(row[0]) if row else None
+
+    async def save_thread_memory(self, session_id: str, memory_json: str) -> None:
+        await asyncio.to_thread(self._save_thread_memory, session_id, memory_json)
+
+    def _save_thread_memory(self, session_id: str, memory_json: str) -> None:
+        sid = (session_id or "").strip()
+        if not sid:
+            return
+        now = self._utc_now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO thread_memory (session_id, memory_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(session_id) DO UPDATE SET
+                    memory_json = excluded.memory_json,
+                    updated_at = excluded.updated_at
+                """,
+                (sid, memory_json, now),
+            )
