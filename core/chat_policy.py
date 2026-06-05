@@ -343,8 +343,8 @@ POLICY_PROFANITY["es"] = POLICY_PROFANITY["fr"]
 
 
 NOT_FOUND: dict[str, str] = {
-    "fr": "Je n'ai pas trouvé cette information dans les procédures actuellement disponibles.",
-    "en": "I could not find this information in the currently available procedures.",
+    "fr": "Je n'ai pas trouvé cette information.",
+    "en": "I couldn't find this information.",
     "ar": "لم أعثر على هذه المعلومة في الإجراءات المتاحة حاليًا.",
     "darija": (
         "Ma لقيتش هاد المعلومة فال procedures اللي عندنا دابا فالنظام."
@@ -649,6 +649,8 @@ _NOT_FOUND_MARKERS = (
     "l'information que tu demandes est absente",
     "l'information demandée est absente",
     "information est absente",
+    "information absent from",
+    "i have consulted the following",
 )
 
 
@@ -691,20 +693,37 @@ def unsupported_latin_language_message(text: str) -> str | None:
     return POLICY_UNSUPPORTED_LANG["fr"]
 
 
+_INVENTORY_NOT_FOUND_RE = re.compile(
+    r"(?:"
+    r"i have consulted|i['']ve consulted|following documents?|"
+    r"j['']ai consult[ée]|documents? suivants?|titres? (?:suivants?|parcourus?)|"
+    r"documents? (?:that|que) j['']ai|have consulted the"
+    r")",
+    re.IGNORECASE,
+)
+
+
+def should_collapse_to_short_not_found(model_text: str, *, rag_context_chars: int = 0) -> bool:
+    """True when the reply is a not-found answer (especially with a document inventory)."""
+    if not claims_absent_in_docs_response(model_text):
+        return False
+    if _INVENTORY_NOT_FOUND_RE.search(model_text or ""):
+        return True
+    if rag_context_chars < 400:
+        return True
+    text = (model_text or "").strip()
+    if len(text) < 700 and not re.search(r"^\s*\d+\.\s", text, re.MULTILINE):
+        return True
+    return False
+
+
 def normalize_not_found_response(
     user_message: str, model_text: str, *, rag_context_chars: int = 0
 ) -> str:
-    """If the model used the old single-language fallback, map to user language.
-
-    When substantial RAG text was injected, do **not** collapse answers to the short
-    NOT_FOUND templates — that hides recoverable procedure content.
-    """
-    if rag_context_chars >= 400:
+    """Map verbose not-found replies (incl. consulted-document lists) to a short phrase."""
+    if not should_collapse_to_short_not_found(model_text, rag_context_chars=rag_context_chars):
         return model_text
-    low = (model_text or "").lower()
-    if not any(m in low for m in _NOT_FOUND_MARKERS):
-        return model_text
-    b = detect_lang_bucket(user_message)
+    b = resolve_answer_language(user_message)
     if b in ("es",):
         b = "en"
     return NOT_FOUND.get(b, NOT_FOUND["fr"])
