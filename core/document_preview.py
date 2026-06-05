@@ -114,6 +114,19 @@ def _category_search_order(store: DocStore, category_hint: Optional[str]) -> Lis
             if c in store.indexes and c not in seen:
                 ordered.append(c)
                 seen.add(c)
+    # Answers may cite help_md articles while chat scope was procedures-only.
+    from app_config.settings import settings  # noqa: PLC0415
+
+    extra_raw = (settings.RAG_EXTRA_CATEGORIES or "").strip()
+    if extra_raw:
+        for alias in extra_raw.split(","):
+            alias = alias.strip()
+            if not alias:
+                continue
+            for c in store.resolve_rag_scope(alias):
+                if c in store.indexes and c not in seen:
+                    ordered.append(c)
+                    seen.add(c)
     for c in sorted(store.indexes.keys()):
         if c not in seen:
             ordered.append(c)

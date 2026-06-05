@@ -449,15 +449,26 @@ class DocStore:
         self.indexes: Dict[str, CategoryIndex] = {}
         self._load()
 
+    def _discover_category_names(self) -> List[str]:
+        """Category folders may exist only under documents_md (pod export) without docx stubs."""
+        names: set[str] = set()
+        for root in (self.docs_dir, self.docs_md_dir, self.docs_txt_dir):
+            if not root.is_dir():
+                continue
+            for p in root.iterdir():
+                if p.is_dir():
+                    names.add(p.name)
+        return sorted(names)
+
     def _load(self) -> None:
         if not self.docs_dir.is_dir():
             logger.warning("Documents dir not found: %s", self.docs_dir)
             return
 
-        for sub in sorted(self.docs_dir.iterdir()):
+        for cat_name in self._discover_category_names():
+            sub = self.docs_dir / cat_name
             if not sub.is_dir():
-                continue
-            cat_name = sub.name
+                sub.mkdir(parents=True, exist_ok=True)
             md_cat = self.docs_md_dir / cat_name
             txt_cat = self.docs_txt_dir / cat_name
             docs: List[Doc] = []

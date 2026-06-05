@@ -90,13 +90,21 @@ def _resolve_file_under_dir(dir_path: Path, filename: str, *, hint: str = "") ->
 
 
 def _categories() -> List[str]:
-    if not DOCS_DIR.is_dir():
-        return []
-    return sorted([p.name for p in DOCS_DIR.iterdir() if p.is_dir()])
+    """Union of category folders under documents, documents_md, and documents_txt."""
+    names: set[str] = set()
+    for root in (DOCS_DIR, DOCS_MD_DIR, DOCS_TXT_DIR):
+        if not root.is_dir():
+            continue
+        for p in root.iterdir():
+            if p.is_dir():
+                names.add(p.name)
+    return sorted(names)
 
 
 def ensure_category(category: str) -> str:
     cat = _sanitize_segment(category, field_name="category")
+    # Stub under documents/ so DocStore and admin list the category even when
+    # the live corpus is only under documents_md/ (pod-only Markdown export).
     (DOCS_DIR / cat).mkdir(parents=True, exist_ok=True)
     return cat
 
